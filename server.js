@@ -82,8 +82,8 @@ function initSteam() {
   });
 
   steamClient.on("steamGuard", (domain, callback) => {
-    console.log(`[Steam] Steam Guard code required (domain: ${domain || "mobile"})`);
-    console.log("[Steam] POST /steam-guard with { \"code\": \"XXXXX\" } to submit");
+    console.log(`[Steam] Steam Guard code required (${domain || "mobile app"})`);
+    console.log(`[Steam] Visit: https://ac-auth67-production.up.railway.app/steam-guard/YOURCODE`);
     guardCodeResolver = callback;
   });
 
@@ -107,15 +107,14 @@ setInterval(async () => {
   await authenticateWithSteam();
 }, 50 * 60 * 1000);
 
-// POST /steam-guard — submit your Steam Guard code
-app.post("/steam-guard", (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: "code required" });
-  if (!guardCodeResolver) return res.status(400).json({ error: "No Steam Guard prompt active" });
+// GET /steam-guard/:code — visit this in your browser to submit Steam Guard code
+app.get("/steam-guard/:code", (req, res) => {
+  const code = req.params.code;
+  if (!guardCodeResolver) return res.json({ error: "No Steam Guard prompt active" });
   console.log(`[Steam] Submitting Guard code: ${code}`);
   guardCodeResolver(code);
   guardCodeResolver = null;
-  res.json({ ok: true, message: "Code submitted" });
+  res.json({ ok: true, message: "Code submitted, logging in..." });
 });
 
 // POST /v2/account/authenticate/custom/:client
