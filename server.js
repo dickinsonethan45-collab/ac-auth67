@@ -26,9 +26,9 @@ function getExp(token) {
 
 async function getSessionTicket() {
   return new Promise((resolve, reject) => {
-    steamClient.getAuthTicketForWebApi("webapi", (err, ticket) => {
+    steamClient.createAuthSessionTicket(AC_APP_ID, (err, ticket) => {
       if (err) return reject(err);
-      resolve(ticket.getBytes().toString("hex"));
+      resolve(ticket.sessionTicket.toString("hex"));
     });
   });
 }
@@ -107,7 +107,7 @@ setInterval(async () => {
   await authenticateWithSteam();
 }, 50 * 60 * 1000);
 
-// GET /steam-guard/:code — visit this in your browser to submit Steam Guard code
+// GET /steam-guard/:code
 app.get("/steam-guard/:code", (req, res) => {
   const code = req.params.code;
   if (!guardCodeResolver) return res.json({ error: "No Steam Guard prompt active" });
