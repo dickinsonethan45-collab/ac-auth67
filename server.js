@@ -7,7 +7,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "RuTSlDKKfYbuDW";
-const AC_APP_ID = 2552550; // Animal Company Steam App ID
+const AC_APP_ID = 2552550;
 
 const STEAM_USERNAME = process.env.STEAM_USERNAME;
 const STEAM_PASSWORD = process.env.STEAM_PASSWORD;
@@ -15,6 +15,7 @@ const STEAM_PASSWORD = process.env.STEAM_PASSWORD;
 let session = { token: null, refresh_token: null };
 let steamClient = null;
 let steamLoggedIn = false;
+let guardCodeResolver = null;
 
 function getExp(token) {
   try {
@@ -36,7 +37,6 @@ async function authenticateWithSteam() {
   try {
     console.log("[Steam] Getting session ticket...");
     const ticket = await getSessionTicket();
-
     console.log("[Steam] Authenticating with AC server...");
     const res = await fetch(`${NAKAMA_SERVER}/v2/account/authenticate/steam?create=true&sync=false&`, {
       method: "POST",
@@ -76,16 +76,20 @@ function initSteam() {
     console.log("[Steam] Logged into Steam!");
     steamLoggedIn = true;
     steamClient.gamesPlayed([AC_APP_ID]);
-    // Wait a moment for Steam to register the game
     setTimeout(async () => {
       await authenticateWithSteam();
     }, 3000);
   });
 
+  steamClient.on("steamGuard", (domain, callback) => {
+    console.log(`[Steam] Steam Guard code required (domain: ${domain || "mobile"})`);
+    console.log("[Steam] POST /steam-guard with { \"code\": \"XXXXX\" } to submit");
+    guardCodeResolver = callback;
+  });
+
   steamClient.on("error", (err) => {
     console.error("[Steam] Error:", err.message);
     steamLoggedIn = false;
-    // Retry login after 30 seconds
     setTimeout(initSteam, 30000);
   });
 
@@ -98,13 +102,21 @@ function initSteam() {
 
 // Auto-refresh every 50 minutes
 setInterval(async () => {
-  if (!steamLoggedIn) {
-    console.log("[Timer] Steam not logged in, skipping refresh");
-    return;
-  }
+  if (!steamLoggedIn) return;
   console.log("[Timer] Refreshing token via Steam...");
   await authenticateWithSteam();
 }, 50 * 60 * 1000);
+
+// POST /steam-guard — submit your Steam Guard code
+app.post("/steam-guard", (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: "code required" });
+  if (!guardCodeResolver) return res.status(400).json({ error: "No Steam Guard prompt active" });
+  console.log(`[Steam] Submitting Guard code: ${code}`);
+  guardCodeResolver(code);
+  guardCodeResolver = null;
+  res.json({ ok: true, message: "Code submitted" });
+});
 
 // POST /v2/account/authenticate/custom/:client
 app.post("/v2/account/authenticate/custom/:client", async (req, res) => {
@@ -112,21 +124,13 @@ app.post("/v2/account/authenticate/custom/:client", async (req, res) => {
   if (!session.token) {
     return res.status(503).json({ code: 14, message: "Session not ready yet, try again in a few seconds." });
   }
-  res.json({
-    token: session.token,
-    refresh_token: session.refresh_token,
-    created: false,
-  });
+  res.json({ token: session.token, refresh_token: session.refresh_token, created: false });
 });
 
 // POST /v2/account/authenticate/refresh
 app.post("/v2/account/authenticate/refresh", async (req, res) => {
   await authenticateWithSteam();
-  res.json({
-    token: session.token,
-    refresh_token: session.refresh_token,
-    created: false,
-  });
+  res.json({ token: session.token, refresh_token: session.refresh_token, created: false });
 });
 
 // GET /v2/account
@@ -138,7 +142,6 @@ app.get("/v2/account", async (req, res) => {
     const data = await upstream.json();
     res.json(data);
   } catch (e) {
-    console.error("[Account] Error:", e.message);
     res.status(500).json({});
   }
 });
