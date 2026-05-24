@@ -1,14 +1,15 @@
 const express = require("express");
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "RuTSlDKKfYbuDW";
 
 let session = {
-  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiIyMTM1Yzg3OS0yYjc2LTQ3MGYtOGQ2ZC0zOTFhNTlkZTE3MjIiLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6IjY0NTQ3N2M5NWUwZTQzNGVhNGRkNDI4OTA5NzI4Y2ZmIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2NjEyMjksImlhdCI6MTc3OTY1NzYyOX0.YVEa7JMgjy9XvSLobMAzZqdIPXR2mJmIb7DDkz21hXE",
-  refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiIyMTM1Yzg3OS0yYjc2LTQ3MGYtOGQ2ZC0zOTFhNTlkZTE3MjIiLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6IjY0NTQ3N2M5NWUwZTQzNGVhNGRkNDI4OTA5NzI4Y2ZmIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2NzkyMjksImlhdCI6MTc3OTY1NzYyOX0.h8C1DwEgYx-tR2bXDLWmUzbz_gC32upcrll6o-nwFsM",
+  token: "",
+  refresh_token: "",
 };
 
 function getExp(token) {
@@ -18,47 +19,68 @@ function getExp(token) {
   } catch { return 0; }
 }
 
-async function refreshSession() {
-  try {
-    console.log("[Refresh] Calling AC session refresh...");
-    const res = await fetch(`${NAKAMA_SERVER}/v2/session/refresh`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Basic " + Buffer.from(`${SERVER_KEY}:`).toString("base64"),
-        "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.0-DEV)",
-        "x-unity-version": "6000.3.12f1",
-      },
-      body: JSON.stringify({ refresh_token: session.refresh_token }),
-    });
-
-    const text = await res.text();
-    console.log(`[Refresh] Response ${res.status}: ${text}`);
-
-    if (!res.ok) return;
-
-    const data = JSON.parse(text);
-    session.token = data.token;
-    session.refresh_token = data.refresh_token;
-    console.log(`[Refresh] Success! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
-  } catch (e) {
-    console.error("[Refresh] Error:", e.message);
-  }
+function timeLeft(token) {
+  const secs = getExp(token) - Math.floor(Date.now() / 1000);
+  if (secs <= 0) return "EXPIRED";
+  const m = Math.floor(secs / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m`;
+  return `${m}m ${secs % 60}s`;
 }
 
-// Refresh every 4 hours
-setInterval(refreshSession, 4 * 60 * 60 * 1000);
+// Token update webpage
+app.get("/", (req, res) => {
+  const exp = session.token ? timeLeft(session.token) : "No token set";
+  const refExp = session.refresh_token ? timeLeft(session.refresh_token) : "No token set";
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AC Auth Backend</title>
+  <style>
+    body { font-family: monospace; background: #0d0d0d; color: #00ff88; padding: 30px; }
+    h1 { color: #00ff88; }
+    textarea { width: 100%; height: 80px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; font-family: monospace; font-size: 11px; }
+    button { background: #00ff88; color: #000; border: none; padding: 10px 30px; cursor: pointer; font-size: 16px; margin-top: 10px; font-weight: bold; }
+    .status { background: #1a1a1a; padding: 15px; margin-bottom: 20px; border-left: 3px solid #00ff88; }
+    label { display: block; margin-top: 15px; margin-bottom: 5px; color: #aaa; }
+  </style>
+</head>
+<body>
+  <h1>AC Auth Backend</h1>
+  <div class="status">
+    <div>Token expires in: <b>${exp}</b></div>
+    <div>Refresh token expires in: <b>${refExp}</b></div>
+  </div>
+  <form method="POST" action="/update-tokens-form">
+    <label>Token:</label>
+    <textarea name="token" placeholder="Paste token here...">${session.token}</textarea>
+    <label>Refresh Token:</label>
+    <textarea name="refresh_token" placeholder="Paste refresh_token here...">${session.refresh_token}</textarea>
+    <br>
+    <button type="submit">Update Tokens</button>
+  </form>
+</body>
+</html>
+  `);
+});
 
-// Refresh on startup
-setTimeout(refreshSession, 5000);
+// Form submission
+app.post("/update-tokens-form", (req, res) => {
+  const { token, refresh_token } = req.body;
+  if (token) session.token = token.trim();
+  if (refresh_token) session.refresh_token = refresh_token.trim();
+  console.log(`[Update] Tokens updated via webpage.`);
+  res.redirect("/");
+});
 
-// POST /update-tokens
+// JSON update endpoint
 app.post("/update-tokens", (req, res) => {
   const { token, refresh_token } = req.body;
   if (!token || !refresh_token) return res.status(400).json({ error: "token and refresh_token required" });
   session.token = token;
   session.refresh_token = refresh_token;
-  console.log(`[Update] Tokens updated. Expires: ${new Date(getExp(token) * 1000).toISOString()}`);
+  console.log(`[Update] Tokens updated via API.`);
   res.json({ ok: true });
 });
 
@@ -69,8 +91,7 @@ app.post("/v2/account/authenticate/custom/:client", (req, res) => {
 });
 
 // POST /v2/account/authenticate/refresh
-app.post("/v2/account/authenticate/refresh", async (req, res) => {
-  await refreshSession();
+app.post("/v2/account/authenticate/refresh", (req, res) => {
   res.json({ token: session.token, refresh_token: session.refresh_token, created: false });
 });
 
