@@ -1,4 +1,5 @@
 const express = require("express");
+const fs = require("fs");
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -28,42 +29,71 @@ function timeLeft(token) {
   return `${m}m ${secs % 60}s`;
 }
 
-async function tryRefresh() {
-  // Nakama requires refresh_token in Authorization Bearer header AND in body
-  const ep = "/v2/session/refresh";
+const LAST_TXT = "./last.txt";
+
+function readLastTxt() {
   try {
-    const r = await fetch(`${NAKAMA_SERVER}${ep}`, {
+    return fs.readFileSync(LAST_TXT, "utf8").trim();
+  } catch { return ""; }
+}
+
+function writeLastTxt(refresh_token) {
+  try {
+    fs.writeFileSync(LAST_TXT, refresh_token, "utf8");
+  } catch(e) {
+    console.log(`[Cache] Failed to write last.txt: ${e.message}`);
+  }
+}
+
+async function tryRefresh(refresh_token) {
+  const tok = refresh_token || session.refresh_token;
+  if (!tok) return { success: false };
+  try {
+    const r = await fetch(`${NAKAMA_SERVER}/v2/session/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + session.refresh_token,
-        "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.0-DEV)",
+        "Authorization": "Bearer " + tok,
+        "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
         "x-unity-version": "6000.3.12f1",
       },
-      body: JSON.stringify({ token: session.refresh_token }),
+      body: JSON.stringify({ token: tok }),
     });
     const text = await r.text();
-    console.log(`[Refresh] ${ep} -> ${r.status}: ${text.substring(0, 200)}`);
+    console.log(`[Refresh] /v2/session/refresh -> ${r.status}: ${text.substring(0, 200)}`);
     if (r.status === 200) {
       const data = JSON.parse(text);
       session.token = data.token;
       session.refresh_token = data.refresh_token;
+      writeLastTxt(data.refresh_token);
       console.log(`[Refresh] Success! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
-      return { success: true, endpoint: ep };
+      return { success: true, endpoint: "/v2/session/refresh" };
     }
-    console.log(`[Refresh] Failed with status ${r.status}`);
   } catch(e) {
     console.log(`[Refresh] Error: ${e.message}`);
   }
   return { success: false };
 }
 
-// Auto refresh every 50 mins
+// On startup: read last.txt and refresh
+(async () => {
+  const saved = readLastTxt();
+  if (saved) {
+    console.log("[Cache] Found refresh token in last.txt, refreshing on startup...");
+    session.refresh_token = saved;
+    const result = await tryRefresh(saved);
+    if (!result.success) console.log("[Cache] Startup refresh failed. Token may be expired.");
+  } else {
+    console.log("[Cache] No last.txt found, skipping startup refresh.");
+  }
+})();
+
+// Hourly refresh loop
 setInterval(async () => {
   if (!session.refresh_token) return;
-  console.log("[Timer] Auto-refreshing...");
+  console.log("[Timer] Hourly refresh triggered...");
   await tryRefresh();
-}, 50 * 60 * 1000);
+}, 60 * 60 * 1000);
 
 // Webpage
 app.get("/", (req, res) => {
