@@ -7,8 +7,8 @@ const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "RuTSlDKKfYbuDW";
 
 let session = {
-  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiIxYTJhYzYzZC0zYWI5LTQxZDgtYjE5MS1jZmUwYWY3MGQ2NzEiLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6ImE2M2NiNzNjZDMzMTRmNTU4NWUzNWEzZTY1N2RlNjYyIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2MzQ4NDQsImlhdCI6MTc3OTYzMTI0NH0.mdQJA2PWR3hKUPrt4wiIeaZDH4-lvxDSHSytTLn7Pjk",
-  refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiIxYTJhYzYzZC0zYWI5LTQxZDgtYjE5MS1jZmUwYWY3MGQ2NzEiLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6ImE2M2NiNzNjZDMzMTRmNTU4NWUzNWEzZTY1N2RlNjYyIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2NTI4NDQsImlhdCI6MTc3OTYzMTI0NH0.650Pdehb1MjDhib4mCyQvwPh0q0CheT-iApzG2GWvIM",
+  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiJjMTE2MWI0ZC0yYjM3LTQwZDAtOTczZS05NDEzZjQ3OTk0NzciLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6ImMzZWYwMzEzY2FmNTQyMWY5YjJlMmRiZTA2ODk3OWNmIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2MzA3ODIsImlhdCI6MTc3OTYyNzE4Mn0.X0u59eoEuqIwk924NatxpUtDVBhHdzt5OuiEtUhROsk",
+  refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiJjMTE2MWI0ZC0yYjM3LTQwZDAtOTczZS05NDEzZjQ3OTk0NzciLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6ImMzZWYwMzEzY2FmNTQyMWY5YjJlMmRiZTA2ODk3OWNmIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2NDg3ODIsImlhdCI6MTc3OTYyNzE4Mn0.0v8Y2bk8v8_mWllcu3zoTIwMrIwjWyAXw_TW8pUZaJk",
 };
 
 function getExp(token) {
@@ -20,8 +20,8 @@ function getExp(token) {
 
 async function refreshSession() {
   try {
-    console.log("[Refresh] Calling AC refresh endpoint...");
-    const res = await fetch(`${NAKAMA_SERVER}/v2/account/authenticate/refresh`, {
+    console.log("[Refresh] Calling AC session refresh...");
+    const res = await fetch(`${NAKAMA_SERVER}/v2/session/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -49,16 +49,16 @@ async function refreshSession() {
 // Refresh every 4 hours
 setInterval(refreshSession, 4 * 60 * 60 * 1000);
 
-// Also refresh on startup
+// Refresh on startup
 setTimeout(refreshSession, 5000);
 
-// POST /update-tokens — update tokens manually
+// POST /update-tokens
 app.post("/update-tokens", (req, res) => {
   const { token, refresh_token } = req.body;
   if (!token || !refresh_token) return res.status(400).json({ error: "token and refresh_token required" });
   session.token = token;
   session.refresh_token = refresh_token;
-  console.log(`[Update] Tokens updated manually. Expires: ${new Date(getExp(token) * 1000).toISOString()}`);
+  console.log(`[Update] Tokens updated. Expires: ${new Date(getExp(token) * 1000).toISOString()}`);
   res.json({ ok: true });
 });
 
