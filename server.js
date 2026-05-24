@@ -1,21 +1,15 @@
 const express = require("express");
-const SteamUser = require("steam-user");
-
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "RuTSlDKKfYbuDW";
-const AC_APP_ID = 2552550;
 
-const STEAM_USERNAME = process.env.STEAM_USERNAME;
-const STEAM_PASSWORD = process.env.STEAM_PASSWORD;
-
-let session = { token: null, refresh_token: null };
-let steamClient = null;
-let steamLoggedIn = false;
-let guardCodeResolver = null;
+let session = {
+  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiJjMTE2MWI0ZC0yYjM3LTQwZDAtOTczZS05NDEzZjQ3OTk0NzciLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6ImMzZWYwMzEzY2FmNTQyMWY5YjJlMmRiZTA2ODk3OWNmIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2MzA3ODIsImlhdCI6MTc3OTYyNzE4Mn0.X0u59eoEuqIwk924NatxpUtDVBhHdzt5OuiEtUhROsk",
+  refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aWQiOiJjMTE2MWI0ZC0yYjM3LTQwZDAtOTczZS05NDEzZjQ3OTk0NzciLCJ1aWQiOiI2YzkxYWM0Ni00ZGEzLTRhMTktYjlhZi1hZWRhMzY0MTljZjQiLCJ1c24iOiJCNUlVQ3I5NTVfRUhqZ2diIiwidnJzIjp7ImF1dGhJRCI6ImMzZWYwMzEzY2FmNTQyMWY5YjJlMmRiZTA2ODk3OWNmIiwiY2xpZW50VXNlckFnZW50IjoiU3RlYW1WUiAxLjc0LjQuMjk1NF9hYTJjNmZmNCIsImRldmljZUlEIjoiMTkzYWYyOTUxMGUyMmI4MzYxNzg1ZjBiMzliNTYzOWZlYmJjZDhmOCJ9LCJleHAiOjE3Nzk2NDg3ODIsImlhdCI6MTc3OTYyNzE4Mn0.0v8Y2bk8v8_mWllcu3zoTIwMrIwjWyAXw_TW8pUZaJk",
+};
 
 function getExp(token) {
   try {
@@ -24,21 +18,10 @@ function getExp(token) {
   } catch { return 0; }
 }
 
-async function getSessionTicket() {
-  return new Promise((resolve, reject) => {
-    steamClient.createAuthSessionTicket(AC_APP_ID, (err, ticket) => {
-      if (err) return reject(err);
-      resolve(ticket.sessionTicket.toString("hex"));
-    });
-  });
-}
-
-async function authenticateWithSteam() {
+async function refreshSession() {
   try {
-    console.log("[Steam] Getting session ticket...");
-    const ticket = await getSessionTicket();
-    console.log("[Steam] Authenticating with AC server...");
-    const res = await fetch(`${NAKAMA_SERVER}/v2/account/authenticate/steam?create=true&sync=false&`, {
+    console.log("[Refresh] Calling AC refresh endpoint...");
+    const res = await fetch(`${NAKAMA_SERVER}/v2/account/authenticate/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -46,89 +29,48 @@ async function authenticateWithSteam() {
         "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.0-DEV)",
         "x-unity-version": "6000.3.12f1",
       },
-      body: JSON.stringify({ token: ticket }),
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
     });
 
-    if (!res.ok) {
-      console.error(`[Steam] Auth failed: ${res.status} ${await res.text()}`);
-      return;
-    }
+    const text = await res.text();
+    console.log(`[Refresh] Response ${res.status}: ${text}`);
 
-    const data = await res.json();
+    if (!res.ok) return;
+
+    const data = JSON.parse(text);
     session.token = data.token;
     session.refresh_token = data.refresh_token;
-    console.log(`[Steam] Auth success! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
+    console.log(`[Refresh] Success! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
   } catch (e) {
-    console.error("[Steam] Error:", e.message);
+    console.error("[Refresh] Error:", e.message);
   }
 }
 
-function initSteam() {
-  steamClient = new SteamUser();
+// Refresh every 4 hours
+setInterval(refreshSession, 4 * 60 * 60 * 1000);
 
-  steamClient.logOn({
-    accountName: STEAM_USERNAME,
-    password: STEAM_PASSWORD,
-    rememberPassword: true,
-  });
+// Also refresh on startup
+setTimeout(refreshSession, 5000);
 
-  steamClient.on("loggedOn", async () => {
-    console.log("[Steam] Logged into Steam!");
-    steamLoggedIn = true;
-    steamClient.gamesPlayed([AC_APP_ID]);
-    setTimeout(async () => {
-      await authenticateWithSteam();
-    }, 3000);
-  });
-
-  steamClient.on("steamGuard", (domain, callback) => {
-    console.log(`[Steam] Steam Guard code required (${domain || "mobile app"})`);
-    console.log(`[Steam] Visit: https://ac-auth67-production.up.railway.app/steam-guard/YOURCODE`);
-    guardCodeResolver = callback;
-  });
-
-  steamClient.on("error", (err) => {
-    console.error("[Steam] Error:", err.message);
-    steamLoggedIn = false;
-    setTimeout(initSteam, 30000);
-  });
-
-  steamClient.on("disconnected", () => {
-    console.log("[Steam] Disconnected, reconnecting...");
-    steamLoggedIn = false;
-    setTimeout(initSteam, 10000);
-  });
-}
-
-// Auto-refresh every 50 minutes
-setInterval(async () => {
-  if (!steamLoggedIn) return;
-  console.log("[Timer] Refreshing token via Steam...");
-  await authenticateWithSteam();
-}, 50 * 60 * 1000);
-
-// GET /steam-guard/:code
-app.get("/steam-guard/:code", (req, res) => {
-  const code = req.params.code;
-  if (!guardCodeResolver) return res.json({ error: "No Steam Guard prompt active" });
-  console.log(`[Steam] Submitting Guard code: ${code}`);
-  guardCodeResolver(code);
-  guardCodeResolver = null;
-  res.json({ ok: true, message: "Code submitted, logging in..." });
+// POST /update-tokens — update tokens manually
+app.post("/update-tokens", (req, res) => {
+  const { token, refresh_token } = req.body;
+  if (!token || !refresh_token) return res.status(400).json({ error: "token and refresh_token required" });
+  session.token = token;
+  session.refresh_token = refresh_token;
+  console.log(`[Update] Tokens updated manually. Expires: ${new Date(getExp(token) * 1000).toISOString()}`);
+  res.json({ ok: true });
 });
 
 // POST /v2/account/authenticate/custom/:client
-app.post("/v2/account/authenticate/custom/:client", async (req, res) => {
+app.post("/v2/account/authenticate/custom/:client", (req, res) => {
   console.log(`[Auth] client=${req.params.client}`);
-  if (!session.token) {
-    return res.status(503).json({ code: 14, message: "Session not ready yet, try again in a few seconds." });
-  }
   res.json({ token: session.token, refresh_token: session.refresh_token, created: false });
 });
 
 // POST /v2/account/authenticate/refresh
 app.post("/v2/account/authenticate/refresh", async (req, res) => {
-  await authenticateWithSteam();
+  await refreshSession();
   res.json({ token: session.token, refresh_token: session.refresh_token, created: false });
 });
 
@@ -152,5 +94,4 @@ app.all("*", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  initSteam();
 });
