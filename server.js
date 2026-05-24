@@ -29,34 +29,31 @@ function timeLeft(token) {
 }
 
 async function tryRefresh() {
-  const endpoints = [
-    "/v2/session/refresh",
-    "/v2/account/authenticate/refresh",
-  ];
-  for (const ep of endpoints) {
-    try {
-      const r = await fetch(`${NAKAMA_SERVER}${ep}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Basic " + Buffer.from(`${SERVER_KEY}:`).toString("base64"),
-          "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.0-DEV)",
-          "x-unity-version": "6000.3.12f1",
-        },
-        body: JSON.stringify({ refresh_token: session.refresh_token }),
-      });
-      const text = await r.text();
-      console.log(`[Refresh] ${ep} -> ${r.status}: ${text.substring(0, 200)}`);
-      if (r.status === 200) {
-        const data = JSON.parse(text);
-        session.token = data.token;
-        session.refresh_token = data.refresh_token;
-        console.log(`[Refresh] Success! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
-        return { success: true, endpoint: ep };
-      }
-    } catch(e) {
-      console.log(`[Refresh] ${ep} error: ${e.message}`);
+  // Nakama requires refresh_token in Authorization Bearer header AND in body
+  const ep = "/v2/session/refresh";
+  try {
+    const r = await fetch(`${NAKAMA_SERVER}${ep}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + session.refresh_token,
+        "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.0-DEV)",
+        "x-unity-version": "6000.3.12f1",
+      },
+      body: JSON.stringify({ token: session.refresh_token }),
+    });
+    const text = await r.text();
+    console.log(`[Refresh] ${ep} -> ${r.status}: ${text.substring(0, 200)}`);
+    if (r.status === 200) {
+      const data = JSON.parse(text);
+      session.token = data.token;
+      session.refresh_token = data.refresh_token;
+      console.log(`[Refresh] Success! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
+      return { success: true, endpoint: ep };
     }
+    console.log(`[Refresh] Failed with status ${r.status}`);
+  } catch(e) {
+    console.log(`[Refresh] Error: ${e.message}`);
   }
   return { success: false };
 }
