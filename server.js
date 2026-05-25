@@ -7,7 +7,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
-const SERVER_KEY = "RuTSlDKKfYbuDW";
+const SERVER_KEY = "6URuTSlDKKfYbuDW";
 const SESSIONS_FILE = "./sessions.json";
 
 // sessions: { [id]: { id, name, token, refresh_token, connections } }
