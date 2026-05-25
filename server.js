@@ -48,29 +48,54 @@ function writeLastTxt(refresh_token) {
 async function tryRefresh(refresh_token) {
   const tok = refresh_token || session.refresh_token;
   if (!tok) return { success: false };
-  try {
-    const r = await fetch(`${NAKAMA_SERVER}/v2/session/refresh`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + tok,
-        "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
-        "x-unity-version": "6000.3.12f1",
-      },
+
+  const attempts = [
+    {
+      ep: "/v2/account/session/refresh",
+      auth: "Basic " + Buffer.from(`${SERVER_KEY}:`).toString("base64"),
+      body: JSON.stringify({
+        token: tok,
+        vars: {
+          authID: "9d5dca5eb2674de2a2204e31f1f7a1f8",
+          clientUserAgent: "SteamFrame 1.67.3.2345_6f43a8db",
+          deviceID: "a8319933d25f331503835aa71ec12f55",
+          loginType: "1234",
+          idType: "1234",
+        },
+      }),
+    },
+    {
+      ep: "/v2/session/refresh",
+      auth: "Bearer " + tok,
       body: JSON.stringify({ token: tok }),
-    });
-    const text = await r.text();
-    console.log(`[Refresh] /v2/session/refresh -> ${r.status}: ${text.substring(0, 200)}`);
-    if (r.status === 200) {
-      const data = JSON.parse(text);
-      session.token = data.token;
-      session.refresh_token = data.refresh_token;
-      writeLastTxt(data.refresh_token);
-      console.log(`[Refresh] Success! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
-      return { success: true, endpoint: "/v2/session/refresh" };
+    },
+  ];
+
+  for (const { ep, auth, body } of attempts) {
+    try {
+      const r = await fetch(`${NAKAMA_SERVER}${ep}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": auth,
+          "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
+          "x-unity-version": "6000.3.12f1",
+        },
+        body,
+      });
+      const text = await r.text();
+      console.log(`[Refresh] ${ep} -> ${r.status}: ${text.substring(0, 200)}`);
+      if (r.status === 200) {
+        const data = JSON.parse(text);
+        session.token = data.token;
+        session.refresh_token = data.refresh_token;
+        writeLastTxt(data.refresh_token);
+        console.log(`[Refresh] Success via ${ep}! Token expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
+        return { success: true, endpoint: ep };
+      }
+    } catch(e) {
+      console.log(`[Refresh] ${ep} error: ${e.message}`);
     }
-  } catch(e) {
-    console.log(`[Refresh] Error: ${e.message}`);
   }
   return { success: false };
 }
