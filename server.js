@@ -1,5 +1,6 @@
 const express = require("express");
 const fs = require("fs");
+const path = require("path");
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -120,8 +121,18 @@ setInterval(async () => {
   await tryRefresh();
 }, 60 * 60 * 1000);
 
-// Webpage
+// ── Dashboard (session manager UI) ──────────────────────────────────────────
 app.get("/", (req, res) => {
+  const dashPath = path.join(__dirname, "dashboard.html");
+  if (fs.existsSync(dashPath)) {
+    res.sendFile(dashPath);
+  } else {
+    res.send("<h1 style='font-family:monospace;color:#00ff88;background:#0d0d0d;padding:30px'>dashboard.html not found — upload it to your repo root.</h1>");
+  }
+});
+
+// ── Legacy single-session page (now at /legacy) ───────────────────────────
+app.get("/legacy", (req, res) => {
   const exp = session.token ? timeLeft(session.token) : "No token set";
   const refExp = session.refresh_token ? timeLeft(session.refresh_token) : "No token set";
   res.send(`
@@ -161,6 +172,16 @@ app.get("/", (req, res) => {
   `);
 });
 
+// ── API: current session tokens (for dashboard to read) ───────────────────
+app.get("/api/session", (req, res) => {
+  res.json({
+    token: session.token,
+    refresh_token: session.refresh_token,
+    tokenExpiry: session.token ? getExp(session.token) * 1000 : null,
+    refreshExpiry: session.refresh_token ? getExp(session.refresh_token) * 1000 : null,
+  });
+});
+
 // Form submission
 app.post("/update-tokens-form", (req, res) => {
   const { token, refresh_token } = req.body;
@@ -172,7 +193,7 @@ app.post("/update-tokens-form", (req, res) => {
 
 // Try refresh button
 app.post("/do-refresh", async (req, res) => {
-  const result = await tryRefresh();
+  await tryRefresh();
   res.redirect("/");
 });
 
@@ -195,6 +216,12 @@ app.post("/update-tokens", (req, res) => {
 // POST /v2/account/authenticate/custom/:client
 app.post("/v2/account/authenticate/custom/:client", (req, res) => {
   console.log(`[Auth] client=${req.params.client}`);
+  res.json({ token: session.token, refresh_token: session.refresh_token, created: false });
+});
+
+// GET /v2/account/authenticate/custom/:client  (dashboard hits this)
+app.get("/v2/account/authenticate/custom/:client", (req, res) => {
+  console.log(`[Auth GET] client=${req.params.client}`);
   res.json({ token: session.token, refresh_token: session.refresh_token, created: false });
 });
 
