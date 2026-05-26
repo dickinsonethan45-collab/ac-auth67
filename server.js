@@ -256,7 +256,7 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
 /* ── STATS ── */
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:20px 24px 0;position:relative;z-index:1}
 .stats-wrapper{position:relative;overflow:visible}
-#spiralCanvas{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:0;opacity:0.5}
+#spiralCanvas{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:0;opacity:0.65;width:900px;height:700px}
 .stat{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}
 .stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent)}
 .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:6px}
@@ -424,98 +424,102 @@ setInterval(()=>{
 (function(){
   const canvas = document.getElementById('spiralCanvas');
   const ctx = canvas.getContext('2d');
-  const W = 520, H = 420;
+  const W = 900, H = 700;
   canvas.width = W; canvas.height = H;
 
   let mouse = { x: -9999, y: -9999 };
   let smoothMouse = { x: W/2, y: H/2 };
-  let influence = 0; // 0-1, animates up on hover
+  let influence = 0;
   let hovering = false;
 
-  // Track mouse relative to canvas
   document.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mouse.x = e.clientX - rect.left;
     mouse.y = e.clientY - rect.top;
-    hovering = mouse.x >= -80 && mouse.x <= W+80 && mouse.y >= -80 && mouse.y <= H+80;
+    hovering = mouse.x >= -100 && mouse.x <= W+100 && mouse.y >= -100 && mouse.y <= H+100;
   });
+
+  // Ring colours matching the screenshot: deep indigo/purple rings
+  // Inner rings: dim purple, outer rings: slightly brighter indigo-blue
+  const ringColors = [
+    [80, 60, 180],   // ring 1 - deep indigo
+    [75, 55, 170],
+    [72, 52, 165],
+    [85, 65, 200],   // ring 4 - slightly brighter
+    [90, 70, 210],
+    [95, 75, 220],
+    [100, 80, 230],  // ring 7 - brightest outer
+    [105, 85, 235],
+    [108, 88, 238],
+    [110, 90, 240],  // ring 10 - outermost
+  ];
+
+  function warpPoint(px, py) {
+    if (influence < 0.01) return [px, py];
+    const dx = smoothMouse.x - px;
+    const dy = smoothMouse.y - py;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const pullRadius = 160;
+    if (dist < pullRadius) {
+      const strength = (1 - dist / pullRadius) * (1 - dist / pullRadius) * influence * 55;
+      px += (dx / (dist + 1)) * strength;
+      py += (dy / (dist + 1)) * strength;
+    }
+    return [px, py];
+  }
 
   function drawSpiral(t) {
     ctx.clearRect(0, 0, W, H);
 
-    // Smoothly interpolate mouse
-    smoothMouse.x += (mouse.x - smoothMouse.x) * 0.08;
-    smoothMouse.y += (mouse.y - smoothMouse.y) * 0.08;
-    influence += (hovering ? 1 : 0 - influence) * 0.05;
+    smoothMouse.x += (mouse.x - smoothMouse.x) * 0.07;
+    smoothMouse.y += (mouse.y - smoothMouse.y) * 0.07;
+    influence += ((hovering ? 1 : 0) - influence) * 0.04;
 
     const cx = W / 2, cy = H / 2;
-    const rings = 7;
-    const maxR = 200;
+    const rings = 10;
+    const maxR = 340;
+    const slowT = t * 0.012;
 
-    for (let ring = 1; ring <= rings; ring++) {
-      const baseR = (ring / rings) * maxR;
-      const points = Math.floor(60 + ring * 20);
-
+    // Draw radial lines first (behind rings)
+    const lineCount = 32;
+    for (let i = 0; i < lineCount; i++) {
+      const angle = (i / lineCount) * Math.PI * 2 + slowT * 0.6;
       ctx.beginPath();
-      for (let i = 0; i <= points; i++) {
-        const frac = i / points;
-        // Spiral angle: wraps around as ring increases
-        const angle = frac * Math.PI * 2 + (ring - 1) * (Math.PI * 2 / rings) * 0.7 + t * 0.08;
-
-        let px = cx + Math.cos(angle) * baseR;
-        let py = cy + Math.sin(angle) * baseR;
-
-        // Warp: pull toward cursor based on proximity
-        if (influence > 0.01) {
-          const dx = smoothMouse.x - px;
-          const dy = smoothMouse.y - py;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          const pullRadius = 120;
-          if (dist < pullRadius) {
-            const strength = (1 - dist / pullRadius) * (1 - dist / pullRadius) * influence * 38;
-            px += (dx / (dist + 1)) * strength;
-            py += (dy / (dist + 1)) * strength;
-          }
-        }
-
-        if (i === 0) ctx.moveTo(px, py);
+      let first = true;
+      for (let r = 8; r <= maxR; r += 4) {
+        let px = cx + Math.cos(angle) * r;
+        let py = cy + Math.sin(angle) * r;
+        [px, py] = warpPoint(px, py);
+        if (first) { ctx.moveTo(px, py); first = false; }
         else ctx.lineTo(px, py);
       }
-
-      // Color: purple→cyan gradient based on ring
-      const hue = 240 + (ring / rings) * 80; // 240 blue → 290 purple-ish
-      const alpha = 0.15 + (ring / rings) * 0.25;
-      ctx.strokeStyle = \`hsla(\${hue}, 80%, 65%, \${alpha})\`;
-      ctx.lineWidth = ring === Math.ceil(rings/2) ? 1.2 : 0.7;
+      // Alternating slightly brighter lines, matching the image's faint grid
+      const a = i % 4 === 0 ? 0.12 : 0.06;
+      ctx.strokeStyle = \`rgba(90, 70, 200, \${a})\`;
+      ctx.lineWidth = i % 4 === 0 ? 0.8 : 0.5;
       ctx.stroke();
     }
 
-    // Radial lines
-    const lineCount = 24;
-    for (let i = 0; i < lineCount; i++) {
-      const angle = (i / lineCount) * Math.PI * 2 + t * 0.015;
+    // Draw concentric rings
+    for (let ring = 1; ring <= rings; ring++) {
+      const baseR = (ring / rings) * maxR;
+      const points = 180 + ring * 12;
+      const [r, g, b] = ringColors[ring - 1];
+      // Inner rings dimmer, outer slightly brighter — matches screenshot
+      const alpha = 0.13 + (ring / rings) * 0.22;
+      const lw = ring <= 3 ? 1.2 : ring <= 7 ? 1.6 : 2.0;
+
       ctx.beginPath();
-      for (let r = 0; r <= maxR; r += 3) {
-        let px = cx + Math.cos(angle) * r;
-        let py = cy + Math.sin(angle) * r;
-
-        if (influence > 0.01) {
-          const dx = smoothMouse.x - px;
-          const dy = smoothMouse.y - py;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          const pullRadius = 100;
-          if (dist < pullRadius) {
-            const strength = (1 - dist / pullRadius) * (1 - dist / pullRadius) * influence * 28;
-            px += (dx / (dist + 1)) * strength;
-            py += (dy / (dist + 1)) * strength;
-          }
-        }
-
-        if (r === 0) ctx.moveTo(px, py);
+      for (let i = 0; i <= points; i++) {
+        const angle = (i / points) * Math.PI * 2 + slowT;
+        let px = cx + Math.cos(angle) * baseR;
+        let py = cy + Math.sin(angle) * baseR;
+        [px, py] = warpPoint(px, py);
+        if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = \`rgba(120, 80, 255, \${0.04 + 0.06 * (i % 2)})\`;
-      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = \`rgba(\${r}, \${g}, \${b}, \${alpha})\`;
+      ctx.lineWidth = lw;
       ctx.stroke();
     }
 
