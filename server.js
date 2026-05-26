@@ -62,18 +62,24 @@ async function tryRefresh(session) {
     { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "SteamFrame 1.67.3.2345_6f43a8db", deviceID: "a8319933d25f331503835aa71ec12f55", loginType: "1234", idType: "1234" } }) },
     { ep: "/v2/session/refresh", auth: "Bearer " + tok, body: JSON.stringify({ token: tok }) },
   ];
+  console.log(`[Refresh:${session.name||session.id}] Attempting refresh...`);
   for (const { ep, auth, body } of attempts) {
     try {
       const r = await fetch(`${NAKAMA_SERVER}${ep}`, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": auth, "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)", "x-unity-version": "6000.3.12f1" }, body });
       const text = await r.text();
+      console.log(`[Refresh:${session.name||session.id}] ${ep} → ${r.status}`);
       if (r.status === 200) {
         const data = JSON.parse(text);
         session.token = data.token; session.refresh_token = data.refresh_token; session.lastRefresh = Date.now();
         saveSessions();
+        console.log(`[Refresh:${session.name||session.id}] ✓ Success via ${ep}`);
         return { success: true, endpoint: ep };
+      } else {
+        console.log(`[Refresh:${session.name||session.id}] ✗ ${ep} returned ${r.status}: ${text.slice(0,120)}`);
       }
-    } catch (e) { console.log(`[Refresh:${session.id}] ${ep} error: ${e.message}`); }
+    } catch (e) { console.log(`[Refresh:${session.name||session.id}] ${ep} error: ${e.message}`); }
   }
+  console.log(`[Refresh:${session.name||session.id}] ✗ All attempts failed`);
   return { success: false };
 }
 
@@ -537,6 +543,7 @@ function fmt(s){
   return String(m).padStart(2,'0')+':'+String(sc).padStart(2,'0');
 }
 setInterval(()=>{
+  let anyExpired=false;
   document.querySelectorAll('.tval').forEach(el=>{
     let s=parseInt(el.dataset.secs);
     if(s>0){s--;el.dataset.secs=s;}
@@ -546,7 +553,9 @@ setInterval(()=>{
     const bar=document.getElementById(bid);
     if(bar)bar.style.width=Math.max(0,Math.min(100,s/max*100)).toFixed(1)+'%';
     if(s<300&&el.id.startsWith('tk-')){el.classList.add('twarn');if(bar)bar.classList.add('twarn');}
+    if(s<=0&&el.id.startsWith('tk-'))anyExpired=true;
   });
+  if(anyExpired){setTimeout(()=>location.reload(),3000);}
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
 
