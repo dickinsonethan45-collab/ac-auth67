@@ -270,7 +270,7 @@ app.get("/", (req, res) => {
   const active = Object.values(sessions).filter(s => !isExpired(s.token)).length;
   const totalConns = Object.values(sessions).reduce((a, s) => a + (s.connections || 0), 0);
 
-  const cards = Object.values(sessions).map((s, i) => {
+  const cards = Object.values(sessions).map(s => {
     const expired = isExpired(s.token);
     const connUrl = `https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`;
     const tokenExp = getExp(s.token);
@@ -278,52 +278,64 @@ app.get("/", (req, res) => {
     const now = Math.floor(Date.now() / 1000);
     const tokenSecs = Math.max(0, tokenExp - now);
     const refreshSecs = Math.max(0, refreshExp - now);
-    const pct = (v, m) => Math.min(100, v/m*100).toFixed(2);
-    const initials = (s.name||s.id).slice(0,2).toUpperCase();
-    return `<div class="card${expired?' card-dead':''}" id="card-${s.id}" style="animation-delay:${i*70}ms">
-  <div class="card-left">
-    <div class="avatar${expired?' av-dead':''}">${initials}</div>
-    <div class="side-timers">
-      <div class="st-box${tokenSecs<300?' st-warn':''}">
-        <div class="st-lbl">TOKEN</div>
-        <div class="st-val${tokenSecs<300?' stv-warn':''}" id="tk-${s.id}" data-exp="${tokenExp}" data-max="3600">${timeLeft(s.token)}</div>
-        <div class="st-track"><div class="st-fill${tokenSecs<300?' stf-warn':''}" id="tb-${s.id}" style="width:${pct(tokenSecs,3600)}%"></div></div>
-      </div>
-      <div class="st-box">
-        <div class="st-lbl">REFRESH</div>
-        <div class="st-val stv-ref" id="rk-${s.id}" data-exp="${refreshExp}" data-max="21600">${timeLeft(s.refresh_token)}</div>
-        <div class="st-track"><div class="st-fill stf-ref" id="rb-${s.id}" style="width:${pct(refreshSecs,21600)}%"></div></div>
+    const pct = (v, m) => Math.min(100, v/m*100).toFixed(1);
+    return `
+<div class="card" id="card-${s.id}">
+  <div class="card-stripe ${expired?'stripe-dead':'stripe-live'}"></div>
+  <div class="card-inner">
+    <div class="card-top">
+      <div class="pill ${expired?'pill-dead':'pill-live'}">${expired?'EXPIRED':'ACTIVE'}</div>
+      <div class="card-name">${escHtml(s.name||s.id)}</div>
+      <div class="card-btns">
+        <button class="cbtn" onclick="copy('${s.id}','ID copied')">ID</button>
+        <button class="cbtn" onclick="copy('${connUrl}','URL copied')">URL</button>
       </div>
     </div>
-  </div>
-  <div class="card-right">
-    <div class="card-top-row">
-      <div class="name-block">
-        <div class="badge${expired?' badge-dead':''}"><span class="bdot"></span>${expired?'EXPIRED':'ACTIVE'}</div>
-        <div class="cname">${escHtml(s.name||s.id)}</div>
-        <div class="cid hideable">${s.id}</div>
+
+    <div class="info-grid">
+      <div class="ig-row"><span class="ig-k">ID</span><code class="ig-v hideable">${s.id}</code></div>
+      <div class="ig-row"><span class="ig-k">Connections</span><span class="ig-v hi">${s.connections||0}</span></div>
+      <div class="ig-row"><span class="ig-k">Endpoint</span><code class="ig-v hideable" style="font-size:9px">${connUrl}</code></div>
+    </div>
+
+    <div class="timers">
+      <div class="tblock">
+        <div class="tlbl">Token expires</div>
+        <div class="tval ${tokenSecs<300?'twarn':''}" id="tk-${s.id}" data-exp="${tokenExp}" data-max="3600">${timeLeft(s.token)}</div>
+        <div class="tbar"><div class="tfill ${tokenSecs<300?'twarn':''}" id="tb-${s.id}" style="width:${pct(tokenSecs,3600)}%"></div></div>
       </div>
-      <div class="top-actions">
-        <div class="conn-pill">${s.connections||0} conn</div>
-        <button class="sm-btn" onclick="copy('${s.id}','ID copied')">ID</button>
-        <button class="sm-btn" onclick="copy('${connUrl}','URL copied')">URL</button>
+      <div class="tblock">
+        <div class="tlbl">Refresh expires</div>
+        <div class="tval" id="rk-${s.id}" data-exp="${refreshExp}" data-max="21600">${timeLeft(s.refresh_token)}</div>
+        <div class="tbar"><div class="tfill" id="rb-${s.id}" style="width:${pct(refreshSecs,21600)}%"></div></div>
       </div>
     </div>
-    <div class="tok-section">
-      <div class="tok-row"><span class="tok-lbl">TOKEN</span><div class="tok-val hideable" onclick="copy('${escHtml(s.token||'')}','Token copied!')">${escHtml(s.token||'—')}</div></div>
-      <div class="tok-row"><span class="tok-lbl">REFRESH</span><div class="tok-val hideable" onclick="copy('${escHtml(s.refresh_token||'')}','Refresh copied!')">${escHtml(s.refresh_token||'—')}</div></div>
+
+    <div class="tok-grid">
+      <div class="tok-row"><span class="tok-k">Token</span><div class="tok-v hideable">${escHtml(s.token||'—')}</div></div>
+      <div class="tok-row"><span class="tok-k">Refresh</span><div class="tok-v hideable">${escHtml(s.refresh_token||'—')}</div></div>
     </div>
-    <div class="card-footer">
-      <form method="POST" action="/session/${s.id}/update" style="display:flex;gap:6px;flex:1;flex-wrap:wrap">
-        <input type="hidden" name="_from" value="ui">
-        <textarea class="tok-input" name="token" rows="1" placeholder="New token…">${escHtml(s.token||'')}</textarea>
-        <textarea class="tok-input" name="refresh_token" rows="1" placeholder="New refresh token…">${escHtml(s.refresh_token||'')}</textarea>
-        <button type="submit" class="fbtn fbtn-purple">Update</button>
-      </form>
-      <div class="footer-right">
-        <form method="POST" action="/session/${s.id}/refresh" style="display:inline"><button type="submit" class="fbtn fbtn-orange">Refresh</button></form>
-        <form method="POST" action="/session/${s.id}/rename" style="display:inline-flex;gap:5px;align-items:center"><input class="rname-input" name="name" placeholder="Rename…"><button type="submit" class="fbtn fbtn-ghost">→</button></form>
-        <form method="POST" action="/session/${s.id}/delete" style="display:inline" onsubmit="return confirm('Delete ${escHtml(s.name||s.id)}?')"><button type="submit" class="fbtn fbtn-del">Delete</button></form>
+
+    <div class="card-foot">
+      <div class="upd-block">
+        <form method="POST" action="/session/${s.id}/update">
+          <input type="hidden" name="_from" value="ui">
+          <textarea name="token" placeholder="New token…" rows="2">${escHtml(s.token||'')}</textarea>
+          <textarea name="refresh_token" placeholder="New refresh token…" rows="2">${escHtml(s.refresh_token||'')}</textarea>
+          <button type="submit" class="abtn abtn-purple">↑ Update</button>
+        </form>
+      </div>
+      <div class="foot-row">
+        <form method="POST" action="/session/${s.id}/refresh" style="display:inline">
+          <button type="submit" class="abtn abtn-orange">⟳ Refresh</button>
+        </form>
+        <form method="POST" action="/session/${s.id}/rename" style="display:inline-flex;gap:5px;align-items:center">
+          <input class="rinput" name="name" placeholder="Rename…">
+          <button type="submit" class="abtn abtn-ghost">→</button>
+        </form>
+        <form method="POST" action="/session/${s.id}/delete" style="display:inline" onsubmit="return confirm('Delete ${escHtml(s.name||s.id)}?')">
+          <button type="submit" class="abtn abtn-red">✕</button>
+        </form>
       </div>
     </div>
   </div>
@@ -331,170 +343,168 @@ app.get("/", (req, res) => {
   }).join('');
 
   res.send(`<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>AC Auth</title>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<html><head><meta charset="utf-8"><title>AC Auth Backend</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --accent:#9d5cff;--accent2:#ff4d9e;--cyan:#00cfff;--green:#00e676;--orange:#ff6b35;
-  --bg:#07050f;--surface:rgba(255,255,255,0.03);--surface2:rgba(255,255,255,0.055);
-  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
-  --text:#f0eaff;--muted:rgba(200,185,240,0.4);--mono:'Geist Mono',monospace;
+  --pp:#a855f7;--pk:#ec4899;--or:#f97316;
+  --pp-dim:rgba(168,85,247,0.12);--pk-dim:rgba(236,72,153,0.1);
+  --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.14);
+  --bg0:#00000f;--bg1:rgba(255,255,255,0.025);--bg2:rgba(255,255,255,0.04);
+  --text:#e8e0ff;--muted:rgba(200,180,255,0.35);--mono:'JetBrains Mono',monospace;
 }
-html,body{min-height:100%;background:var(--bg);font-family:'Geist',sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}
 #bg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.wrap{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:0 0 100px}
+.page{position:relative;z-index:1;max-width:1020px;margin:0 auto;padding-bottom:80px}
 
-/* ── NAV ── */
-nav{display:flex;align-items:center;gap:16px;padding:16px 32px;border-bottom:1px solid var(--border);background:rgba(7,5,15,0.85);backdrop-filter:blur(32px);position:sticky;top:0;z-index:200}
-.nav-brand{font-size:13px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:#fff}
-.nav-brand b{color:var(--accent)}
-.nav-sep{width:1px;height:16px;background:var(--border)}
-.nav-tag{font-size:10px;color:var(--muted);letter-spacing:.5px}
-.nav-live{display:flex;align-items:center;gap:5px}
-.nav-dot{width:5px;height:5px;border-radius:50%;background:var(--green);animation:dp 2s ease-in-out infinite}
-@keyframes dp{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,230,118,.5)}70%{opacity:.7;box-shadow:0 0 0 4px rgba(0,230,118,0)}}
-.nav-live-t{font-size:9px;font-weight:600;color:var(--green);letter-spacing:1.5px;text-transform:uppercase}
-.nav-by{font-size:10px;color:var(--muted);border-left:1px solid var(--border);padding-left:16px}
-.nav-by strong{color:var(--accent);font-weight:600}
-.nav-r{margin-left:auto;display:flex;align-items:center;gap:10px}
-.nav-clock{font-size:11px;font-family:var(--mono);color:rgba(157,92,255,.6);padding:5px 10px;background:rgba(157,92,255,.06);border:1px solid rgba(157,92,255,.12);border-radius:6px;letter-spacing:.5px}
+/* Header */
+.hdr{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--border);background:rgba(0,0,10,0.55);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100}
+.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(168,85,247,0.5);animation:logopulse 4s ease-in-out infinite;flex-shrink:0}
+@keyframes logopulse{0%,100%{box-shadow:0 0 24px rgba(168,85,247,0.5)}50%{box-shadow:0 0 40px rgba(168,85,247,0.8),0 0 60px rgba(236,72,153,0.3)}}
+.hdr-name{font-size:18px;font-weight:900;color:#fff;letter-spacing:-.5px}
+.hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr-tag{font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;background:var(--pp-dim);border:1px solid rgba(168,85,247,0.25);color:var(--pp);border-radius:100px;padding:3px 12px}
+.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));border:1px solid rgba(168,85,247,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden}
+.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(168,85,247,0.08),transparent);animation:shimmer 2.5s linear infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(168,85,247,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}
+@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+.made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}
 
-/* ── METRICS ── */
-.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:28px 32px 0}
-.metric{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s;cursor:default}
-.metric:hover{border-color:rgba(157,92,255,.25);transform:translateY(-2px)}
-.metric::before{content:'';position:absolute;top:0;left:24px;right:24px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.4}
-.metric-val{font-size:48px;font-weight:300;color:#fff;font-variant-numeric:tabular-nums;font-family:var(--mono);line-height:1;letter-spacing:-2px}
-.metric-val b{font-size:16px;color:var(--accent);font-weight:500;letter-spacing:0;margin-left:4px;vertical-align:super}
-.metric-lbl{font-size:9px;font-weight:500;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);margin-top:8px}
+.music-label{font-size:11px;font-weight:600;color:var(--muted)}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
 
-/* ── TOOLBAR ── */
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:22px 32px}
-.search-box{flex:0 0 220px;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 14px;font-family:'Geist',sans-serif;font-size:12px;border-radius:10px;outline:none;transition:border-color .2s}
-.search-box:focus{border-color:rgba(157,92,255,.4)}
-.search-box::placeholder{color:var(--muted)}
-.btn{border:none;padding:9px 18px;cursor:pointer;font-weight:500;font-size:11px;border-radius:9px;font-family:'Geist',sans-serif;transition:all .15s;letter-spacing:.3px;white-space:nowrap}
-.btn:hover{transform:translateY(-1px)}
-.btn:active{transform:none}
-.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 2px 16px rgba(157,92,255,.3)}
-.btn-primary:hover{box-shadow:0 4px 24px rgba(157,92,255,.5)}
-.btn-orange{background:linear-gradient(135deg,var(--orange),#e53935);color:#fff;box-shadow:0 2px 12px rgba(255,107,53,.25)}
-.btn-ghost{background:transparent;color:var(--accent);border:1px solid rgba(157,92,255,.2)}
-.btn-ghost:hover{background:rgba(157,92,255,.08);border-color:rgba(157,92,255,.35)}
-.btn-ghost.on{background:rgba(157,92,255,.1)}
-.btn-cyan{background:transparent;color:var(--cyan);border:1px solid rgba(0,207,255,.2)}
-.btn-cyan:hover{background:rgba(0,207,255,.06)}
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:24px 28px 0}
+.stat{background:var(--bg1);border:1px solid var(--border);border-radius:18px;padding:20px 22px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s}
+.stat:hover{border-color:rgba(168,85,247,0.3);transform:translateY(-2px)}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--pp),var(--pk),transparent);opacity:.5}
+.stat-lbl{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.stat-val{font-size:36px;font-weight:900;background:linear-gradient(135deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1;font-variant-numeric:tabular-nums}
 
-/* ── CREATE PANEL ── */
-.cpanel{margin:0 32px 16px;background:rgba(157,92,255,.04);border:1px solid rgba(157,92,255,.15);border-radius:16px;padding:22px;display:none}
-.cpanel label{display:block;font-size:9px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
-.cpanel input,.cpanel textarea{background:rgba(0,0,0,.35);color:#fff;border:1px solid var(--border);padding:10px 12px;font-family:var(--mono);font-size:11px;width:100%;margin-bottom:12px;border-radius:9px;outline:none;resize:vertical;transition:border-color .2s}
-.cpanel input:focus,.cpanel textarea:focus{border-color:rgba(157,92,255,.4)}
+/* Toolbar */
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:18px 28px}
+.search{background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:11px 16px;font-family:'Inter',sans-serif;font-size:12px;width:240px;border-radius:12px;outline:none;transition:all .2s}
+.search:focus{border-color:rgba(168,85,247,0.45);box-shadow:0 0 0 3px rgba(168,85,247,0.1)}
+.search::placeholder{color:var(--muted)}
 
-/* ── CARDS ── */
-#cards{padding:0 32px;display:flex;flex-direction:column;gap:12px}
-.card{display:flex;gap:0;border-radius:18px;overflow:hidden;background:rgba(13,8,26,0.9);border:1px solid var(--border);transition:border-color .25s,box-shadow .25s;animation:fadeUp .4s ease both}
-@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.card:hover{border-color:rgba(157,92,255,.22);box-shadow:0 12px 48px rgba(0,0,0,.5),0 0 0 1px rgba(157,92,255,.06)}
-.card-dead{opacity:.5}
-.card-dead:hover{border-color:rgba(255,255,255,.08)!important;box-shadow:none!important}
+/* Buttons */
+.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
+.abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
+.abtn:active{transform:none;filter:none}
+.abtn-purple{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;box-shadow:0 4px 16px rgba(168,85,247,0.3)}
+.abtn-orange{background:linear-gradient(135deg,#f97316,#ef4444);color:#fff}
+.abtn-red{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.25)}
+.abtn-red:hover{background:rgba(239,68,68,0.25)}
+.abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(168,85,247,0.25)}
+.abtn-ghost:hover{background:var(--pp-dim)}
+.abtn-ghost.on{background:var(--pp-dim);color:#fff}
+.abtn-outline{background:transparent;color:var(--pp);border:1px solid rgba(168,85,247,0.3)}
+.abtn-outline:hover{background:var(--pp-dim)}
 
-/* Left panel */
-.card-left{display:flex;flex-direction:column;align-items:center;gap:16px;padding:22px 18px;background:rgba(157,92,255,.03);border-right:1px solid var(--border);width:130px;flex-shrink:0}
-.avatar{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;color:#fff;letter-spacing:-.5px;flex-shrink:0;box-shadow:0 4px 20px rgba(157,92,255,.35)}
-.av-dead{background:linear-gradient(135deg,#2a2a2a,#1a1a1a);box-shadow:none}
-.side-timers{width:100%;display:flex;flex-direction:column;gap:10px}
-.st-box{padding:10px 10px 8px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:10px;transition:border-color .3s}
-.st-warn{border-color:rgba(255,107,53,.3);background:rgba(255,107,53,.04)}
-.st-lbl{font-size:7px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
-.st-val{font-size:15px;font-weight:600;font-family:var(--mono);background:linear-gradient(90deg,var(--accent),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1;margin-bottom:6px;letter-spacing:-.5px}
-.stv-warn{background:linear-gradient(90deg,var(--orange),#e53935);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.stv-ref{background:linear-gradient(90deg,var(--cyan),var(--green));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.st-track{height:2px;background:rgba(255,255,255,.05);border-radius:2px;overflow:hidden}
-.st-fill{height:2px;border-radius:2px;background:linear-gradient(90deg,var(--accent),var(--cyan))}
-.stf-warn{background:linear-gradient(90deg,var(--orange),#e53935)}
-.stf-ref{background:linear-gradient(90deg,var(--cyan),var(--green))}
+/* Create panel */
+.cpanel{margin:0 28px 14px;background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.2);border-radius:18px;padding:24px;display:none;backdrop-filter:blur(12px)}
+.cpanel label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.cpanel input,.cpanel textarea{background:rgba(0,0,0,0.3);color:#fff;border:1px solid var(--border);padding:10px 13px;font-family:var(--mono);font-size:11px;width:100%;margin-bottom:12px;border-radius:10px;outline:none;resize:vertical;transition:border-color .2s}
+.cpanel input:focus,.cpanel textarea:focus{border-color:rgba(168,85,247,.4)}
 
-/* Right panel */
-.card-right{flex:1;display:flex;flex-direction:column;min-width:0}
-.card-top-row{display:flex;align-items:flex-start;gap:12px;padding:18px 20px 14px;border-bottom:1px solid rgba(255,255,255,.04)}
-.name-block{flex:1;min-width:0}
-.badge{display:inline-flex;align-items:center;gap:5px;font-size:8px;font-weight:600;letter-spacing:2px;padding:3px 9px;border-radius:4px;background:rgba(157,92,255,.1);color:var(--accent);border:1px solid rgba(157,92,255,.2);margin-bottom:7px;text-transform:uppercase}
-.badge-dead{background:rgba(80,80,80,.08);color:#555;border-color:rgba(80,80,80,.15)}
-.bdot{width:4px;height:4px;border-radius:50%;background:currentColor;animation:dp 1.8s ease-in-out infinite}
-.badge-dead .bdot{animation:none}
-.cname{font-size:18px;font-weight:600;color:#fff;letter-spacing:-.4px;line-height:1.1;margin-bottom:4px}
-.cid{font-size:9px;font-family:var(--mono);color:rgba(157,92,255,.3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.top-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.conn-pill{font-size:10px;font-weight:600;color:var(--cyan);background:rgba(0,207,255,.08);border:1px solid rgba(0,207,255,.15);border-radius:6px;padding:4px 10px;font-family:var(--mono)}
-.sm-btn{background:rgba(255,255,255,.03);color:rgba(157,92,255,.5);border:1px solid rgba(255,255,255,.06);padding:5px 11px;border-radius:6px;font-size:9px;font-family:'Geist',sans-serif;font-weight:500;cursor:pointer;transition:all .15s;letter-spacing:1px;text-transform:uppercase}
-.sm-btn:hover{background:rgba(157,92,255,.1);color:var(--accent);border-color:rgba(157,92,255,.25)}
+/* Cards */
+#cards{padding:0 28px;display:flex;flex-direction:column;gap:14px}
+.card{border-radius:20px;overflow:hidden;border:1px solid var(--border);background:rgba(10,5,20,0.6);backdrop-filter:blur(16px);transition:all .25s;display:flex}
+.card:hover{border-color:rgba(168,85,247,0.25);box-shadow:0 16px 60px rgba(0,0,0,0.5),0 0 40px rgba(168,85,247,0.06);transform:translateY(-1px)}
+.card-stripe{width:3px;flex-shrink:0}
+.stripe-live{background:linear-gradient(180deg,var(--pp),var(--pk))}
+.stripe-dead{background:linear-gradient(180deg,#444,#333)}
+.card-inner{flex:1;padding:20px 22px}
 
-/* Token section */
-.tok-section{padding:12px 20px;display:flex;flex-direction:column;gap:7px;border-bottom:1px solid rgba(255,255,255,.04)}
-.tok-row{display:flex;align-items:flex-start;gap:10px}
-.tok-lbl{font-size:8px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:var(--muted);white-space:nowrap;padding-top:5px;width:52px;flex-shrink:0}
-.tok-val{flex:1;background:rgba(0,0,0,.3);border:1px solid rgba(157,92,255,.07);padding:7px 10px;font-size:9px;word-break:break-all;color:rgba(157,92,255,.22);border-radius:8px;font-family:var(--mono);line-height:1.6;cursor:pointer;transition:all .18s;min-width:0}
-.tok-val:hover{border-color:rgba(157,92,255,.25);color:rgba(157,92,255,.5);background:rgba(157,92,255,.04)}
-.tok-val.blurred,.hideable.blurred{filter:blur(5px);user-select:none}
+.card-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.pill{font-size:8px;font-weight:800;letter-spacing:2.5px;padding:4px 10px;border-radius:100px;flex-shrink:0}
+.pill-live{background:var(--pp-dim);color:var(--pp);border:1px solid rgba(168,85,247,0.3)}
+.pill-dead{background:rgba(100,100,100,0.1);color:#888;border:1px solid rgba(100,100,100,0.2)}
+.card-name{flex:1;font-size:16px;font-weight:800;color:#fff}
+.card-btns{display:flex;gap:5px}
+.cbtn{background:rgba(255,255,255,0.05);color:rgba(200,180,255,0.7);border:1px solid var(--border);padding:5px 11px;border-radius:8px;font-size:10px;font-family:'Inter',sans-serif;font-weight:600;cursor:pointer;transition:all .15s}
+.cbtn:hover{background:var(--pp-dim);color:var(--pp);border-color:rgba(168,85,247,0.3)}
 
-/* Card footer */
-.card-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;padding:12px 20px;background:rgba(0,0,0,.15)}
-.tok-input{background:rgba(0,0,0,.35);color:rgba(220,205,255,.7);border:1px solid var(--border);padding:7px 10px;font-family:var(--mono);font-size:9px;flex:1;min-width:140px;border-radius:8px;resize:none;outline:none;transition:border-color .2s}
-.tok-input:focus{border-color:rgba(157,92,255,.3)}
-.fbtn{border:none;padding:7px 14px;cursor:pointer;font-weight:500;font-size:10px;border-radius:7px;font-family:'Geist',sans-serif;transition:all .15s;white-space:nowrap;letter-spacing:.2px}
-.fbtn:hover{transform:translateY(-1px)}
-.fbtn-purple{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
-.fbtn-orange{background:linear-gradient(135deg,var(--orange),#e53935);color:#fff}
-.fbtn-ghost{background:rgba(157,92,255,.08);color:var(--accent);border:1px solid rgba(157,92,255,.2)}
-.fbtn-del{background:rgba(229,57,53,.08);color:#ff5252;border:1px solid rgba(229,57,53,.15)}
-.fbtn-del:hover{background:rgba(229,57,53,.15)}
-.footer-right{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-left:auto}
-.rname-input{background:rgba(255,255,255,.03);color:#fff;border:1px solid var(--border);padding:6px 10px;border-radius:7px;font-family:'Geist',sans-serif;font-size:11px;outline:none;width:110px;transition:border-color .2s}
-.rname-input:focus{border-color:rgba(157,92,255,.3)}
+.info-grid{margin-bottom:14px;display:flex;flex-direction:column;gap:3px}
+.ig-row{display:flex;align-items:baseline;gap:10px;font-size:11px}
+.ig-k{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);white-space:nowrap;min-width:70px}
+.ig-v{color:rgba(200,180,255,0.6);font-family:var(--mono);word-break:break-all;font-size:10px}
+.ig-v.hi{color:var(--pp);font-weight:700;font-size:14px}
+
+.timers{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.tblock{background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.tlbl{font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+.tval{font-size:24px;font-weight:800;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums;line-height:1;margin-bottom:9px;font-family:var(--mono)}
+.tval.twarn{background:linear-gradient(90deg,#f97316,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.tbar{height:3px;background:rgba(255,255,255,0.05);border-radius:2px}
+.tfill{height:3px;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,var(--pp),var(--pk))}
+.tfill.twarn{background:linear-gradient(90deg,#f97316,#ef4444)}
+
+.tok-grid{margin-bottom:14px;display:flex;flex-direction:column;gap:6px}
+.tok-row{display:flex;align-items:flex-start;gap:8px}
+.tok-k{font-size:8px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);white-space:nowrap;padding-top:4px;min-width:52px}
+.tok-v{flex:1;background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:7px 10px;font-size:9px;word-break:break-all;color:rgba(168,85,247,0.2);border-radius:8px;font-family:var(--mono);line-height:1.5;transition:all .3s}
+.tok-v.blurred,.hideable.blurred{filter:blur(5px);user-select:none}
+
+.card-foot{border-top:1px solid var(--border);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.upd-block{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:12px;padding:13px}
+.upd-block textarea{background:rgba(0,0,0,0.3);color:rgba(220,200,255,0.8);border:1px solid var(--border);padding:8px 10px;font-family:var(--mono);font-size:9px;width:100%;margin-bottom:7px;border-radius:8px;resize:vertical;outline:none;transition:border-color .2s}
+.upd-block textarea:focus{border-color:rgba(168,85,247,.35)}
+.foot-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rinput{background:rgba(255,255,255,0.04);color:#fff;border:1px solid var(--border);padding:8px 12px;border-radius:9px;font-family:'Inter',sans-serif;font-size:11px;outline:none;width:120px;transition:border-color .2s}
+.rinput:focus{border-color:rgba(168,85,247,.35)}
 
 /* Toast */
-.toast{position:fixed;bottom:24px;right:24px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;padding:10px 20px;border-radius:10px;font-size:11px;font-weight:600;z-index:999;opacity:0;transform:translateY(8px);transition:all .2s;pointer-events:none;letter-spacing:.2px;box-shadow:0 8px 24px rgba(157,92,255,.4)}
-.toast.show{opacity:1;transform:none}
+.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(168,85,247,0.4)}
+.toast.show{opacity:1;transform:translateY(0) scale(1)}
 </style></head><body>
 <canvas id="bg"></canvas>
-<div class="wrap">
+<div class="page">
 
-<nav>
-  <div class="nav-brand"><b>AC</b>AUTH</div>
-  <div class="nav-sep"></div>
-  <div class="nav-tag">Session Manager</div>
-  <div class="nav-live"><div class="nav-dot"></div><div class="nav-live-t">Live</div></div>
-  <div class="nav-by">by <strong>Lunar3HP</strong></div>
-  <div class="nav-r">
-    <div class="nav-clock" id="clock"></div>
+<div class="hdr">
+  <div class="hdr-logo">⚡</div>
+  <div class="hdr-name">AC Auth <em>Backend</em></div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
+
+  <div class="hdr-r">
+    <div class="hdr-clock" id="clock"></div>
     <form method="POST" action="/logout" style="display:inline">
-      <button type="submit" class="btn btn-ghost" style="font-size:10px;padding:6px 14px">Sign Out</button>
+      <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
     </form>
   </div>
-</nav>
-
-<div class="metrics">
-  <div class="metric"><div class="metric-val">${total}</div><div class="metric-lbl">Total Sessions</div></div>
-  <div class="metric"><div class="metric-val">${active}<b>live</b></div><div class="metric-lbl">Active Now</div></div>
-  <div class="metric"><div class="metric-val">${totalConns}</div><div class="metric-lbl">Total Connections</div></div>
 </div>
 
-<div class="toolbar">
-  <input class="search-box" type="text" placeholder="Search sessions…" oninput="filterCards(this.value)">
-  <button class="btn btn-primary" onclick="toggleCreate()">+ New Session</button>
-  <form method="POST" action="/refresh-all" style="display:inline"><button type="submit" class="btn btn-orange">Refresh All</button></form>
-  <form method="POST" action="/clean-duplicates" style="display:inline"><button type="submit" class="btn btn-cyan">Clean Dupes</button></form>
-  <button id="blurBtn" class="btn btn-ghost" onclick="toggleBlur()">Hide Tokens</button>
+
+<div class="stats">
+  <div class="stat"><div class="stat-lbl">Total Sessions</div><div class="stat-val">${total}</div></div>
+  <div class="stat"><div class="stat-lbl">Active</div><div class="stat-val">${active}</div></div>
+  <div class="stat"><div class="stat-lbl">Total Connections</div><div class="stat-val">${totalConns}</div></div>
+</div>
+
+<div class="bar">
+  <input class="search" type="text" placeholder="⌕  Search sessions…" oninput="filterCards(this.value)">
+  <button class="abtn abtn-purple" onclick="toggleCreate()">+ New Session</button>
+  <form method="POST" action="/refresh-all" style="display:inline">
+    <button type="submit" class="abtn abtn-orange">⟳ Refresh All</button>
+  </form>
+  <form method="POST" action="/clean-duplicates" style="display:inline">
+    <button type="submit" class="abtn abtn-outline">🧹 Clean Dupes</button>
+  </form>
+  <button id="blurBtn" class="abtn abtn-ghost" onclick="toggleBlur()">🔒 Hide Tokens</button>
 </div>
 
 <div id="create-panel" class="cpanel">
   <form method="POST" action="/session/create">
-    <label>Name (optional)</label><input name="name" placeholder="e.g. MyAccount">
-    <label>Token</label><textarea name="token" rows="2" placeholder="Paste token…"></textarea>
-    <label>Refresh Token</label><textarea name="refresh_token" rows="2" placeholder="Paste refresh token…"></textarea>
-    <button type="submit" class="btn btn-primary">Create Session</button>
+    <label>Name (optional)</label>
+    <input name="name" placeholder="e.g. MyAccount">
+    <label>Token</label>
+    <textarea name="token" rows="2" placeholder="Paste token…"></textarea>
+    <label>Refresh Token</label>
+    <textarea name="refresh_token" rows="2" placeholder="Paste refresh token…"></textarea>
+    <button type="submit" class="abtn abtn-purple">Create Session</button>
   </form>
 </div>
 
@@ -506,24 +516,30 @@ nav{display:flex;align-items:center;gap:16px;padding:16px 32px;border-bottom:1px
 let blurred=false;
 function toggleBlur(){
   blurred=!blurred;
-  document.querySelectorAll('.tok-val,.hideable').forEach(e=>e.classList.toggle('blurred',blurred));
-  document.querySelectorAll('.tok-input').forEach(e=>{e.style.filter=blurred?'blur(4px)':'';e.style.userSelect=blurred?'none':'';});
-  const b=document.getElementById('blurBtn');b.textContent=blurred?'Show Tokens':'Hide Tokens';b.classList.toggle('on',blurred);
+  document.querySelectorAll('.tok-v,.hideable').forEach(e=>e.classList.toggle('blurred',blurred));
+  document.querySelectorAll('.upd-block textarea').forEach(e=>{e.style.filter=blurred?'blur(5px)':'';e.style.userSelect=blurred?'none':'';});
+  const b=document.getElementById('blurBtn');
+  b.textContent=blurred?'🔓 Show Tokens':'🔒 Hide Tokens';
+  b.classList.toggle('on',blurred);
 }
 function copy(t,msg){
   navigator.clipboard.writeText(t);
-  const el=document.getElementById('toast');el.textContent=msg||'Copied!';el.classList.add('show');
-  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),1800);
+  const el=document.getElementById('toast');
+  el.textContent=msg||'Copied!';
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>el.classList.remove('show'),1800);
 }
 function filterCards(q){
   const lq=q.toLowerCase();
   document.querySelectorAll('.card').forEach(c=>c.style.display=c.innerText.toLowerCase().includes(lq)?'':'none');
 }
 function toggleCreate(){
-  const p=document.getElementById('create-panel');p.style.display=p.style.display==='block'?'none':'block';
+  const p=document.getElementById('create-panel');
+  p.style.display=p.style.display==='block'?'none':'block';
 }
 function fmt(s){
-  if(s<=0)return'EXP';
+  if(s<=0)return'EXPIRED';
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60;
   if(h>0)return h+'h '+m+'m';
   return String(m).padStart(2,'0')+':'+String(sc).padStart(2,'0');
@@ -531,7 +547,7 @@ function fmt(s){
 setInterval(()=>{
   const now=Math.floor(Date.now()/1000);
   let anyExpired=false;
-  document.querySelectorAll('.st-val').forEach(el=>{
+  document.querySelectorAll('.tval').forEach(el=>{
     const exp=parseInt(el.dataset.exp);
     const s=Math.max(0,exp-now);
     el.textContent=fmt(s);
@@ -539,16 +555,15 @@ setInterval(()=>{
     const bid=el.id.replace('tk-','tb-').replace('rk-','rb-');
     const bar=document.getElementById(bid);
     if(bar)bar.style.width=Math.max(0,Math.min(100,s/max*100)).toFixed(2)+'%';
-    if(s<300&&el.id.startsWith('tk-')){
-      el.classList.add('stv-warn');el.classList.remove('stv-ref');
-      if(bar){bar.classList.add('stf-warn');bar.classList.remove('stf-ref');}
-      const box=el.closest('.st-box');if(box)box.classList.add('st-warn');
-    }
+    if(s<300&&el.id.startsWith('tk-')){el.classList.add('twarn');if(bar)bar.classList.add('twarn');}
     if(s<=0&&el.id.startsWith('tk-'))anyExpired=true;
   });
-  if(anyExpired)setTimeout(()=>location.reload(),3000);
+  if(anyExpired){setTimeout(()=>location.reload(),3000);}
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
+
+
+
 </script>
 ${BG_SCRIPT}
 </body></html>`);
