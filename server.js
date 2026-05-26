@@ -112,18 +112,18 @@ app.get("/login", (req, res) => {
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',monospace;background:#050508;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
-body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,#00ff8812 0%,transparent 70%);pointer-events:none}
-.card{background:linear-gradient(135deg,#0e0e14 0%,#111118 100%);border:1px solid #00ff8830;border-radius:20px;padding:44px 40px;width:360px;box-shadow:0 0 60px #00ff8815,0 20px 60px #00000080;text-align:center;position:relative}
-.card::before{content:'';position:absolute;inset:0;border-radius:20px;background:linear-gradient(135deg,#00ff8808,transparent 60%);pointer-events:none}
-.lock{font-size:36px;margin-bottom:16px;filter:drop-shadow(0 0 12px #00ff8866)}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,#7c3aed12 0%,transparent 70%);pointer-events:none}
+.card{background:linear-gradient(135deg,#0e0e14 0%,#111118 100%);border:1px solid #a855f730;border-radius:20px;padding:44px 40px;width:360px;box-shadow:0 0 60px #a855f715,0 20px 60px #00000080;text-align:center;position:relative}
+.card::before{content:'';position:absolute;inset:0;border-radius:20px;background:linear-gradient(135deg,#a855f708,transparent 60%);pointer-events:none}
+.lock{font-size:36px;margin-bottom:16px;filter:drop-shadow(0 0 12px #a855f766)}
 .brand{font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.5px;margin-bottom:2px}
-.brand span{color:#00ff88}
-.byline{font-size:11px;color:#00ff8888;letter-spacing:3px;text-transform:uppercase;margin-bottom:28px;font-weight:600}
+.brand span{color:#a855f7}
+.byline{font-size:11px;color:#a855f788;letter-spacing:3px;text-transform:uppercase;margin-bottom:28px;font-weight:600}
 .field{position:relative;margin-bottom:12px}
 .field input{width:100%;background:#0a0a10;color:#fff;border:1px solid #ffffff18;border-radius:10px;padding:13px 16px;font-family:'Inter',monospace;font-size:14px;outline:none;transition:border-color .2s}
-.field input:focus{border-color:#00ff8866;box-shadow:0 0 0 3px #00ff8812}
+.field input:focus{border-color:#a855f766;box-shadow:0 0 0 3px #7c3aed12}
 .field input::placeholder{color:#333}
-button[type=submit]{width:100%;background:linear-gradient(135deg,#00ff88,#00cc6e);color:#000;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;font-family:'Inter',monospace;letter-spacing:0.3px;transition:opacity .2s,transform .1s;box-shadow:0 4px 20px #00ff8840}
+button[type=submit]{width:100%;background:linear-gradient(135deg,#a855f7,#7c3aed);color:#000;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;font-family:'Inter',monospace;letter-spacing:0.3px;transition:opacity .2s,transform .1s;box-shadow:0 4px 20px #a855f740}
 button[type=submit]:hover{opacity:.92;transform:translateY(-1px)}
 button[type=submit]:active{transform:translateY(0)}
 .error{background:#ff333318;border:1px solid #ff333340;color:#ff6666;font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:14px}
@@ -241,9 +241,9 @@ app.get("/", (req, res) => {
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--green:#00ff88;--green-dim:#00ff8844;--green-glow:#00ff8820;--bg:#050508;--bg1:#0b0b10;--bg2:#0f0f16;--bg3:#13131c;--border:#ffffff0f;--border-bright:#00ff8828;--text:#e0e0e0;--muted:#4a4a5a;--warn:#ff9500;--danger:#ff3b30}
+:root{--green:#a855f7;--green-dim:#a855f744;--green-glow:#a855f720;--bg:#050508;--bg1:#0b0b10;--bg2:#0f0f16;--bg3:#13131c;--border:#ffffff0f;--border-bright:#a855f728;--text:#e0e0e0;--muted:#4a4a5a;--warn:#ff9500;--danger:#ff3b30}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);padding:0 0 60px;max-width:980px;margin:0 auto;min-height:100vh;position:relative;z-index:1}
-body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;height:500px;background:radial-gradient(ellipse 60% 30% at 50% 0%,#00ff8810,transparent 70%);pointer-events:none;z-index:0}
+body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;height:500px;background:radial-gradient(ellipse 60% 30% at 50% 0%,#7c3aed10,transparent 70%);pointer-events:none;z-index:0}
 
 /* ── HEADER ── */
 .header{position:relative;z-index:1;text-align:center;padding:32px 24px 24px;border-bottom:1px solid var(--border)}
@@ -258,9 +258,9 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
 .stats-wrapper{position:relative;overflow:visible}
 #spiralCanvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0;opacity:1}
 .stat{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}
-.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent)}
+.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#8b5cf6,transparent)}
 .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:6px}
-.stat-value{font-size:28px;font-weight:900;color:var(--green);line-height:1}
+.stat-value{font-size:28px;font-weight:900;color:#a78bfa;line-height:1}
 
 /* ── TOOLBAR ── */
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;padding:16px 24px;align-items:center}
@@ -270,7 +270,7 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
 .btn{border:none;padding:9px 16px;cursor:pointer;font-weight:600;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:opacity .15s,transform .1s;letter-spacing:0.2px}
 .btn:hover{opacity:.88;transform:translateY(-1px)}
 .btn:active{transform:translateY(0)}
-.btn-green{background:linear-gradient(135deg,#00ff88,#00cc6e);color:#000}
+.btn-green{background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff}
 .btn-orange{background:linear-gradient(135deg,#ff9500,#e08000);color:#000}
 .btn-red{background:linear-gradient(135deg,#ff3b30,#cc2020);color:#fff}
 .btn-blue{background:linear-gradient(135deg,#0a84ff,#006ee0);color:#fff}
@@ -291,7 +291,7 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
 .card:hover{border-color:#ffffff18}
 .card-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .status-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.status-dot.green{background:var(--green);box-shadow:0 0 8px #00ff8888}
+.status-dot.green{background:#a855f7;box-shadow:0 0 8px #a855f788}
 .status-dot.red{background:var(--danger);box-shadow:0 0 8px #ff3b3066}
 .session-name{flex:1;font-size:15px;font-weight:700;color:#fff}
 .card-meta{font-size:11px;color:var(--muted);margin-bottom:12px;line-height:2;display:grid;grid-template-columns:auto 1fr;gap:0 10px}
@@ -305,7 +305,7 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
 .timer-value{font-size:20px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums;line-height:1}
 .timer-value.warn{color:var(--warn)}
 .timer-bar{height:3px;background:#ffffff0a;border-radius:2px;margin-top:7px}
-.timer-fill{height:3px;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,var(--green),#00ffaa)}
+.timer-fill{height:3px;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,#8b5cf6,#c084fc)}
 .timer-fill.warn{background:linear-gradient(90deg,var(--warn),#ffb340)}
 
 /* ── TOKEN BOXES ── */
@@ -488,28 +488,25 @@ setInterval(()=>{
       }
       const bright = i % 3 === 0;
       ctx.strokeStyle = bright
-        ? \`rgba(130, 110, 230, 0.10)\`
-        : \`rgba(110, 90, 200, 0.05)\`;
+        ? \`rgba(160, 80, 255, 0.12)\`
+        : \`rgba(130, 50, 220, 0.06)\`;
       ctx.lineWidth = bright ? 0.7 : 0.4;
       ctx.stroke();
     }
 
-    // Concentric rings — lavender/periwinkle exactly like screenshot
-    // The screenshot shows: very subtle, slightly desaturated purple-blue
-    // Inner rings barely visible, outer rings a touch brighter
+    // Concentric rings — deep purple/violet galaxy colour
     for (let ring = 1; ring <= rings; ring++) {
       const baseR = (ring / rings) * maxR;
       const points = 200 + ring * 15;
 
-      // Colour profile: matches screenshot's dim periwinkle-lavender rings
-      // Not saturated — muted, slightly blue-shifted purple
+      // Pure purple: high R, very low G, high B
+      // Inner rings: deeper violet, outer rings: lighter purple
       const progress = ring / rings;
-      const rC = Math.round(100 + progress * 40);   // 100→140
-      const gC = Math.round(85 + progress * 30);    // 85→115
-      const bC = Math.round(210 + progress * 30);   // 210→240
-      // Very low alpha — inner almost invisible, outer subtle
-      const alpha = 0.08 + progress * 0.20;
-      const lw = 0.8 + progress * 1.4; // 0.8→2.2px
+      const rC = Math.round(120 + progress * 60);  // 120→180  (purple-red)
+      const gC = Math.round(20 + progress * 25);   // 20→45    (almost no green!)
+      const bC = Math.round(200 + progress * 55);  // 200→255  (strong blue)
+      const alpha = 0.10 + progress * 0.22;
+      const lw = 0.8 + progress * 1.6; // 0.8→2.4px
 
       ctx.beginPath();
       for (let i = 0; i <= points; i++) {
@@ -523,8 +520,8 @@ setInterval(()=>{
 
       // Outer rings get a soft glow pass
       if (ring >= rings - 3) {
-        ctx.strokeStyle = \`rgba(\${rC}, \${gC}, \${bC}, \${alpha * 0.4})\`;
-        ctx.lineWidth = lw + 4;
+        ctx.strokeStyle = \`rgba(\${rC}, \${gC}, \${bC}, \${alpha * 0.35})\`;
+        ctx.lineWidth = lw + 5;
         ctx.stroke();
       }
 
