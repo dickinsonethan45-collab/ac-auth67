@@ -610,10 +610,16 @@ app.post("/clean-duplicates",(req,res)=>{
 
 // ── API ────────────────────────────────────────────────────────────────────────
 app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
-  const s=sessions[req.params.client];
-  if(s){s.connections=(s.connections||0)+1;saveSessions();return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
-  const first=Object.values(sessions)[0];
-  if(first)return res.json({token:first.token,refresh_token:first.refresh_token,created:false});
+  const clientId = req.params.client;
+  // First try direct key match
+  let s = sessions[clientId];
+  // Then try matching by uid in token payload
+  if(!s) s = Object.values(sessions).find(sess=>{
+    try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
+  });
+  // Fallback to first session
+  if(!s) s = Object.values(sessions)[0];
+  if(s){s.connections=(s.connections||0)+1;saveSessions();console.log(`[Auth] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
   res.json({token:"",refresh_token:"",created:false});
 });
 app.post("/v2/account/authenticate/refresh",(req,res)=>{
@@ -621,10 +627,15 @@ app.post("/v2/account/authenticate/refresh",(req,res)=>{
   res.json({token:first?.token||"",refresh_token:first?.refresh_token||"",created:false});
 });
 app.get("/v2/account",async(req,res)=>{
-  const s=Object.values(sessions).find(s=>!isExpired(s.token));
+  // Match session by Bearer token in Authorization header, fallback to any valid session
+  const authHeader = req.headers.authorization || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  let s = bearerToken ? Object.values(sessions).find(s=>s.token===bearerToken) : null;
+  if(!s) s = Object.values(sessions).find(s=>!isExpired(s.token));
   if(!s)return res.status(401).json({error:"No valid session"});
-  try{const u=await fetch(`${NAKAMA_SERVER}/v2/account`,{headers:{"Authorization":`Bearer ${s.token}`}});res.json(await u.json());}
-  catch(e){res.status(500).json({});}
+  console.log(`[/v2/account] Serving account for ${s.name||s.id}`);
+  try{const u=await fetch(`${NAKAMA_SERVER}/v2/account`,{headers:{"Authorization":`Bearer ${s.token}`,"User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)","x-unity-version":"6000.3.12f1"}});res.json(await u.json());}
+  catch(e){console.log(`[/v2/account] Error: ${e.message}`);res.status(500).json({});}
 });
 app.post("/update-tokens",(req,res)=>{
   const{token,refresh_token,id}=req.body;
