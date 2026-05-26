@@ -104,123 +104,137 @@ setInterval(async () => {
   }
 }, 60 * 60 * 1000);
 
-// ── Login ──────────────────────────────────────────────────────────────────────
-
+// ── Login Page ─────────────────────────────────────────────────────────────────
 app.get("/login", (req, res) => {
   res.send(`<!DOCTYPE html>
-<html><head><title>AC Auth Backend</title>
+<html><head><title>AC Auth — Login</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',sans-serif;background:#050508;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
-#spiralCanvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0}
-.card{position:relative;z-index:2;background:linear-gradient(145deg,#0d0d14 0%,#111119 100%);border:1px solid #a855f730;border-radius:24px;padding:52px 48px;width:440px;box-shadow:0 0 80px #7c3aed18,0 0 200px #7c3aed08,0 30px 80px #00000090;text-align:center;transition:box-shadow .4s,border-color .4s}
-.card:hover{border-color:#a855f750;box-shadow:0 0 100px #7c3aed28,0 0 200px #7c3aed10,0 30px 80px #00000090}
-.card::before{content:'';position:absolute;inset:0;border-radius:24px;background:linear-gradient(135deg,#a855f70a 0%,transparent 55%);pointer-events:none}
-.lock{font-size:48px;margin-bottom:18px;display:block;filter:drop-shadow(0 0 18px #a855f770);animation:float 3s ease-in-out infinite}
-@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-.brand{font-size:26px;font-weight:900;color:#fff;letter-spacing:-0.5px;margin-bottom:4px}
-.brand span{color:#a855f7;text-shadow:0 0 20px #a855f766}
-.byline{font-size:11px;color:#a855f766;letter-spacing:4px;text-transform:uppercase;margin-bottom:36px;font-weight:600}
-.field{position:relative;margin-bottom:14px}
-.field input{width:100%;background:#0a0a12;color:#fff;border:1px solid #ffffff14;border-radius:12px;padding:15px 18px;font-family:'Inter',sans-serif;font-size:14px;outline:none;transition:border-color .25s,box-shadow .25s,background .25s}
-.field input:focus{border-color:#a855f760;box-shadow:0 0 0 3px #7c3aed1a,0 0 20px #7c3aed18;background:#0d0d18}
-.field input::placeholder{color:#2a2a3a}
-button[type=submit]{width:100%;background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff;border:none;border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;font-family:'Inter',sans-serif;letter-spacing:0.3px;transition:opacity .2s,transform .15s,box-shadow .2s;box-shadow:0 4px 24px #a855f740,0 0 40px #7c3aed20}
-button[type=submit]:hover{opacity:.94;transform:translateY(-2px);box-shadow:0 8px 32px #a855f755,0 0 60px #7c3aed28}
-button[type=submit]:active{transform:translateY(0);box-shadow:0 2px 12px #a855f730}
-.error{background:#ff333312;border:1px solid #ff333335;color:#ff6666;font-size:12px;padding:10px 14px;border-radius:10px;margin-bottom:16px;animation:shake .4s ease}
-@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
-</style></head><body>
-<canvas id="spiralCanvas"></canvas>
-<div class="card">
-  <span class="lock">🔐</span>
-  <div class="brand">AC Auth <span>Backend</span></div>
-  <div class="byline">Made by Lunar3HP</div>
-  ${req.query.err ? '<div class="error">Invalid username or password.</div>' : ''}
-  <form method="POST" action="/do-login">
-    <div class="field"><input type="text" name="username" placeholder="Username" autocomplete="off" required></div>
-    <div class="field"><input type="password" name="password" placeholder="Password" required></div>
-    <button type="submit">Sign In</button>
-  </form>
+html,body{height:100%;overflow:hidden}
+body{font-family:'Inter',sans-serif;background:#020409;display:flex;align-items:center;justify-content:center}
+#bg{position:fixed;inset:0;z-index:0}
+.wrap{position:relative;z-index:2;width:400px}
+.glass{background:rgba(8,14,28,0.72);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,210,255,0.15);border-radius:24px;padding:48px 44px;box-shadow:0 0 0 1px rgba(0,210,255,0.05),0 32px 80px rgba(0,0,0,0.7),0 0 120px rgba(0,170,255,0.06);text-align:center}
+.glass::before{content:'';position:absolute;inset:0;border-radius:24px;background:linear-gradient(135deg,rgba(0,210,255,0.04) 0%,transparent 50%);pointer-events:none}
+.logo-ring{width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#00d2ff22,#0066ff22);border:1px solid rgba(0,210,255,0.25);display:flex;align-items:center;justify-content:center;margin:0 auto 22px;position:relative;animation:pulse-ring 3s ease-in-out infinite}
+.logo-ring::before{content:'';position:absolute;inset:-6px;border-radius:50%;border:1px solid rgba(0,210,255,0.1);animation:pulse-ring 3s ease-in-out infinite 0.5s}
+@keyframes pulse-ring{0%,100%{box-shadow:0 0 0 0 rgba(0,210,255,0.15)}50%{box-shadow:0 0 0 8px rgba(0,210,255,0)}}
+.logo-icon{font-size:30px;filter:drop-shadow(0 0 12px rgba(0,210,255,0.6))}
+.brand{font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.5px;margin-bottom:3px}
+.brand em{font-style:normal;background:linear-gradient(90deg,#00d2ff,#0066ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:11px;color:rgba(0,210,255,0.45);letter-spacing:3px;text-transform:uppercase;font-weight:600;margin-bottom:36px}
+.field{position:relative;margin-bottom:12px}
+.field input{width:100%;background:rgba(0,20,40,0.6);color:#e8f4ff;border:1px solid rgba(0,210,255,0.12);border-radius:12px;padding:14px 16px;font-family:'Inter',sans-serif;font-size:13px;outline:none;transition:all .25s;letter-spacing:0.2px}
+.field input::placeholder{color:rgba(100,150,200,0.35)}
+.field input:focus{border-color:rgba(0,210,255,0.4);background:rgba(0,25,50,0.8);box-shadow:0 0 0 3px rgba(0,210,255,0.08),0 0 20px rgba(0,210,255,0.06)}
+.btn-login{width:100%;margin-top:6px;padding:15px;background:linear-gradient(135deg,#00aaff,#0055ff);border:none;border-radius:12px;color:#fff;font-family:'Inter',sans-serif;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:0.3px;transition:all .2s;box-shadow:0 4px 24px rgba(0,120,255,0.35),0 0 40px rgba(0,170,255,0.15)}
+.btn-login:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,120,255,0.5),0 0 60px rgba(0,170,255,0.2)}
+.btn-login:active{transform:translateY(0)}
+.err{background:rgba(255,50,50,0.1);border:1px solid rgba(255,50,50,0.25);color:#ff7777;font-size:12px;padding:10px 14px;border-radius:10px;margin-bottom:14px;animation:shake .4s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%,75%{transform:translateX(-5px)}50%{transform:translateX(5px)}}
+</style>
+</head><body>
+<canvas id="bg"></canvas>
+<div class="wrap">
+  <div class="glass">
+    <div class="logo-ring"><span class="logo-icon">⚡</span></div>
+    <div class="brand">AC Auth <em>Backend</em></div>
+    <div class="sub">Made by Lunar3HP</div>
+    ${req.query.err ? '<div class="err">Invalid credentials. Try again.</div>' : ''}
+    <form method="POST" action="/do-login">
+      <div class="field"><input type="text" name="username" placeholder="Username" autocomplete="off" required></div>
+      <div class="field"><input type="password" name="password" placeholder="Password" required></div>
+      <button class="btn-login" type="submit">Sign In →</button>
+    </form>
+  </div>
 </div>
 <script>
 (function(){
-  const canvas = document.getElementById('spiralCanvas');
+  const canvas = document.getElementById('bg');
   const ctx = canvas.getContext('2d');
-  let W, H, cx, cy;
-  function resize(){
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-    cx = W / 2; cy = H / 2;
-  }
-  resize();
-  window.addEventListener('resize', resize);
+  let W, H, t = 0;
+  let mx = -1, my = -1, smx = 0, smy = 0;
 
-  let mouse = { x: W/2, y: H/2 };
-  let smooth = { x: W/2, y: H/2 };
-  let influence = 0;
+  function resize(){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+  resize(); window.addEventListener('resize', resize);
+  document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
 
-  document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  // Aurora nodes
+  const nodes = Array.from({length: 6}, (_, i) => ({
+    x: Math.random(), y: Math.random(),
+    vx: (Math.random()-0.5)*0.0003, vy: (Math.random()-0.5)*0.0003,
+    r: 280 + Math.random()*180,
+    h: [190,210,220,200,180,215][i],
+  }));
 
-  function warp(px, py) {
-    const dx = smooth.x - px, dy = smooth.y - py;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const R = 200;
-    if (dist < R) {
-      const s = (1 - dist/R) * (1 - dist/R) * influence * 75;
-      px += (dx/(dist+0.5))*s; py += (dy/(dist+0.5))*s;
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    // Dark base
+    ctx.fillStyle = '#020409';
+    ctx.fillRect(0,0,W,H);
+
+    if(mx >= 0){ smx += (mx - smx)*0.04; smy += (my - smy)*0.04; }
+    else { smx = W/2; smy = H/2; }
+
+    // Update nodes
+    nodes.forEach(n => {
+      n.x += n.vx + Math.sin(t*0.007 + n.h)*0.0001;
+      n.y += n.vy + Math.cos(t*0.009 + n.h)*0.0001;
+      if(n.x < 0||n.x > 1) n.vx *= -1;
+      if(n.y < 0||n.y > 1) n.vy *= -1;
+    });
+
+    // Mouse influence node
+    const mnx = smx/W, mny = smy/H;
+
+    // Draw aurora blobs
+    nodes.forEach(n => {
+      const dx = mnx - n.x, dy = mny - n.y;
+      const dist = Math.sqrt(dx*dx+dy*dy);
+      const pull = Math.max(0, 1 - dist/0.6);
+      const nx = n.x + dx*pull*0.18;
+      const ny = n.y + dy*pull*0.18;
+
+      const grd = ctx.createRadialGradient(nx*W, ny*H, 0, nx*W, ny*H, n.r*(1+pull*0.3));
+      grd.addColorStop(0, \`hsla(\${n.h},100%,60%,0.07)\`);
+      grd.addColorStop(0.5, \`hsla(\${n.h+15},90%,50%,0.03)\`);
+      grd.addColorStop(1, 'transparent');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0,0,W,H);
+    });
+
+    // Grid lines
+    ctx.save();
+    const gs = 60;
+    const ox = (smx*0.02) % gs;
+    const oy = (smy*0.02) % gs;
+    ctx.strokeStyle = 'rgba(0,180,255,0.03)';
+    ctx.lineWidth = 0.5;
+    for(let x = -gs+ox; x < W+gs; x+=gs){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
     }
-    return [px, py];
-  }
+    for(let y = -gs+oy; y < H+gs; y+=gs){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    }
+    ctx.restore();
 
-  function draw(t) {
-    ctx.clearRect(0, 0, W, H);
-    smooth.x += (mouse.x - smooth.x) * 0.06;
-    smooth.y += (mouse.y - smooth.y) * 0.06;
-    influence += (1 - influence) * 0.03; // always on for login — always warping slightly
-
-    const maxR = Math.min(W, H) * 0.72;
-    const slowT = t * 0.006;
-    const arms = 2, turns = 5.5, steps = 1200;
-
-    // Faint radial spokes
-    for (let i = 0; i < 28; i++) {
-      const angle = (i/28)*Math.PI*2 + slowT*0.3;
+    // Floating particles
+    for(let i=0; i<40; i++){
+      const px = ((i*137.5 + t*0.08*(i%3===0?1:-1)) % W + W) % W;
+      const py = ((i*97.3 + t*0.05) % H + H) % H;
+      const a = 0.15 + 0.1*Math.sin(t*0.02+i);
       ctx.beginPath();
-      let first = true;
-      for (let r = 4; r <= maxR; r += 5) {
-        let [px,py] = warp(cx + Math.cos(angle)*r, cy + Math.sin(angle)*r);
-        first ? (ctx.moveTo(px,py), first=false) : ctx.lineTo(px,py);
-      }
-      ctx.strokeStyle = i%4===0 ? \`rgba(150,50,230,0.09)\` : \`rgba(120,30,200,0.04)\`;
-      ctx.lineWidth = i%4===0 ? 0.6 : 0.35;
-      ctx.stroke();
+      ctx.arc(px, py, 1, 0, Math.PI*2);
+      ctx.fillStyle = \`rgba(\${i%2?0:30},\${150+i%80},255,\${a})\`;
+      ctx.fill();
     }
 
-    // Spiral arms
-    for (let arm = 0; arm < arms; arm++) {
-      const offset = (arm/arms)*Math.PI*2;
-      ctx.beginPath();
-      let first = true;
-      for (let i = 0; i <= steps; i++) {
-        const frac = i/steps;
-        const angle = frac*turns*Math.PI*2 + offset + slowT;
-        let [px,py] = warp(cx + Math.cos(angle)*frac*maxR, cy + Math.sin(angle)*frac*maxR);
-        first ? (ctx.moveTo(px,py), first=false) : ctx.lineTo(px,py);
-      }
-      ctx.strokeStyle = \`rgba(180,60,255,0.07)\`;
-      ctx.lineWidth = 9;
-      ctx.stroke();
-      ctx.strokeStyle = \`rgba(168,85,247,0.30)\`;
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-    }
-
-    requestAnimationFrame(() => draw(t+1));
+    t++;
+    requestAnimationFrame(draw);
   }
-  draw(0);
+  draw();
 })();
 </script>
 </body></html>`);
@@ -245,7 +259,8 @@ app.post("/logout", (req, res) => {
   res.redirect("/login");
 });
 
-// ── UI ─────────────────────────────────────────────────────────────────────────
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 
 app.get("/", (req, res) => {
   const total = Object.keys(sessions).length;
@@ -260,60 +275,75 @@ app.get("/", (req, res) => {
     const now = Math.floor(Date.now() / 1000);
     const tokenSecs = Math.max(0, tokenExp - now);
     const refreshSecs = Math.max(0, refreshExp - now);
+    const pct = (v, max) => Math.min(100, v/max*100).toFixed(1);
     return `
-<div class="card" id="card-${s.id}">
+<div class="card ${expired ? 'card-dead' : 'card-alive'}" id="card-${s.id}">
   <div class="card-header">
-    <div class="status-dot ${expired ? 'red' : 'green'}"></div>
+    <div class="status-badge ${expired ? 'dead' : 'alive'}">${expired ? 'EXPIRED' : 'ACTIVE'}</div>
     <span class="session-name">${escHtml(s.name || s.id)}</span>
-    <button class="btn-sm" onclick="copyText('${s.id}')">Copy ID</button>
-    <button class="btn-sm" onclick="copyText('${connUrl}')">Copy URL</button>
-  </div>
-  <div class="card-meta">
-    <b>ID</b><code class="hideable">${s.id}</code>
-    <b>URL</b><code class="hideable">${connUrl}</code>
-    <b>Connections</b><span style="color:#e0e0e0">${s.connections || 0}</span>
-  </div>
-  <div class="timer-row">
-    <div class="timer-box">
-      <div class="timer-label">Token expires</div>
-      <div class="timer-value ${tokenSecs < 300 ? 'warn' : ''}" id="tk-${s.id}" data-secs="${tokenSecs}" data-max="3600">${timeLeft(s.token)}</div>
-      <div class="timer-bar"><div class="timer-fill ${tokenSecs < 300 ? 'warn' : ''}" id="tb-${s.id}" style="width:${Math.min(100, tokenSecs/3600*100).toFixed(1)}%"></div></div>
-    </div>
-    <div class="timer-box">
-      <div class="timer-label">Refresh expires</div>
-      <div class="timer-value" id="rk-${s.id}" data-secs="${refreshSecs}" data-max="21600">${timeLeft(s.refresh_token)}</div>
-      <div class="timer-bar"><div class="timer-fill" id="rb-${s.id}" style="width:${Math.min(100, refreshSecs/21600*100).toFixed(1)}%"></div></div>
+    <div class="hdr-actions">
+      <button class="icon-btn" onclick="copyText('${s.id}')" title="Copy ID">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        ID
+      </button>
+      <button class="icon-btn" onclick="copyText('${connUrl}')" title="Copy URL">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+        URL
+      </button>
     </div>
   </div>
+
+  <div class="meta-grid">
+    <span class="meta-k">ID</span><code class="meta-v hideable">${s.id}</code>
+    <span class="meta-k">Endpoint</span><code class="meta-v hideable" style="font-size:9px">${connUrl}</code>
+    <span class="meta-k">Connections</span><span class="meta-v conns">${s.connections || 0}</span>
+  </div>
+
+  <div class="timers">
+    <div class="timer-block">
+      <div class="timer-label">Token</div>
+      <div class="timer-val ${tokenSecs < 300 ? 'warn' : ''}" id="tk-${s.id}" data-secs="${tokenSecs}" data-max="3600">${timeLeft(s.token)}</div>
+      <div class="tbar"><div class="tfill ${tokenSecs < 300 ? 'warn' : ''}" id="tb-${s.id}" style="width:${pct(tokenSecs,3600)}%"></div></div>
+    </div>
+    <div class="timer-block">
+      <div class="timer-label">Refresh</div>
+      <div class="timer-val" id="rk-${s.id}" data-secs="${refreshSecs}" data-max="21600">${timeLeft(s.refresh_token)}</div>
+      <div class="tbar"><div class="tfill" id="rb-${s.id}" style="width:${pct(refreshSecs,21600)}%"></div></div>
+    </div>
+  </div>
+
   <div class="token-section">
-    <div class="token-row">
-      <span class="token-label">Token</span>
-      <div class="token-box">${escHtml(s.token || "")}</div>
+    <div class="tok-row">
+      <span class="tok-lbl">Token</span>
+      <div class="tok-box hideable">${escHtml(s.token||"—")}</div>
     </div>
-    <div class="token-row">
-      <span class="token-label">Refresh Token</span>
-      <div class="token-box">${escHtml(s.refresh_token || "")}</div>
+    <div class="tok-row">
+      <span class="tok-lbl">Refresh</span>
+      <div class="tok-box hideable">${escHtml(s.refresh_token||"—")}</div>
     </div>
   </div>
-  <div class="card-actions">
-    <div class="update-form" style="width:100%">
+
+  <div class="card-footer">
+    <div class="update-block">
       <form method="POST" action="/session/${s.id}/update">
         <input type="hidden" name="_from" value="ui">
-        <textarea name="token" placeholder="Token" rows="2">${escHtml(s.token || "")}</textarea>
-        <textarea name="refresh_token" placeholder="Refresh Token" rows="2">${escHtml(s.refresh_token || "")}</textarea>
-        <button type="submit" class="btn btn-green" style="font-size:11px;padding:7px 14px">Update Tokens</button>
+        <textarea name="token" placeholder="Paste new token…" rows="2">${escHtml(s.token||"")}</textarea>
+        <textarea name="refresh_token" placeholder="Paste new refresh token…" rows="2">${escHtml(s.refresh_token||"")}</textarea>
+        <button type="submit" class="btn btn-teal btn-sm">↑ Update Tokens</button>
       </form>
     </div>
-    <form method="POST" action="/session/${s.id}/refresh" style="display:inline">
-      <button type="submit" class="btn btn-orange">🔄 Refresh</button>
-    </form>
-    <form method="POST" action="/session/${s.id}/rename" class="rename-form" style="display:inline;display:flex;gap:6px;align-items:center">
-      <input name="name" placeholder="New name...">
-      <button type="submit" class="btn btn-ghost">Rename</button>
-    </form>
-    <form method="POST" action="/session/${s.id}/delete" style="display:inline" onsubmit="return confirm('Delete this session?')">
-      <button type="submit" class="btn btn-red">Delete</button>
-    </form>
+    <div class="footer-actions">
+      <form method="POST" action="/session/${s.id}/refresh" style="display:inline">
+        <button type="submit" class="btn btn-amber btn-sm">⟳ Refresh</button>
+      </form>
+      <form method="POST" action="/session/${s.id}/rename" class="rename-wrap" style="display:inline-flex;gap:6px;align-items:center">
+        <input name="name" placeholder="Rename…" class="rename-input">
+        <button type="submit" class="btn btn-ghost btn-sm">→</button>
+      </form>
+      <form method="POST" action="/session/${s.id}/delete" style="display:inline" onsubmit="return confirm('Delete session: ${escHtml(s.name||s.id)}?')">
+        <button type="submit" class="btn btn-danger btn-sm">✕ Delete</button>
+      </form>
+    </div>
   </div>
 </div>`;
   }).join("\n");
@@ -322,125 +352,157 @@ app.get("/", (req, res) => {
 <html><head>
 <title>AC Auth Backend</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--green:#a855f7;--green-dim:#a855f744;--green-glow:#a855f720;--bg:#050508;--bg1:#0b0b10;--bg2:#0f0f16;--bg3:#13131c;--border:#ffffff0f;--border-bright:#a855f728;--text:#e0e0e0;--muted:#4a4a5a;--warn:#ff9500;--danger:#ff3b30}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);padding:0 0 60px;max-width:980px;margin:0 auto;min-height:100vh;position:relative;z-index:1}
-body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;height:500px;background:radial-gradient(ellipse 60% 30% at 50% 0%,#7c3aed10,transparent 70%);pointer-events:none;z-index:0}
+:root{
+  --c0:#020409;--c1:#060d1a;--c2:#090f1f;--c3:#0c1428;
+  --teal:#00d2ff;--teal2:#0099dd;--teal-dim:rgba(0,210,255,0.12);--teal-glow:rgba(0,210,255,0.06);
+  --blue:#0066ff;--blue-dim:rgba(0,100,255,0.15);
+  --amber:#ffaa00;--danger:#ff3b30;--green:#00e676;
+  --border:rgba(0,210,255,0.08);--border-hi:rgba(0,210,255,0.22);
+  --text:#d0e8ff;--muted:rgba(100,160,220,0.45);--mono:'JetBrains Mono',monospace;
+}
+html,body{min-height:100%;background:var(--c0)}
+body{font-family:'Inter',sans-serif;color:var(--text);position:relative}
 
-/* ── HEADER ── */
-.header{position:relative;z-index:1;text-align:center;padding:32px 24px 24px;border-bottom:1px solid var(--border)}
-.header-brand{font-size:26px;font-weight:900;color:#fff;letter-spacing:-0.5px;line-height:1}
-.header-brand span{color:var(--green)}
-.header-byline{display:inline-block;margin-top:8px;font-size:11px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:var(--green);background:var(--green-glow);border:1px solid var(--green-dim);border-radius:100px;padding:4px 16px}
-.header-right{position:absolute;right:24px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:10px}
-.clock{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* BG Canvas */
+#bgCanvas{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:0}
 
-/* ── STATS ── */
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:20px 24px 0;position:relative;z-index:1}
-.stats-wrapper{position:relative;overflow:visible}
-#spiralCanvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0;opacity:1}
-.stat{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}
-.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#8b5cf6,transparent)}
-.stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:6px}
-.stat-value{font-size:28px;font-weight:900;color:#a78bfa;line-height:1}
+/* Layout */
+.page{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:0 0 80px}
 
-/* ── TOOLBAR ── */
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;padding:16px 24px;align-items:center}
-.search-bar{background:var(--bg2);color:#fff;border:1px solid var(--border);padding:9px 14px;font-family:'Inter',sans-serif;font-size:12px;width:220px;border-radius:10px;outline:none;transition:border-color .2s}
-.search-bar:focus{border-color:var(--border-bright)}
-.search-bar::placeholder{color:var(--muted)}
-.btn{border:none;padding:9px 16px;cursor:pointer;font-weight:600;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:opacity .15s,transform .1s;letter-spacing:0.2px}
-.btn:hover{opacity:.88;transform:translateY(-1px)}
+/* Header */
+.hdr{display:flex;align-items:center;gap:16px;padding:20px 28px;border-bottom:1px solid var(--border);background:rgba(2,4,9,0.6);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}
+.hdr-logo{width:36px;height:36px;background:linear-gradient(135deg,var(--teal),var(--blue));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 0 20px rgba(0,150,255,0.3)}
+.hdr-title{font-size:17px;font-weight:900;color:#fff;letter-spacing:-0.3px}
+.hdr-title em{font-style:normal;color:var(--teal)}
+.hdr-badge{font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--teal);background:var(--teal-glow);border:1px solid var(--teal-dim);border-radius:100px;padding:3px 12px;margin-left:4px}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.clock-pill{font-size:11px;color:var(--muted);background:var(--c2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:24px 28px 0}
+.stat{background:linear-gradient(135deg,rgba(0,210,255,0.04),rgba(0,100,255,0.02));border:1px solid var(--border);border-radius:16px;padding:18px 20px;position:relative;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:0.4}
+.stat:hover{border-color:var(--border-hi);box-shadow:0 0 30px rgba(0,210,255,0.06)}
+.stat-lbl{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);font-weight:700;margin-bottom:8px}
+.stat-val{font-size:32px;font-weight:900;background:linear-gradient(135deg,#00d2ff,#5599ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1;font-variant-numeric:tabular-nums}
+
+/* Toolbar */
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:16px 28px}
+.search{background:var(--c2);color:var(--text);border:1px solid var(--border);padding:10px 16px;font-family:'Inter',sans-serif;font-size:12px;width:240px;border-radius:12px;outline:none;transition:all .2s}
+.search:focus{border-color:var(--border-hi);background:var(--c3);box-shadow:0 0 0 3px var(--teal-glow)}
+.search::placeholder{color:var(--muted)}
+
+/* Buttons */
+.btn{border:none;padding:9px 16px;cursor:pointer;font-weight:600;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:0.2px;white-space:nowrap}
+.btn:hover{transform:translateY(-1px)}
 .btn:active{transform:translateY(0)}
-.btn-green{background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff}
-.btn-orange{background:linear-gradient(135deg,#ff9500,#e08000);color:#000}
-.btn-red{background:linear-gradient(135deg,#ff3b30,#cc2020);color:#fff}
-.btn-blue{background:linear-gradient(135deg,#0a84ff,#006ee0);color:#fff}
-.btn-ghost{background:var(--bg2);color:var(--green);border:1px solid var(--border-bright)}
-.btn-ghost.active{background:var(--green-dim);color:#fff}
-.btn-sm{background:var(--bg3);color:var(--green);border:1px solid var(--border);padding:4px 10px;cursor:pointer;font-size:10px;border-radius:7px;font-family:'Inter',sans-serif;font-weight:500;transition:opacity .15s}
-.btn-sm:hover{opacity:.8}
+.btn-sm{padding:7px 12px;font-size:11px;border-radius:8px}
+.btn-teal{background:linear-gradient(135deg,var(--teal),var(--blue));color:#000;font-weight:700;box-shadow:0 4px 16px rgba(0,150,255,0.25)}
+.btn-teal:hover{box-shadow:0 6px 24px rgba(0,150,255,0.4)}
+.btn-amber{background:linear-gradient(135deg,#ffaa00,#ff7700);color:#000;font-weight:700}
+.btn-danger{background:linear-gradient(135deg,#ff3b30,#cc2020);color:#fff}
+.btn-ghost{background:var(--c2);color:var(--teal);border:1px solid var(--border-hi)}
+.btn-ghost:hover{background:var(--teal-dim)}
+.btn-ghost.on{background:var(--teal-dim);color:#fff}
+.btn-blue-out{background:transparent;color:var(--teal);border:1px solid var(--border-hi)}
+.btn-blue-out:hover{background:var(--teal-glow)}
 
-/* ── CREATE FORM ── */
-.create-panel{margin:0 24px 10px;background:var(--bg2);border:1px solid var(--border-bright);border-radius:14px;padding:20px;display:none}
-.create-panel label{display:block;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:5px;text-transform:uppercase}
-.create-panel input,.create-panel textarea{background:var(--bg3);color:#fff;border:1px solid var(--border);padding:9px 12px;font-family:'Inter',monospace;font-size:11px;width:100%;margin-bottom:12px;border-radius:9px;outline:none;resize:vertical;transition:border-color .2s}
-.create-panel input:focus,.create-panel textarea:focus{border-color:var(--border-bright)}
+/* Create panel */
+.create-panel{margin:0 28px 12px;background:rgba(0,20,50,0.5);border:1px solid var(--border-hi);border-radius:16px;padding:22px;display:none;backdrop-filter:blur(8px)}
+.create-panel label{display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.create-panel input,.create-panel textarea{background:var(--c3);color:#fff;border:1px solid var(--border);padding:9px 12px;font-family:var(--mono);font-size:11px;width:100%;margin-bottom:12px;border-radius:9px;outline:none;resize:vertical;transition:border-color .2s}
+.create-panel input:focus,.create-panel textarea:focus{border-color:var(--border-hi)}
 
-/* ── CARDS ── */
-#cards{padding:0 24px}
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:18px 20px;margin-bottom:12px;transition:border-color .2s}
-.card:hover{border-color:#ffffff18}
+/* Cards */
+#cards{padding:0 28px;display:flex;flex-direction:column;gap:12px}
+.card{background:rgba(6,13,26,0.7);border:1px solid var(--border);border-radius:18px;padding:20px 22px;backdrop-filter:blur(8px);transition:all .25s;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;opacity:0}
+.card-alive::before{background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:0.5}
+.card-dead::before{background:linear-gradient(90deg,transparent,var(--danger),transparent);opacity:0.4}
+.card:hover{border-color:rgba(0,210,255,0.18);box-shadow:0 8px 40px rgba(0,0,0,0.4),0 0 30px rgba(0,210,255,0.04)}
+
 .card-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.status-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.status-dot.green{background:#a855f7;box-shadow:0 0 8px #a855f788}
-.status-dot.red{background:var(--danger);box-shadow:0 0 8px #ff3b3066}
-.session-name{flex:1;font-size:15px;font-weight:700;color:#fff}
-.card-meta{font-size:11px;color:var(--muted);margin-bottom:12px;line-height:2;display:grid;grid-template-columns:auto 1fr;gap:0 10px}
-.card-meta b{color:#666;font-weight:500}
-.card-meta code{color:var(--green);font-size:10px;word-break:break-all}
+.status-badge{font-size:8px;font-weight:800;letter-spacing:2px;padding:3px 9px;border-radius:100px;flex-shrink:0}
+.status-badge.alive{background:rgba(0,210,255,0.12);color:var(--teal);border:1px solid rgba(0,210,255,0.25)}
+.status-badge.dead{background:rgba(255,59,48,0.1);color:var(--danger);border:1px solid rgba(255,59,48,0.2)}
+.session-name{flex:1;font-size:15px;font-weight:800;color:#fff}
+.hdr-actions{display:flex;gap:5px}
+.icon-btn{background:var(--c3);color:var(--teal);border:1px solid var(--border);padding:5px 9px;border-radius:7px;font-size:10px;font-family:'Inter',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;transition:all .15s}
+.icon-btn:hover{border-color:var(--border-hi);background:var(--teal-dim)}
 
-/* ── TIMERS ── */
-.timer-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-.timer-box{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
-.timer-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:5px}
-.timer-value{font-size:20px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums;line-height:1}
-.timer-value.warn{color:var(--warn)}
-.timer-bar{height:3px;background:#ffffff0a;border-radius:2px;margin-top:7px}
-.timer-fill{height:3px;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,#8b5cf6,#c084fc)}
-.timer-fill.warn{background:linear-gradient(90deg,var(--warn),#ffb340)}
+.meta-grid{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin-bottom:14px;font-size:10px;line-height:2.1}
+.meta-k{color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;white-space:nowrap}
+.meta-v{color:var(--text);font-family:var(--mono);word-break:break-all}
+.conns{color:var(--teal);font-weight:700;font-size:12px}
 
-/* ── TOKEN BOXES ── */
-.token-section{margin-bottom:10px}
-.token-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
-.token-label{font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;min-width:90px}
-.token-box{flex:1;background:var(--bg1);border:1px solid var(--border);padding:6px 10px;font-size:10px;word-break:break-all;color:#3a3a4a;border-radius:8px;font-family:monospace;line-height:1.4;transition:filter .3s,color .3s}
-.token-box.hidden-tok{filter:blur(5px);user-select:none;pointer-events:none}
-.hideable.hidden-tok{filter:blur(5px);user-select:none;pointer-events:none}
-.token-box.hidden-tok *{user-select:none}
+/* Timers */
+.timers{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.timer-block{background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.timer-label{font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);font-weight:700;margin-bottom:6px}
+.timer-val{font-size:22px;font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums;line-height:1;margin-bottom:8px;font-family:var(--mono)}
+.timer-val.warn{color:var(--amber)}
+.tbar{height:3px;background:rgba(255,255,255,0.05);border-radius:2px}
+.tfill{height:3px;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,#0066ff,#00d2ff)}
+.tfill.warn{background:linear-gradient(90deg,#ff7700,#ffaa00)}
 
-/* ── ACTIONS ── */
-.card-actions{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start}
-.update-form{width:100%;background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:6px}
-.update-form textarea{background:var(--bg3);color:#fff;border:1px solid var(--border);padding:7px 10px;font-family:monospace;font-size:10px;width:100%;margin-bottom:6px;border-radius:7px;resize:vertical;outline:none;transition:border-color .2s}
-.update-form textarea:focus{border-color:var(--border-bright)}
-.rename-form input{background:var(--bg3);color:#fff;border:1px solid var(--border);padding:7px 10px;font-family:'Inter',sans-serif;border-radius:8px;font-size:12px;outline:none;width:130px;transition:border-color .2s}
-.rename-form input:focus{border-color:var(--border-bright)}
+/* Tokens */
+.token-section{margin-bottom:14px}
+.tok-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
+.tok-lbl{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);white-space:nowrap;padding-top:4px;min-width:54px}
+.tok-box{flex:1;background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:6px 10px;font-size:9px;word-break:break-all;color:rgba(0,210,255,0.25);border-radius:8px;font-family:var(--mono);line-height:1.5;transition:all .3s}
+.tok-box.blur-tok,.hideable.blur-tok{filter:blur(5px);user-select:none}
+
+/* Card footer */
+.card-footer{border-top:1px solid var(--border);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.update-block{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:10px;padding:12px}
+.update-block textarea{background:var(--c3);color:#cde;border:1px solid var(--border);padding:7px 10px;font-family:var(--mono);font-size:9px;width:100%;margin-bottom:6px;border-radius:7px;resize:vertical;outline:none;transition:border-color .2s}
+.update-block textarea:focus{border-color:var(--border-hi)}
+.footer-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rename-wrap{display:inline-flex;gap:5px;align-items:center}
+.rename-input{background:var(--c3);color:#fff;border:1px solid var(--border);padding:7px 10px;border-radius:8px;font-family:'Inter',sans-serif;font-size:11px;outline:none;width:120px;transition:border-color .2s}
+.rename-input:focus{border-color:var(--border-hi)}
+
+/* Toast */
+.toast{position:fixed;bottom:28px;right:28px;background:rgba(0,210,255,0.12);border:1px solid rgba(0,210,255,0.3);color:var(--teal);padding:10px 18px;border-radius:12px;font-size:12px;font-weight:600;z-index:999;opacity:0;transform:translateY(8px);transition:all .25s;pointer-events:none;backdrop-filter:blur(8px)}
+.toast.show{opacity:1;transform:translateY(0)}
 </style>
 </head><body>
+<canvas id="bgCanvas"></canvas>
+<div class="page">
 
-<div class="header">
-  <div class="header-brand">AC Auth <span>Backend</span></div>
-  <div><span class="header-byline">✦ Made by Lunar3HP ✦</span></div>
-  <div class="header-right">
-    <span class="clock" id="clock"></span>
+<div class="hdr">
+  <div class="hdr-logo">⚡</div>
+  <div>
+    <div class="hdr-title">AC Auth <em>Backend</em></div>
+  </div>
+  <span class="hdr-badge">✦ Lunar3HP ✦</span>
+  <div class="hdr-right">
+    <span class="clock-pill" id="clock"></span>
     <form method="POST" action="/logout" style="display:inline">
-      <button type="submit" class="btn btn-red" style="padding:7px 14px;font-size:11px">Logout</button>
+      <button type="submit" class="btn btn-ghost btn-sm">Sign Out</button>
     </form>
   </div>
 </div>
 
-<div class="stats-wrapper">
-  <canvas id="spiralCanvas"></canvas>
-  <div class="stats">
-    <div class="stat"><div class="stat-label">Total Sessions</div><div class="stat-value">${total}</div></div>
-    <div class="stat"><div class="stat-label">Active</div><div class="stat-value">${active}</div></div>
-    <div class="stat"><div class="stat-label">Connections</div><div class="stat-value">${totalConns}</div></div>
-  </div>
+<div class="stats">
+  <div class="stat"><div class="stat-lbl">Sessions</div><div class="stat-val">${total}</div></div>
+  <div class="stat"><div class="stat-lbl">Active</div><div class="stat-val">${active}</div></div>
+  <div class="stat"><div class="stat-lbl">Connections</div><div class="stat-val">${totalConns}</div></div>
 </div>
 
 <div class="toolbar">
-  <input class="search-bar" type="text" placeholder="🔍  Search sessions..." oninput="filterCards(this.value)">
-  <button class="btn btn-green" onclick="toggleCreate()">+ New Session</button>
+  <input class="search" type="text" placeholder="⌕  Search sessions…" oninput="filterCards(this.value)">
+  <button class="btn btn-teal" onclick="toggleCreate()">+ New Session</button>
   <form method="POST" action="/refresh-all" style="display:inline">
-    <button type="submit" class="btn btn-orange">🔄 Refresh All</button>
+    <button type="submit" class="btn btn-amber">⟳ Refresh All</button>
   </form>
   <form method="POST" action="/clean-duplicates" style="display:inline">
-    <button type="submit" class="btn btn-blue">🧹 Clean Dupes</button>
+    <button type="submit" class="btn btn-blue-out">🧹 Clean Dupes</button>
   </form>
-  <button id="hideToggle" class="btn btn-ghost" onclick="toggleHideTokens()" title="Blur tokens for privacy">🔒 Hide Tokens</button>
+  <button id="blurToggle" class="btn btn-ghost" onclick="toggleBlur()">🔒 Hide Tokens</button>
 </div>
 
 <div id="create-panel" class="create-panel">
@@ -448,192 +510,155 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
     <label>Name (optional)</label>
     <input name="name" placeholder="e.g. MyAccount">
     <label>Token</label>
-    <textarea name="token" rows="2" placeholder="Paste token..."></textarea>
+    <textarea name="token" rows="2" placeholder="Paste token…"></textarea>
     <label>Refresh Token</label>
-    <textarea name="refresh_token" rows="2" placeholder="Paste refresh_token..."></textarea>
-    <button type="submit" class="btn btn-green">Create Session</button>
+    <textarea name="refresh_token" rows="2" placeholder="Paste refresh token…"></textarea>
+    <button type="submit" class="btn btn-teal">Create Session</button>
   </form>
 </div>
 
 <div id="cards">${cards}</div>
 
-<script>
-let tokensHidden = false;
+</div>
+<div class="toast" id="toast">Copied!</div>
 
-function toggleHideTokens(){
-  tokensHidden = !tokensHidden;
-  document.querySelectorAll('.token-box, .hideable').forEach(el=>{
-    el.classList.toggle('hidden-tok', tokensHidden);
-  });
-  // also blur the update textareas
-  document.querySelectorAll('.update-form textarea').forEach(el=>{
-    el.style.filter = tokensHidden ? 'blur(5px)' : '';
-    el.style.userSelect = tokensHidden ? 'none' : '';
-  });
-  const btn = document.getElementById('hideToggle');
-  btn.textContent = tokensHidden ? '🔓 Show All' : '🔒 Hide All';
-  btn.classList.toggle('active', tokensHidden);
+<script>
+let blurred = false;
+
+function toggleBlur(){
+  blurred = !blurred;
+  document.querySelectorAll('.tok-box, .hideable').forEach(el => el.classList.toggle('blur-tok', blurred));
+  document.querySelectorAll('.update-block textarea').forEach(el => { el.style.filter = blurred ? 'blur(5px)' : ''; el.style.userSelect = blurred ? 'none' : ''; });
+  const btn = document.getElementById('blurToggle');
+  btn.textContent = blurred ? '🔓 Show Tokens' : '🔒 Hide Tokens';
+  btn.classList.toggle('on', blurred);
 }
 
-function copyText(t){navigator.clipboard.writeText(t)}
-function filterCards(q){document.querySelectorAll('.card').forEach(c=>{c.style.display=c.innerText.toLowerCase().includes(q.toLowerCase())?'':'none'})}
-function toggleCreate(){const f=document.getElementById('create-panel');f.style.display=f.style.display==='none'||f.style.display===''?'block':'none'}
+function copyText(t){
+  navigator.clipboard.writeText(t);
+  const toast = document.getElementById('toast');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 1800);
+}
+
+function filterCards(q){
+  const lq = q.toLowerCase();
+  document.querySelectorAll('.card').forEach(c => { c.style.display = c.innerText.toLowerCase().includes(lq) ? '' : 'none'; });
+}
+
+function toggleCreate(){
+  const p = document.getElementById('create-panel');
+  p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+}
 
 function fmtSecs(s){
-  if(s<=0)return'EXPIRED';
-  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
-  if(h>0)return h+'h '+m+'m';
+  if(s<=0) return 'EXPIRED';
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  if(h>0) return h+'h '+m+'m';
   return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
 }
 
-setInterval(()=>{
-  document.querySelectorAll('.timer-value').forEach(el=>{
-    let s=parseInt(el.dataset.secs);
-    if(s>0){s--;el.dataset.secs=s;}
-    el.textContent=fmtSecs(s);
-    const max=parseInt(el.dataset.max)||3600;
-    const barId=el.id.replace('tk-','tb-').replace('rk-','rb-');
-    const bar=document.getElementById(barId);
-    if(bar){bar.style.width=Math.max(0,Math.min(100,s/max*100)).toFixed(1)+'%';}
-    if(s<300&&el.id.startsWith('tk-')){el.classList.add('warn');if(bar)bar.classList.add('warn');}
+setInterval(() => {
+  document.querySelectorAll('.timer-val').forEach(el => {
+    let s = parseInt(el.dataset.secs);
+    if(s > 0){ s--; el.dataset.secs = s; }
+    el.textContent = fmtSecs(s);
+    const max = parseInt(el.dataset.max) || 3600;
+    const barId = el.id.replace('tk-','tb-').replace('rk-','rb-');
+    const bar = document.getElementById(barId);
+    if(bar) bar.style.width = Math.max(0, Math.min(100, s/max*100)).toFixed(1)+'%';
+    if(s < 300 && el.id.startsWith('tk-')){ el.classList.add('warn'); if(bar) bar.classList.add('warn'); }
   });
-},1000);
+}, 1000);
 
-(function tick(){
-  document.getElementById('clock').textContent=new Date().toLocaleTimeString();
-  setTimeout(tick,1000);
-})();
+(function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString(); setTimeout(tick, 1000); })();
 
-// ── Spiral warp canvas ──────────────────────────────────────────────────────
+// ── Reactive aurora background ──────────────────────────────────────────────
 (function(){
-  const canvas = document.getElementById('spiralCanvas');
+  const canvas = document.getElementById('bgCanvas');
   const ctx = canvas.getContext('2d');
+  let W, H, t = 0;
+  let mx = -1, my = -1, smx, smy;
 
-  let W, H, cx, cy;
-  function resize() {
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-    cx = W / 2;
-    cy = H * 0.42; // center slightly above middle — lines up with stats/toolbar
-  }
-  resize();
-  window.addEventListener('resize', resize);
+  function resize(){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; if(smx===undefined){smx=W/2;smy=H/2;} }
+  resize(); window.addEventListener('resize', resize);
+  document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
 
-  let mouse = { x: -9999, y: -9999 };
-  let smoothMouse = { x: 0, y: 0 };
-  let influence = 0;
-  let hovering = false;
+  const nodes = [
+    {bx:0.15,by:0.2,h:195,r:380},{bx:0.8,by:0.1,h:215,r:320},
+    {bx:0.5,by:0.5,h:205,r:350},{bx:0.1,by:0.75,h:185,r:280},
+    {bx:0.85,by:0.8,h:220,r:300},{bx:0.45,by:0.15,h:200,r:260},
+  ];
 
-  document.addEventListener('mousemove', e => {
-    mouse.x = e.clientX;
-    mouse.y = e.clientY;
-    hovering = true;
-  });
-  document.addEventListener('mouseleave', () => { hovering = false; });
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#020409'; ctx.fillRect(0,0,W,H);
 
-  function warpPoint(px, py) {
-    if (influence < 0.005) return [px, py];
-    const dx = smoothMouse.x - px;
-    const dy = smoothMouse.y - py;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const pullRadius = 180;
-    if (dist < pullRadius) {
-      const f = (1 - dist / pullRadius);
-      const strength = f * f * influence * 70;
-      px += (dx / (dist + 0.5)) * strength;
-      py += (dy / (dist + 0.5)) * strength;
-    }
-    return [px, py];
-  }
+    if(mx >= 0){ smx += (mx-smx)*0.05; smy += (my-smy)*0.05; }
+    else { smx = W/2; smy = H*0.35; }
 
-  function drawSpiral(t) {
-    ctx.clearRect(0, 0, W, H);
+    nodes.forEach((n,i) => {
+      // Breathe position
+      const nx = (n.bx + Math.sin(t*0.004+i*1.3)*0.08) * W;
+      const ny = (n.by + Math.cos(t*0.005+i*0.9)*0.06) * H;
 
-    smoothMouse.x += (mouse.x - smoothMouse.x) * 0.06;
-    smoothMouse.y += (mouse.y - smoothMouse.y) * 0.06;
-    influence += ((hovering ? 1 : 0) - influence) * 0.035;
+      // Mouse pull
+      const dx = smx - nx, dy = smy - ny;
+      const dist = Math.sqrt(dx*dx+dy*dy);
+      const pull = Math.max(0, 1 - dist/(W*0.6));
+      const fx = nx + dx*pull*0.12;
+      const fy = ny + dy*pull*0.12;
 
-    const maxR = Math.min(W, H) * 0.72; // bigger — fills more of viewport
-    const slowT = t * 0.006;
+      const radius = n.r * (1 + pull*0.25) * (1 + 0.05*Math.sin(t*0.008+i));
 
-    // Number of spiral arms (like the reference image — 2 arms offset by PI)
-    const arms = 2;
-    // Total rotations per arm
-    const turns = 5.5;
+      const g = ctx.createRadialGradient(fx,fy,0,fx,fy,radius);
+      const a1 = 0.055 + pull*0.025;
+      const a2 = 0.022 + pull*0.01;
+      g.addColorStop(0, \`hsla(\${n.h},100%,60%,\${a1})\`);
+      g.addColorStop(0.45, \`hsla(\${n.h+20},90%,55%,\${a2})\`);
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,W,H);
+    });
 
-    for (let arm = 0; arm < arms; arm++) {
-      const armOffset = (arm / arms) * Math.PI * 2;
-      const totalAngle = turns * Math.PI * 2;
-      const steps = 1200;
+    // Subtle grid
+    const gs = 64;
+    ctx.strokeStyle = 'rgba(0,200,255,0.025)'; ctx.lineWidth = 0.5;
+    const gox = (smx*0.015)%gs, goy = (smy*0.015)%gs;
+    for(let x=-gs+gox; x<W+gs; x+=gs){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for(let y=-gs+goy; y<H+gs; y+=gs){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
-      ctx.beginPath();
-      let firstPt = true;
+    // Scan line shimmer
+    const scanY = ((t*0.8) % (H+100)) - 50;
+    const sg = ctx.createLinearGradient(0, scanY-30, 0, scanY+30);
+    sg.addColorStop(0,'transparent'); sg.addColorStop(0.5,'rgba(0,210,255,0.02)'); sg.addColorStop(1,'transparent');
+    ctx.fillStyle=sg; ctx.fillRect(0,scanY-30,W,60);
 
-      for (let i = 0; i <= steps; i++) {
-        const frac = i / steps;
-        const angle = frac * totalAngle + armOffset + slowT;
-        const r = frac * maxR;
-
-        let px = cx + Math.cos(angle) * r;
-        let py = cy + Math.sin(angle) * r;
-        [px, py] = warpPoint(px, py);
-
-        if (firstPt) { ctx.moveTo(px, py); firstPt = false; }
-        else ctx.lineTo(px, py);
-      }
-
-      // Gradient stroke: inner deep violet, outer lighter purple
-      // Use multiple passes with varying alpha to fake a gradient along the path
-      // Pass 1: glow
-      ctx.strokeStyle = \`rgba(180, 60, 255, 0.06)\`;
-      ctx.lineWidth = 8;
-      ctx.stroke();
-      // Pass 2: core line
-      ctx.strokeStyle = \`rgba(160, 40, 240, 0.28)\`;
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
+    // Particles
+    for(let i=0; i<50; i++){
+      const px = ((i*137.5 + t*(i%2?0.12:0.08)) % W + W) % W;
+      const py = ((i*73.1  + t*(i%3?0.06:0.09)) % H + H) % H;
+      const a = 0.08 + 0.07*Math.sin(t*0.03+i*0.7);
+      const sz = i%7===0 ? 1.5 : 0.8;
+      ctx.beginPath(); ctx.arc(px,py,sz,0,Math.PI*2);
+      ctx.fillStyle=\`rgba(\${i%3===0?0:20},\${130+i%100},255,\${a})\`;
+      ctx.fill();
     }
 
-    // Faint radial lines emanating from center — like spokes, very subtle
-    const lineCount = 28;
-    for (let i = 0; i < lineCount; i++) {
-      const angle = (i / lineCount) * Math.PI * 2 + slowT * 0.3;
-      ctx.beginPath();
-      let first = true;
-      for (let r = 4; r <= maxR; r += 5) {
-        let px = cx + Math.cos(angle) * r;
-        let py = cy + Math.sin(angle) * r;
-        [px, py] = warpPoint(px, py);
-        if (first) { ctx.moveTo(px, py); first = false; }
-        else ctx.lineTo(px, py);
-      }
-      const bright = i % 4 === 0;
-      ctx.strokeStyle = bright ? \`rgba(150, 50, 230, 0.09)\` : \`rgba(120, 30, 200, 0.04)\`;
-      ctx.lineWidth = bright ? 0.6 : 0.35;
-      ctx.stroke();
-    }
-
-    requestAnimationFrame(() => drawSpiral(t + 1));
+    t++; requestAnimationFrame(draw);
   }
-
-  smoothMouse.x = W / 2;
-  smoothMouse.y = H * 0.42;
-  drawSpiral(0);
+  draw();
 })();
 </script>
 </body></html>`);
 });
 
-function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
-
 // ── Session CRUD ───────────────────────────────────────────────────────────────
-
 app.post("/session/create",(req,res)=>{
   const id=crypto.randomBytes(8).toString("hex");
   const{name,token,refresh_token}=req.body;
   sessions[id]={id,name:name||id,token:token?.trim()||"",refresh_token:refresh_token?.trim()||"",connections:0};
-  saveSessions();
-  res.redirect("/");
+  saveSessions(); res.redirect("/");
 });
 app.post("/session/:id/update",(req,res)=>{
   const s=sessions[req.params.id];
@@ -646,24 +671,18 @@ app.post("/session/:id/update",(req,res)=>{
 app.post("/session/:id/rename",(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
-  s.name=req.body.name?.trim()||s.name;
-  saveSessions();
-  res.redirect("/");
+  s.name=req.body.name?.trim()||s.name; saveSessions(); res.redirect("/");
 });
 app.post("/session/:id/refresh",async(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
-  await tryRefresh(s);
-  res.redirect("/");
+  await tryRefresh(s); res.redirect("/");
 });
 app.post("/session/:id/delete",(req,res)=>{
-  delete sessions[req.params.id];
-  saveSessions();
-  res.redirect("/");
+  delete sessions[req.params.id]; saveSessions(); res.redirect("/");
 });
 app.post("/refresh-all",async(req,res)=>{
-  for(const s of Object.values(sessions))await tryRefresh(s);
-  res.redirect("/");
+  for(const s of Object.values(sessions))await tryRefresh(s); res.redirect("/");
 });
 app.post("/clean-duplicates",(req,res)=>{
   const seen=new Map();
@@ -672,12 +691,10 @@ app.post("/clean-duplicates",(req,res)=>{
     if(seen.has(key)){delete sessions[id];console.log(`[Clean] Removed duplicate ${id}`);}
     else seen.set(key,id);
   }
-  saveSessions();
-  res.redirect("/");
+  saveSessions(); res.redirect("/");
 });
 
 // ── API ────────────────────────────────────────────────────────────────────────
-
 app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
   const s=sessions[req.params.client];
   console.log(`[Auth] client=${req.params.client} found=${!!s}`);
