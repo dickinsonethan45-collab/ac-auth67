@@ -170,7 +170,7 @@ app.get("/", (req, res) => {
 
   const cards = Object.values(sessions).map(s => {
     const expired = isExpired(s.token);
-    const connUrl = `${req.protocol}://${req.get("host")}/v2/account/authenticate/custom/${s.id}`;
+    const connUrl = `https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`;
     const tokenExp = getExp(s.token);
     const refreshExp = getExp(s.refresh_token);
     const now = Math.floor(Date.now() / 1000);
@@ -185,8 +185,8 @@ app.get("/", (req, res) => {
     <button class="btn-sm" onclick="copyText('${connUrl}')">Copy URL</button>
   </div>
   <div class="card-meta">
-    <b>ID</b><code>${s.id}</code>
-    <b>URL</b><code>${connUrl}</code>
+    <b>ID</b><code class="hideable">${s.id}</code>
+    <b>URL</b><code class="hideable">${connUrl}</code>
     <b>Connections</b><span style="color:#e0e0e0">${s.connections || 0}</span>
   </div>
   <div class="timer-row">
@@ -312,6 +312,7 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
 .token-label{font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;min-width:90px}
 .token-box{flex:1;background:var(--bg1);border:1px solid var(--border);padding:6px 10px;font-size:10px;word-break:break-all;color:#3a3a4a;border-radius:8px;font-family:monospace;line-height:1.4;transition:filter .3s,color .3s}
 .token-box.hidden-tok{filter:blur(5px);user-select:none;pointer-events:none}
+.hideable.hidden-tok{filter:blur(5px);user-select:none;pointer-events:none}
 .token-box.hidden-tok *{user-select:none}
 
 /* ── ACTIONS ── */
@@ -372,7 +373,7 @@ let tokensHidden = false;
 
 function toggleHideTokens(){
   tokensHidden = !tokensHidden;
-  document.querySelectorAll('.token-box').forEach(el=>{
+  document.querySelectorAll('.token-box, .hideable').forEach(el=>{
     el.classList.toggle('hidden-tok', tokensHidden);
   });
   // also blur the update textareas
@@ -381,7 +382,7 @@ function toggleHideTokens(){
     el.style.userSelect = tokensHidden ? 'none' : '';
   });
   const btn = document.getElementById('hideToggle');
-  btn.textContent = tokensHidden ? '🔓 Show Tokens' : '🔒 Hide Tokens';
+  btn.textContent = tokensHidden ? '🔓 Show All' : '🔒 Hide All';
   btn.classList.toggle('active', tokensHidden);
 }
 
