@@ -357,6 +357,28 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .hdr-name{font-size:18px;font-weight:900;color:#fff;letter-spacing:-.5px}
 .hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .hdr-tag{font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;background:var(--pp-dim);border:1px solid rgba(168,85,247,0.25);color:var(--pp);border-radius:100px;padding:3px 12px}
+.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));border:1px solid rgba(168,85,247,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden}
+.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(168,85,247,0.08),transparent);animation:shimmer 2.5s linear infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(168,85,247,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}
+@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+.made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}
+.music-btn{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:100px;padding:6px 14px 6px 10px;cursor:pointer;transition:all .2s;font-family:'Inter',sans-serif;color:var(--text)}
+.music-btn:hover{border-color:rgba(168,85,247,0.4);background:var(--pp-dim)}
+.music-btn.playing{border-color:rgba(168,85,247,0.5);background:rgba(168,85,247,0.1)}
+.music-icon{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#1db954,#1aa34a);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;transition:all .2s}
+.music-btn.playing .music-icon{box-shadow:0 0 10px rgba(29,185,84,0.6);animation:spin 4s linear infinite}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.music-bars{display:flex;align-items:flex-end;gap:2px;height:14px;width:14px}
+.music-bars span{width:3px;background:linear-gradient(180deg,var(--pp),var(--pk));border-radius:2px;display:inline-block}
+.music-bars span:nth-child(1){height:6px;animation:bar1 .8s ease-in-out infinite}
+.music-bars span:nth-child(2){height:12px;animation:bar2 .8s ease-in-out infinite .15s}
+.music-bars span:nth-child(3){height:8px;animation:bar3 .8s ease-in-out infinite .3s}
+@keyframes bar1{0%,100%{height:4px}50%{height:12px}}
+@keyframes bar2{0%,100%{height:12px}50%{height:4px}}
+@keyframes bar3{0%,100%{height:7px}50%{height:14px}}
+.music-bars.paused span{animation:none;height:4px}
+.music-label{font-size:11px;font-weight:600;color:var(--muted)}
 .hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
 .hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
 
@@ -451,7 +473,12 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 <div class="hdr">
   <div class="hdr-logo">⚡</div>
   <div class="hdr-name">AC Auth <em>Backend</em></div>
-  <div class="hdr-tag">✦ Lunar3HP</div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
+  <button class="music-btn" id="musicBtn" onclick="toggleMusic()">
+    <div class="music-icon">♪</div>
+    <div class="music-bars paused" id="musicBars"><span></span><span></span><span></span></div>
+    <span class="music-label" id="musicLabel">Music</span>
+  </button>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
     <form method="POST" action="/logout" style="display:inline">
@@ -459,6 +486,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     </form>
   </div>
 </div>
+<iframe id="spotifyFrame" src="" allow="autoplay; encrypted-media" width="0" height="0" style="display:none;border:none" allowfullscreen></iframe>
 
 <div class="stats">
   <div class="stat"><div class="stat-lbl">Total Sessions</div><div class="stat-val">${total}</div></div>
@@ -539,6 +567,28 @@ setInterval(()=>{
   });
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
+let musicPlaying=false;
+function toggleMusic(){
+  const frame=document.getElementById('spotifyFrame');
+  const btn=document.getElementById('musicBtn');
+  const bars=document.getElementById('musicBars');
+  const lbl=document.getElementById('musicLabel');
+  const icon=btn.querySelector('.music-icon');
+  musicPlaying=!musicPlaying;
+  if(musicPlaying){
+    frame.src='https://open.spotify.com/embed/track/3GNP9wtJwAAL3fVDv9GHG3?utm_source=generator&theme=0&autoplay=1';
+    btn.classList.add('playing');
+    bars.classList.remove('paused');
+    icon.textContent='▶';
+    lbl.textContent='Playing';
+  } else {
+    frame.src='';
+    btn.classList.remove('playing');
+    bars.classList.add('paused');
+    icon.textContent='♪';
+    lbl.textContent='Music';
+  }
+}
 </script>
 ${BG_SCRIPT}
 </body></html>`);
