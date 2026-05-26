@@ -242,7 +242,7 @@ app.get("/", (req, res) => {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--green:#00ff88;--green-dim:#00ff8844;--green-glow:#00ff8820;--bg:#050508;--bg1:#0b0b10;--bg2:#0f0f16;--bg3:#13131c;--border:#ffffff0f;--border-bright:#00ff8828;--text:#e0e0e0;--muted:#4a4a5a;--warn:#ff9500;--danger:#ff3b30}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);padding:0 0 60px;max-width:980px;margin:0 auto;min-height:100vh}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);padding:0 0 60px;max-width:980px;margin:0 auto;min-height:100vh;position:relative;z-index:1}
 body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;height:500px;background:radial-gradient(ellipse 60% 30% at 50% 0%,#00ff8810,transparent 70%);pointer-events:none;z-index:0}
 
 /* ── HEADER ── */
@@ -256,7 +256,7 @@ body::before{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%)
 /* ── STATS ── */
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:20px 24px 0;position:relative;z-index:1}
 .stats-wrapper{position:relative;overflow:visible}
-#spiralCanvas{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:0;opacity:0.65;width:900px;height:700px}
+#spiralCanvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0;opacity:1}
 .stat{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}
 .stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent)}
 .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:6px}
@@ -424,46 +424,40 @@ setInterval(()=>{
 (function(){
   const canvas = document.getElementById('spiralCanvas');
   const ctx = canvas.getContext('2d');
-  const W = 900, H = 700;
-  canvas.width = W; canvas.height = H;
+
+  let W, H, cx, cy;
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cx = W / 2;
+    cy = H * 0.42; // center slightly above middle — lines up with stats/toolbar
+  }
+  resize();
+  window.addEventListener('resize', resize);
 
   let mouse = { x: -9999, y: -9999 };
-  let smoothMouse = { x: W/2, y: H/2 };
+  let smoothMouse = { x: 0, y: 0 };
   let influence = 0;
   let hovering = false;
 
   document.addEventListener('mousemove', e => {
-    const rect = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
-    hovering = mouse.x >= -100 && mouse.x <= W+100 && mouse.y >= -100 && mouse.y <= H+100;
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    hovering = true;
   });
-
-  // Ring colours matching the screenshot: deep indigo/purple rings
-  // Inner rings: dim purple, outer rings: slightly brighter indigo-blue
-  const ringColors = [
-    [80, 60, 180],   // ring 1 - deep indigo
-    [75, 55, 170],
-    [72, 52, 165],
-    [85, 65, 200],   // ring 4 - slightly brighter
-    [90, 70, 210],
-    [95, 75, 220],
-    [100, 80, 230],  // ring 7 - brightest outer
-    [105, 85, 235],
-    [108, 88, 238],
-    [110, 90, 240],  // ring 10 - outermost
-  ];
+  document.addEventListener('mouseleave', () => { hovering = false; });
 
   function warpPoint(px, py) {
-    if (influence < 0.01) return [px, py];
+    if (influence < 0.005) return [px, py];
     const dx = smoothMouse.x - px;
     const dy = smoothMouse.y - py;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const pullRadius = 160;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const pullRadius = 180;
     if (dist < pullRadius) {
-      const strength = (1 - dist / pullRadius) * (1 - dist / pullRadius) * influence * 55;
-      px += (dx / (dist + 1)) * strength;
-      py += (dy / (dist + 1)) * strength;
+      const f = (1 - dist / pullRadius);
+      const strength = f * f * influence * 70;
+      px += (dx / (dist + 0.5)) * strength;
+      py += (dy / (dist + 0.5)) * strength;
     }
     return [px, py];
   }
@@ -471,54 +465,70 @@ setInterval(()=>{
   function drawSpiral(t) {
     ctx.clearRect(0, 0, W, H);
 
-    smoothMouse.x += (mouse.x - smoothMouse.x) * 0.07;
-    smoothMouse.y += (mouse.y - smoothMouse.y) * 0.07;
-    influence += ((hovering ? 1 : 0) - influence) * 0.04;
+    smoothMouse.x += (mouse.x - smoothMouse.x) * 0.06;
+    smoothMouse.y += (mouse.y - smoothMouse.y) * 0.06;
+    influence += ((hovering ? 1 : 0) - influence) * 0.035;
 
-    const cx = W / 2, cy = H / 2;
-    const rings = 10;
-    const maxR = 340;
-    const slowT = t * 0.012;
+    const maxR = Math.min(W, H) * 0.52; // fills viewport
+    const slowT = t * 0.008;
+    const rings = 12;
+    const lineCount = 36;
 
-    // Draw radial lines first (behind rings)
-    const lineCount = 32;
+    // Radial lines — very faint periwinkle, matching the grid in screenshot
     for (let i = 0; i < lineCount; i++) {
-      const angle = (i / lineCount) * Math.PI * 2 + slowT * 0.6;
+      const angle = (i / lineCount) * Math.PI * 2 + slowT * 0.4;
       ctx.beginPath();
       let first = true;
-      for (let r = 8; r <= maxR; r += 4) {
+      for (let r = 6; r <= maxR; r += 5) {
         let px = cx + Math.cos(angle) * r;
         let py = cy + Math.sin(angle) * r;
         [px, py] = warpPoint(px, py);
         if (first) { ctx.moveTo(px, py); first = false; }
         else ctx.lineTo(px, py);
       }
-      // Alternating slightly brighter lines, matching the image's faint grid
-      const a = i % 4 === 0 ? 0.12 : 0.06;
-      ctx.strokeStyle = \`rgba(90, 70, 200, \${a})\`;
-      ctx.lineWidth = i % 4 === 0 ? 0.8 : 0.5;
+      const bright = i % 3 === 0;
+      ctx.strokeStyle = bright
+        ? \`rgba(130, 110, 230, 0.10)\`
+        : \`rgba(110, 90, 200, 0.05)\`;
+      ctx.lineWidth = bright ? 0.7 : 0.4;
       ctx.stroke();
     }
 
-    // Draw concentric rings
+    // Concentric rings — lavender/periwinkle exactly like screenshot
+    // The screenshot shows: very subtle, slightly desaturated purple-blue
+    // Inner rings barely visible, outer rings a touch brighter
     for (let ring = 1; ring <= rings; ring++) {
       const baseR = (ring / rings) * maxR;
-      const points = 180 + ring * 12;
-      const [r, g, b] = ringColors[ring - 1];
-      // Inner rings dimmer, outer slightly brighter — matches screenshot
-      const alpha = 0.13 + (ring / rings) * 0.22;
-      const lw = ring <= 3 ? 1.2 : ring <= 7 ? 1.6 : 2.0;
+      const points = 200 + ring * 15;
+
+      // Colour profile: matches screenshot's dim periwinkle-lavender rings
+      // Not saturated — muted, slightly blue-shifted purple
+      const progress = ring / rings;
+      const rC = Math.round(100 + progress * 40);   // 100→140
+      const gC = Math.round(85 + progress * 30);    // 85→115
+      const bC = Math.round(210 + progress * 30);   // 210→240
+      // Very low alpha — inner almost invisible, outer subtle
+      const alpha = 0.08 + progress * 0.20;
+      const lw = 0.8 + progress * 1.4; // 0.8→2.2px
 
       ctx.beginPath();
       for (let i = 0; i <= points; i++) {
-        const angle = (i / points) * Math.PI * 2 + slowT;
+        const angle = (i / points) * Math.PI * 2 + slowT * (ring % 2 === 0 ? 1 : -0.5);
         let px = cx + Math.cos(angle) * baseR;
         let py = cy + Math.sin(angle) * baseR;
         [px, py] = warpPoint(px, py);
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = \`rgba(\${r}, \${g}, \${b}, \${alpha})\`;
+
+      // Outer rings get a soft glow pass
+      if (ring >= rings - 3) {
+        ctx.strokeStyle = \`rgba(\${rC}, \${gC}, \${bC}, \${alpha * 0.4})\`;
+        ctx.lineWidth = lw + 4;
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = \`rgba(\${rC}, \${gC}, \${bC}, \${alpha})\`;
       ctx.lineWidth = lw;
       ctx.stroke();
     }
@@ -526,6 +536,8 @@ setInterval(()=>{
     requestAnimationFrame(() => drawSpiral(t + 1));
   }
 
+  smoothMouse.x = W / 2;
+  smoothMouse.y = H * 0.42;
   drawSpiral(0);
 })();
 </script>
