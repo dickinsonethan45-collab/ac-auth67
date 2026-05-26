@@ -469,64 +469,63 @@ setInterval(()=>{
     smoothMouse.y += (mouse.y - smoothMouse.y) * 0.06;
     influence += ((hovering ? 1 : 0) - influence) * 0.035;
 
-    const maxR = Math.min(W, H) * 0.52; // fills viewport
-    const slowT = t * 0.008;
-    const rings = 12;
-    const lineCount = 36;
+    const maxR = Math.min(W, H) * 0.72; // bigger — fills more of viewport
+    const slowT = t * 0.006;
 
-    // Radial lines — very faint periwinkle, matching the grid in screenshot
+    // Number of spiral arms (like the reference image — 2 arms offset by PI)
+    const arms = 2;
+    // Total rotations per arm
+    const turns = 5.5;
+
+    for (let arm = 0; arm < arms; arm++) {
+      const armOffset = (arm / arms) * Math.PI * 2;
+      const totalAngle = turns * Math.PI * 2;
+      const steps = 1200;
+
+      ctx.beginPath();
+      let firstPt = true;
+
+      for (let i = 0; i <= steps; i++) {
+        const frac = i / steps;
+        const angle = frac * totalAngle + armOffset + slowT;
+        const r = frac * maxR;
+
+        let px = cx + Math.cos(angle) * r;
+        let py = cy + Math.sin(angle) * r;
+        [px, py] = warpPoint(px, py);
+
+        if (firstPt) { ctx.moveTo(px, py); firstPt = false; }
+        else ctx.lineTo(px, py);
+      }
+
+      // Gradient stroke: inner deep violet, outer lighter purple
+      // Use multiple passes with varying alpha to fake a gradient along the path
+      // Pass 1: glow
+      ctx.strokeStyle = \`rgba(180, 60, 255, 0.06)\`;
+      ctx.lineWidth = 8;
+      ctx.stroke();
+      // Pass 2: core line
+      ctx.strokeStyle = \`rgba(160, 40, 240, 0.28)\`;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+    }
+
+    // Faint radial lines emanating from center — like spokes, very subtle
+    const lineCount = 28;
     for (let i = 0; i < lineCount; i++) {
-      const angle = (i / lineCount) * Math.PI * 2 + slowT * 0.4;
+      const angle = (i / lineCount) * Math.PI * 2 + slowT * 0.3;
       ctx.beginPath();
       let first = true;
-      for (let r = 6; r <= maxR; r += 5) {
+      for (let r = 4; r <= maxR; r += 5) {
         let px = cx + Math.cos(angle) * r;
         let py = cy + Math.sin(angle) * r;
         [px, py] = warpPoint(px, py);
         if (first) { ctx.moveTo(px, py); first = false; }
         else ctx.lineTo(px, py);
       }
-      const bright = i % 3 === 0;
-      ctx.strokeStyle = bright
-        ? \`rgba(160, 80, 255, 0.12)\`
-        : \`rgba(130, 50, 220, 0.06)\`;
-      ctx.lineWidth = bright ? 0.7 : 0.4;
-      ctx.stroke();
-    }
-
-    // Concentric rings — deep purple/violet galaxy colour
-    for (let ring = 1; ring <= rings; ring++) {
-      const baseR = (ring / rings) * maxR;
-      const points = 200 + ring * 15;
-
-      // Pure purple: high R, very low G, high B
-      // Inner rings: deeper violet, outer rings: lighter purple
-      const progress = ring / rings;
-      const rC = Math.round(120 + progress * 60);  // 120→180  (purple-red)
-      const gC = Math.round(20 + progress * 25);   // 20→45    (almost no green!)
-      const bC = Math.round(200 + progress * 55);  // 200→255  (strong blue)
-      const alpha = 0.10 + progress * 0.22;
-      const lw = 0.8 + progress * 1.6; // 0.8→2.4px
-
-      ctx.beginPath();
-      for (let i = 0; i <= points; i++) {
-        const angle = (i / points) * Math.PI * 2 + slowT * (ring % 2 === 0 ? 1 : -0.5);
-        let px = cx + Math.cos(angle) * baseR;
-        let py = cy + Math.sin(angle) * baseR;
-        [px, py] = warpPoint(px, py);
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-
-      // Outer rings get a soft glow pass
-      if (ring >= rings - 3) {
-        ctx.strokeStyle = \`rgba(\${rC}, \${gC}, \${bC}, \${alpha * 0.35})\`;
-        ctx.lineWidth = lw + 5;
-        ctx.stroke();
-      }
-
-      ctx.strokeStyle = \`rgba(\${rC}, \${gC}, \${bC}, \${alpha})\`;
-      ctx.lineWidth = lw;
+      const bright = i % 4 === 0;
+      ctx.strokeStyle = bright ? \`rgba(150, 50, 230, 0.09)\` : \`rgba(120, 30, 200, 0.04)\`;
+      ctx.lineWidth = bright ? 0.6 : 0.35;
       ctx.stroke();
     }
 
