@@ -108,28 +108,34 @@ setInterval(async () => {
 
 app.get("/login", (req, res) => {
   res.send(`<!DOCTYPE html>
-<html><head><title>AC Auth Backend</title><style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+<html><head><title>AC Auth Backend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',monospace;background:#050508;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
-body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,#7c3aed12 0%,transparent 70%);pointer-events:none}
-.card{background:linear-gradient(135deg,#0e0e14 0%,#111118 100%);border:1px solid #a855f730;border-radius:20px;padding:44px 40px;width:360px;box-shadow:0 0 60px #a855f715,0 20px 60px #00000080;text-align:center;position:relative}
-.card::before{content:'';position:absolute;inset:0;border-radius:20px;background:linear-gradient(135deg,#a855f708,transparent 60%);pointer-events:none}
-.lock{font-size:36px;margin-bottom:16px;filter:drop-shadow(0 0 12px #a855f766)}
-.brand{font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.5px;margin-bottom:2px}
-.brand span{color:#a855f7}
-.byline{font-size:11px;color:#a855f788;letter-spacing:3px;text-transform:uppercase;margin-bottom:28px;font-weight:600}
-.field{position:relative;margin-bottom:12px}
-.field input{width:100%;background:#0a0a10;color:#fff;border:1px solid #ffffff18;border-radius:10px;padding:13px 16px;font-family:'Inter',monospace;font-size:14px;outline:none;transition:border-color .2s}
-.field input:focus{border-color:#a855f766;box-shadow:0 0 0 3px #7c3aed12}
-.field input::placeholder{color:#333}
-button[type=submit]{width:100%;background:linear-gradient(135deg,#a855f7,#7c3aed);color:#000;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;font-family:'Inter',monospace;letter-spacing:0.3px;transition:opacity .2s,transform .1s;box-shadow:0 4px 20px #a855f740}
-button[type=submit]:hover{opacity:.92;transform:translateY(-1px)}
-button[type=submit]:active{transform:translateY(0)}
-.error{background:#ff333318;border:1px solid #ff333340;color:#ff6666;font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:14px}
+body{font-family:'Inter',sans-serif;background:#050508;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
+#spiralCanvas{position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0}
+.card{position:relative;z-index:2;background:linear-gradient(145deg,#0d0d14 0%,#111119 100%);border:1px solid #a855f730;border-radius:24px;padding:52px 48px;width:440px;box-shadow:0 0 80px #7c3aed18,0 0 200px #7c3aed08,0 30px 80px #00000090;text-align:center;transition:box-shadow .4s,border-color .4s}
+.card:hover{border-color:#a855f750;box-shadow:0 0 100px #7c3aed28,0 0 200px #7c3aed10,0 30px 80px #00000090}
+.card::before{content:'';position:absolute;inset:0;border-radius:24px;background:linear-gradient(135deg,#a855f70a 0%,transparent 55%);pointer-events:none}
+.lock{font-size:48px;margin-bottom:18px;display:block;filter:drop-shadow(0 0 18px #a855f770);animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.brand{font-size:26px;font-weight:900;color:#fff;letter-spacing:-0.5px;margin-bottom:4px}
+.brand span{color:#a855f7;text-shadow:0 0 20px #a855f766}
+.byline{font-size:11px;color:#a855f766;letter-spacing:4px;text-transform:uppercase;margin-bottom:36px;font-weight:600}
+.field{position:relative;margin-bottom:14px}
+.field input{width:100%;background:#0a0a12;color:#fff;border:1px solid #ffffff14;border-radius:12px;padding:15px 18px;font-family:'Inter',sans-serif;font-size:14px;outline:none;transition:border-color .25s,box-shadow .25s,background .25s}
+.field input:focus{border-color:#a855f760;box-shadow:0 0 0 3px #7c3aed1a,0 0 20px #7c3aed18;background:#0d0d18}
+.field input::placeholder{color:#2a2a3a}
+button[type=submit]{width:100%;background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff;border:none;border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;font-family:'Inter',sans-serif;letter-spacing:0.3px;transition:opacity .2s,transform .15s,box-shadow .2s;box-shadow:0 4px 24px #a855f740,0 0 40px #7c3aed20}
+button[type=submit]:hover{opacity:.94;transform:translateY(-2px);box-shadow:0 8px 32px #a855f755,0 0 60px #7c3aed28}
+button[type=submit]:active{transform:translateY(0);box-shadow:0 2px 12px #a855f730}
+.error{background:#ff333312;border:1px solid #ff333335;color:#ff6666;font-size:12px;padding:10px 14px;border-radius:10px;margin-bottom:16px;animation:shake .4s ease}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
 </style></head><body>
+<canvas id="spiralCanvas"></canvas>
 <div class="card">
-  <div class="lock">🔐</div>
+  <span class="lock">🔐</span>
   <div class="brand">AC Auth <span>Backend</span></div>
   <div class="byline">Made by Lunar3HP</div>
   ${req.query.err ? '<div class="error">Invalid username or password.</div>' : ''}
@@ -139,6 +145,84 @@ button[type=submit]:active{transform:translateY(0)}
     <button type="submit">Sign In</button>
   </form>
 </div>
+<script>
+(function(){
+  const canvas = document.getElementById('spiralCanvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, cx, cy;
+  function resize(){
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cx = W / 2; cy = H / 2;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  let mouse = { x: W/2, y: H/2 };
+  let smooth = { x: W/2, y: H/2 };
+  let influence = 0;
+
+  document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+  function warp(px, py) {
+    const dx = smooth.x - px, dy = smooth.y - py;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const R = 200;
+    if (dist < R) {
+      const s = (1 - dist/R) * (1 - dist/R) * influence * 75;
+      px += (dx/(dist+0.5))*s; py += (dy/(dist+0.5))*s;
+    }
+    return [px, py];
+  }
+
+  function draw(t) {
+    ctx.clearRect(0, 0, W, H);
+    smooth.x += (mouse.x - smooth.x) * 0.06;
+    smooth.y += (mouse.y - smooth.y) * 0.06;
+    influence += (1 - influence) * 0.03; // always on for login — always warping slightly
+
+    const maxR = Math.min(W, H) * 0.72;
+    const slowT = t * 0.006;
+    const arms = 2, turns = 5.5, steps = 1200;
+
+    // Faint radial spokes
+    for (let i = 0; i < 28; i++) {
+      const angle = (i/28)*Math.PI*2 + slowT*0.3;
+      ctx.beginPath();
+      let first = true;
+      for (let r = 4; r <= maxR; r += 5) {
+        let [px,py] = warp(cx + Math.cos(angle)*r, cy + Math.sin(angle)*r);
+        first ? (ctx.moveTo(px,py), first=false) : ctx.lineTo(px,py);
+      }
+      ctx.strokeStyle = i%4===0 ? \`rgba(150,50,230,0.09)\` : \`rgba(120,30,200,0.04)\`;
+      ctx.lineWidth = i%4===0 ? 0.6 : 0.35;
+      ctx.stroke();
+    }
+
+    // Spiral arms
+    for (let arm = 0; arm < arms; arm++) {
+      const offset = (arm/arms)*Math.PI*2;
+      ctx.beginPath();
+      let first = true;
+      for (let i = 0; i <= steps; i++) {
+        const frac = i/steps;
+        const angle = frac*turns*Math.PI*2 + offset + slowT;
+        let [px,py] = warp(cx + Math.cos(angle)*frac*maxR, cy + Math.sin(angle)*frac*maxR);
+        first ? (ctx.moveTo(px,py), first=false) : ctx.lineTo(px,py);
+      }
+      ctx.strokeStyle = \`rgba(180,60,255,0.07)\`;
+      ctx.lineWidth = 9;
+      ctx.stroke();
+      ctx.strokeStyle = \`rgba(168,85,247,0.30)\`;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(() => draw(t+1));
+  }
+  draw(0);
+})();
+</script>
 </body></html>`);
 });
 
