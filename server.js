@@ -85,12 +85,12 @@ async function tryRefresh(session) {
 })();
 
 setInterval(async () => {
-  const threshold = Math.floor(Date.now() / 1000) + 300;
+  const threshold = Math.floor(Date.now() / 1000) + 30;
   for (const s of Object.values(sessions)) {
     if (!s.refresh_token) continue;
     if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
   }
-}, 60 * 60 * 1000);
+}, 60 * 1000);
 
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 
@@ -449,9 +449,6 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .rinput{background:rgba(255,255,255,0.04);color:#fff;border:1px solid var(--border);padding:8px 12px;border-radius:9px;font-family:'Inter',sans-serif;font-size:11px;outline:none;width:120px;transition:border-color .2s}
 .rinput:focus{border-color:rgba(168,85,247,.35)}
 
-/* Auto-refresh badge */
-.auto-refresh-badge{font-size:11px;font-weight:700;color:#4ade80;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);border-radius:8px;padding:6px 12px;font-family:var(--mono);letter-spacing:.5px}
-
 /* Toast */
 .toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(168,85,247,0.4)}
 .toast.show{opacity:1;transform:translateY(0) scale(1)}
@@ -466,7 +463,6 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
-    <div class="auto-refresh-badge" id="arBadge" title="Auto-refresh active">⟳ <span id="arCountdown">5:00</span></div>
     <form method="POST" action="/logout" style="display:inline">
       <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
     </form>
@@ -554,52 +550,7 @@ setInterval(()=>{
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
 
-// Auto-refresh every 5 minutes
-(function autoRefresh(){
-  const INTERVAL = 5 * 60; // seconds
-  let remaining = INTERVAL;
-  const badge = document.getElementById('arBadge');
-  const countdown = document.getElementById('arCountdown');
 
-  function fmtCountdown(s){
-    const m = Math.floor(s/60), sc = s%60;
-    return m+':'+String(sc).padStart(2,'0');
-  }
-
-  async function doRefresh(){
-    badge.style.color='#facc15';
-    badge.style.borderColor='rgba(250,204,21,0.4)';
-    badge.style.background='rgba(250,204,21,0.1)';
-    countdown.textContent='…';
-    try {
-      const r = await fetch('/try-refresh');
-      const data = await r.json();
-      const anyOk = Object.values(data).some(v=>v&&v.success);
-      if(anyOk){
-        badge.style.color='#4ade80';
-        badge.style.borderColor='rgba(74,222,128,0.25)';
-        badge.style.background='rgba(74,222,128,0.1)';
-      }
-    } catch(e){}
-    remaining = INTERVAL;
-    // Reload to update token display
-    location.reload();
-  }
-
-  setInterval(()=>{
-    remaining--;
-    if(remaining <= 0){ doRefresh(); return; }
-    countdown.textContent = fmtCountdown(remaining);
-    // Turn yellow when 60s left
-    if(remaining <= 60){
-      badge.style.color='#facc15';
-      badge.style.borderColor='rgba(250,204,21,0.4)';
-      badge.style.background='rgba(250,204,21,0.1)';
-    }
-  }, 1000);
-
-  countdown.textContent = fmtCountdown(remaining);
-})();
 
 </script>
 ${BG_SCRIPT}
