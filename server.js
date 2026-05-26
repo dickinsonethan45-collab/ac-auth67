@@ -5,12 +5,36 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ── Auth ───────────────────────────────────────────────────────────────────────
+const LOGIN_USER = "Lunar3HP";
+const LOGIN_PASS = "MrBlock12344";
+const authSessions = new Set();
+
+// Cookie parser (no extra dep)
+app.use((req, res, next) => {
+  const raw = req.headers.cookie || "";
+  req.cookies = {};
+  raw.split(";").forEach(part => {
+    const [k, ...v] = part.trim().split("=");
+    if (k) req.cookies[k.trim()] = v.join("=").trim();
+  });
+  next();
+});
+
+function requireLogin(req, res, next) {
+  if (req.path.startsWith("/v2/") || req.path === "/update-tokens" || req.path === "/try-refresh") return next();
+  if (req.path === "/login" || req.path === "/do-login") return next();
+  const token = req.cookies?.auth;
+  if (token && authSessions.has(token)) return next();
+  res.redirect("/login");
+}
+app.use(requireLogin);
+
 const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "6URuTSlDKKfYbuDW";
 const SESSIONS_FILE = "./sessions.json";
 
-// sessions: { [id]: { id, name, token, refresh_token, connections } }
 let sessions = {};
 
 // ── Persistence ────────────────────────────────────────────────────────────────
@@ -103,6 +127,7 @@ async function tryRefresh(session) {
         session.token = data.token;
         session.refresh_token = data.refresh_token;
         saveSessions();
+        const expiresIn = timeLeft(data.token);
         console.log(`[Refresh:${session.id}] Success! Expires: ${new Date(getExp(data.token) * 1000).toISOString()}`);
         return { success: true, endpoint: ep };
       }
@@ -125,7 +150,7 @@ async function tryRefresh(session) {
   }
 })();
 
-// Hourly refresh loop — refresh any session whose token is expired or within 5 min
+// Hourly refresh loop
 setInterval(async () => {
   const threshold = Math.floor(Date.now() / 1000) + 300;
   for (const s of Object.values(sessions)) {
@@ -136,6 +161,59 @@ setInterval(async () => {
     }
   }
 }, 60 * 60 * 1000);
+
+// ── Login ──────────────────────────────────────────────────────────────────────
+
+app.get("/login", (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <title>AC Auth Backend</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d0d0d; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #111; border: 2px solid #00ff88; border-radius: 12px; padding: 40px 36px; width: 340px; box-shadow: 0 0 30px #00ff8833; text-align: center; }
+    .lock { font-size: 42px; margin-bottom: 12px; }
+    h1 { color: #00ff88; font-size: 20px; margin-bottom: 28px; letter-spacing: 1px; }
+    input { width: 100%; background: #fff; color: #000; border: none; border-radius: 6px; padding: 12px 14px; font-family: monospace; font-size: 14px; margin-bottom: 14px; outline: none; }
+    button { width: 100%; background: #00ff88; color: #000; border: none; border-radius: 6px; padding: 13px; font-size: 16px; font-weight: bold; cursor: pointer; letter-spacing: 1px; margin-top: 4px; }
+    button:hover { background: #00dd77; }
+    .error { color: #ff4444; font-size: 13px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="lock">🔐</div>
+    <h1>AC Auth Backend</h1>
+    ${req.query.err ? '<div class="error">Invalid username or password.</div>' : ''}
+    <form method="POST" action="/do-login">
+      <input type="text" name="username" placeholder="Username" autocomplete="off" required>
+      <input type="password" name="password" placeholder="Password" required>
+      <button type="submit">Login</button>
+    </form>
+  </div>
+</body>
+</html>`);
+});
+
+app.post("/do-login", (req, res) => {
+  const { username, password } = req.body;
+  if (username === LOGIN_USER && password === LOGIN_PASS) {
+    const token = crypto.randomBytes(32).toString("hex");
+    authSessions.add(token);
+    res.setHeader("Set-Cookie", `auth=${token}; Path=/; HttpOnly`);
+    res.redirect("/");
+  } else {
+    res.redirect("/login?err=1");
+  }
+});
+
+app.post("/logout", (req, res) => {
+  const token = req.cookies?.auth;
+  if (token) authSessions.delete(token);
+  res.setHeader("Set-Cookie", "auth=; Path=/; Max-Age=0");
+  res.redirect("/login");
+});
 
 // ── UI ─────────────────────────────────────────────────────────────────────────
 
@@ -226,6 +304,9 @@ app.get("/", (req, res) => {
     </form>
     <form method="POST" action="/clean-duplicates" style="display:inline">
       <button type="submit" class="btn-action btn-blue">🧹 Clean Duplicates</button>
+    </form>
+    <form method="POST" action="/logout" style="display:inline">
+      <button type="submit" class="btn-action btn-red">🚪 Logout</button>
     </form>
   </div>
 
@@ -323,7 +404,6 @@ app.post("/clean-duplicates", (req, res) => {
 
 // ── API endpoints (used by mods/clients) ───────────────────────────────────────
 
-// POST /v2/account/authenticate/custom/:client — returns tokens for that session ID
 app.post("/v2/account/authenticate/custom/:client", (req, res) => {
   const s = sessions[req.params.client];
   console.log(`[Auth] client=${req.params.client} found=${!!s}`);
@@ -332,19 +412,16 @@ app.post("/v2/account/authenticate/custom/:client", (req, res) => {
     saveSessions();
     return res.json({ token: s.token, refresh_token: s.refresh_token, created: false });
   }
-  // fallback: return first session if any
   const first = Object.values(sessions)[0];
   if (first) return res.json({ token: first.token, refresh_token: first.refresh_token, created: false });
   res.json({ token: "", refresh_token: "", created: false });
 });
 
-// POST /v2/account/authenticate/refresh
 app.post("/v2/account/authenticate/refresh", (req, res) => {
   const first = Object.values(sessions)[0];
   res.json({ token: first?.token || "", refresh_token: first?.refresh_token || "", created: false });
 });
 
-// GET /v2/account — proxy to Nakama with first valid session token
 app.get("/v2/account", async (req, res) => {
   const s = Object.values(sessions).find(s => !isExpired(s.token));
   if (!s) return res.status(401).json({ error: "No valid session" });
@@ -358,7 +435,6 @@ app.get("/v2/account", async (req, res) => {
   }
 });
 
-// Legacy single-session JSON update
 app.post("/update-tokens", (req, res) => {
   const { token, refresh_token, id } = req.body;
   if (!token || !refresh_token) return res.status(400).json({ error: "token and refresh_token required" });
