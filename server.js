@@ -558,7 +558,9 @@ setInterval(()=>{
     if(s<300&&el.id.startsWith('tk-')){el.classList.add('twarn');if(bar)bar.classList.add('twarn');}
     if(s<=0&&el.id.startsWith('tk-'))anyExpired=true;
   });
-  if(anyExpired){setTimeout(()=>location.reload(),3000);}
+  if(anyExpired){
+    fetch('/try-refresh').finally(()=>setTimeout(()=>location.reload(),2000));
+  }
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
 
