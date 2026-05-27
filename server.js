@@ -91,12 +91,12 @@ async function tryRefresh(session) {
 })();
 
 setInterval(async () => {
-  const threshold = Math.floor(Date.now() / 1000) + 30;
+  const threshold = Math.floor(Date.now() / 1000) + 120;
   for (const s of Object.values(sessions)) {
     if (!s.refresh_token) continue;
     if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
   }
-}, 60 * 1000);
+}, 30 * 1000);
 
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 
@@ -559,7 +559,7 @@ setInterval(()=>{
     if(s<=0&&el.id.startsWith('tk-'))anyExpired=true;
   });
   if(anyExpired){
-    fetch('/try-refresh').finally(()=>setTimeout(()=>location.reload(),2000));
+    fetch('/try-refresh');
   }
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
