@@ -512,6 +512,9 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 
 <script>
 let blurred=false;
+function toggleCreate(){
+  const p=document.getElementById('create-panel');p.style.display=p.style.display==='block'?'none':'block';
+}
 function toggleBlur(){
   blurred=!blurred;
   document.querySelectorAll('.tok-v,.hideable').forEach(e=>e.classList.toggle('blurred',blurred));
