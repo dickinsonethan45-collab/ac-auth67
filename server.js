@@ -91,7 +91,7 @@ async function tryRefresh(session) {
 })();
 
 setInterval(async () => {
-  const threshold = Math.floor(Date.now() / 1000) + 3;
+  const threshold = Math.floor(Date.now() / 1000) + 60;
   for (const s of Object.values(sessions)) {
     if (!s.refresh_token) continue;
     if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
@@ -559,7 +559,7 @@ setInterval(()=>{
     if(s<=0&&el.id.startsWith('tk-'))anyExpired=true;
   });
   if(anyExpired){
-    fetch('/try-refresh');
+    fetch('/try-refresh').finally(()=>location.reload());
   }
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
