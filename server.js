@@ -90,11 +90,18 @@ async function tryRefresh(session) {
   }
 })();
 
+let refreshing = false;
 setInterval(async () => {
-  const threshold = Math.floor(Date.now() / 1000) + 60;
-  for (const s of Object.values(sessions)) {
-    if (!s.refresh_token) continue;
-    if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const threshold = Math.floor(Date.now() / 1000) + 60;
+    for (const s of Object.values(sessions)) {
+      if (!s.refresh_token) continue;
+      if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
+    }
+  } finally {
+    refreshing = false;
   }
 }, 30 * 1000);
 
