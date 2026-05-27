@@ -91,7 +91,7 @@ async function tryRefresh(session) {
 })();
 
 setInterval(async () => {
-  const threshold = Math.floor(Date.now() / 1000) + 120;
+  const threshold = Math.floor(Date.now() / 1000) + 3;
   for (const s of Object.values(sessions)) {
     if (!s.refresh_token) continue;
     if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
