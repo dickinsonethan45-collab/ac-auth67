@@ -487,9 +487,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 <div class="bar">
   <input class="search" type="text" placeholder="⌕  Search sessions…" oninput="filterCards(this.value)">
   <button class="abtn abtn-purple" onclick="toggleCreate()">+ New Session</button>
-  <form method="POST" action="/refresh-all" style="display:inline">
-    <button type="submit" class="abtn abtn-orange">⟳ Refresh All</button>
-  </form>
+  <button class="abtn abtn-orange" onclick="refreshAll(this)">⟳ Refresh All</button>
   <form method="POST" action="/clean-duplicates" style="display:inline">
     <button type="submit" class="abtn abtn-outline">🧹 Clean Dupes</button>
   </form>
@@ -534,7 +532,14 @@ function filterCards(q){
   const lq=q.toLowerCase();
   document.querySelectorAll('.card').forEach(c=>c.style.display=c.innerText.toLowerCase().includes(lq)?'':'none');
 }
-function toggleCreate(){
+function refreshAll(btn){
+  btn.disabled=true;btn.textContent='Refreshing…';
+  fetch('/try-refresh').then(()=>{
+    btn.textContent='✓ Done';
+    setTimeout(()=>{btn.disabled=false;btn.textContent='⟳ Refresh All';},2000);
+  }).catch(()=>{btn.disabled=false;btn.textContent='⟳ Refresh All';});
+}
+
   const p=document.getElementById('create-panel');
   p.style.display=p.style.display==='block'?'none':'block';
 }
