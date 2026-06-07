@@ -1027,82 +1027,69 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
 .abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
 .abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(168,85,247,0.25)}
-.abtn-ghost:hover{background:var(--pp-dim)}
-.abtn-purple{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;box-shadow:0 4px 16px rgba(168,85,247,0.3)}
-.abtn-green{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 16px rgba(34,197,94,0.3)}
-.abtn-sm{padding:6px 12px;font-size:11px}
-
-/* Layout */
-.sp-wrap{padding:32px 28px}
-.sp-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px}
-.sp-sub{font-size:13px;color:var(--muted);margin-bottom:4px}
-.sp-by{font-size:11px;color:rgba(200,180,255,0.2);letter-spacing:.5px;margin-bottom:28px}
-
-/* Steps */
-.steps{display:flex;flex-direction:column;gap:20px;margin-bottom:28px}
-.step{background:var(--bg1);border:1px solid var(--border);border-radius:18px;overflow:hidden}
-.step-hdr{display:flex;align-items:center;gap:14px;padding:16px 20px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
-.step-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;box-shadow:0 0 12px rgba(168,85,247,0.4)}
-.step-num.done{background:linear-gradient(135deg,#22c55e,#16a34a);box-shadow:0 0 12px rgba(34,197,94,0.4)}
-.step-label{font-size:14px;font-weight:700;color:#fff}
-.step-hint{font-size:11px;color:var(--muted);margin-left:auto}
-.step-body{padding:18px 20px}
+.wrap{padding:32px 28px}
+.pg-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px}
+.pg-sub{font-size:13px;color:var(--muted);margin-bottom:28px}
 
 /* Drop zones */
-.dz{border:1.5px dashed var(--border-hi);border-radius:14px;padding:2.5rem 2rem;text-align:center;cursor:pointer;transition:background .15s,border-color .15s;user-select:none;background:rgba(0,0,0,0.2)}
-.dz:hover,.dz.drag{background:rgba(168,85,247,0.06);border-color:rgba(168,85,247,0.4)}
-.dz.done{border-color:rgba(34,197,94,0.4);background:rgba(34,197,94,0.04)}
-.dz svg{width:32px;height:32px;color:var(--muted);display:block;margin:0 auto 12px}
-.dz-title{font-size:14px;font-weight:600;color:var(--text)}
-.dz-hint{font-size:12px;color:var(--muted);margin-top:4px}
-.dz-ok{font-size:13px;font-weight:700;color:#22c55e;margin-top:4px}
+.zone-label{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.dz{border:1.5px dashed rgba(255,255,255,0.12);border-radius:14px;padding:28px 20px;text-align:center;cursor:pointer;transition:all .15s;background:rgba(255,255,255,0.02);margin-bottom:16px;user-select:none}
+.dz:hover,.dz.over{border-color:rgba(168,85,247,0.5);background:rgba(168,85,247,0.06)}
+.dz.loaded{border-color:rgba(34,197,94,0.5);background:rgba(34,197,94,0.04);cursor:default}
+.dz-icon{font-size:28px;margin-bottom:8px}
+.dz-main{font-size:14px;font-weight:600;color:var(--text)}
+.dz-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.dz-ok{font-size:13px;font-weight:700;color:#22c55e;margin-top:6px;display:none}
 
 /* File list */
-.file-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
-.file-item{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
-.file-icon{font-size:16px}
-.file-name{flex:1;font-family:var(--mono);font-size:12px;color:rgba(200,180,255,0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.file-size{font-size:10px;color:var(--muted);white-space:nowrap}
-.file-status{font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap}
-.fs-pending{background:rgba(168,85,247,0.1);color:rgba(168,85,247,0.7);border:1px solid rgba(168,85,247,0.2)}
-.fs-done{background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.2)}
-.fs-skip{background:rgba(100,100,100,0.1);color:#888;border:1px solid rgba(100,100,100,0.2)}
-.file-remove{background:none;border:none;color:rgba(255,100,100,0.4);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;border-radius:6px;transition:color .15s}
-.file-remove:hover{color:#ff5555;background:rgba(255,85,85,0.1)}
-.add-more{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--border-hi);border-radius:10px;padding:10px;cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;transition:all .15s;margin-top:6px}
-.add-more:hover{border-color:rgba(168,85,247,0.3);color:var(--pp);background:var(--pp-dim)}
+.files-area{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;min-height:60px}
+.files-empty{text-align:center;color:var(--muted);font-size:12px;padding:12px 0}
+.fitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);margin-bottom:6px}
+.fitem:last-child{margin-bottom:0}
+.fname{flex:1;font-family:var(--mono);font-size:11px;color:rgba(200,180,255,0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fsize{font-size:10px;color:var(--muted);white-space:nowrap}
+.fbadge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.fb-wait{background:rgba(168,85,247,0.1);color:rgba(168,85,247,0.6);border:1px solid rgba(168,85,247,0.2)}
+.fb-hit{background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.25)}
+.fb-miss{background:rgba(100,100,100,0.08);color:#666;border:1px solid rgba(100,100,100,0.15)}
+.frem{background:none;border:none;color:#555;cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px;transition:color .1s}
+.frem:hover{color:#ff5555;background:rgba(255,85,85,0.1)}
+.add-row{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed rgba(255,255,255,0.08);border-radius:8px;padding:9px;cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;margin-top:8px;transition:all .15s}
+.add-row:hover{border-color:rgba(168,85,247,0.3);color:var(--pp);background:var(--pp-dim)}
 
-/* Progress */
-.progress{height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin:10px 0;display:none;overflow:hidden}
-.progress.show{display:block}
-.prog-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--pp),var(--pk));border-radius:2px;transition:width .3s}
-.status-line{font-size:12px;color:var(--muted);font-family:var(--mono);min-height:18px;margin-bottom:10px}
-.status-line.ok{color:var(--success)}
-.status-line.err{color:var(--danger)}
+/* Patch button + status */
+.patch-row{display:flex;align-items:center;gap:14px;margin-bottom:24px;flex-wrap:wrap}
+.patch-btn{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;border:none;padding:13px 28px;font-family:'Inter',sans-serif;font-size:14px;font-weight:800;border-radius:12px;cursor:pointer;letter-spacing:.3px;box-shadow:0 4px 20px rgba(168,85,247,0.35);transition:all .2s}
+.patch-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(168,85,247,0.5)}
+.patch-btn:active{transform:none}
+.patch-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+.pstatus{font-size:12px;font-family:var(--mono)}
+.pstatus.ok{color:var(--success)}
+.pstatus.err{color:var(--danger)}
+.pstatus.info{color:var(--muted)}
 
 /* Results */
-.results{display:flex;flex-direction:column;gap:10px;margin-top:20px}
-.res-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;overflow:hidden;display:none}
-.res-card.show{display:flex;flex-direction:column}
-.res-hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
-.res-name{flex:1;font-family:var(--mono);font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.res-badge{font-size:10px;padding:2px 9px;border-radius:99px;font-family:'Inter',sans-serif;white-space:nowrap}
-.rb-changed{background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25)}
-.rb-unchanged{background:rgba(100,100,100,0.1);color:#888;border:1px solid rgba(100,100,100,0.2)}
-.res-dl{display:flex;align-items:center;gap:6px;font-size:11px;font-family:'Inter',sans-serif;padding:5px 12px;border-radius:8px;border:1px solid var(--border-hi);background:transparent;color:var(--text);cursor:pointer;transition:background .12s;font-weight:600}
-.res-dl:hover{background:var(--pp-dim);border-color:rgba(168,85,247,0.35);color:var(--pp)}
-.res-preview{padding:14px 16px;font-size:10px;color:rgba(200,180,255,0.4);font-family:var(--mono);overflow:auto;max-height:180px;line-height:1.7;background:rgba(0,0,0,0.3);white-space:pre}
+.results{display:flex;flex-direction:column;gap:10px}
+.rcard{background:var(--bg1);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.rcard-hdr{display:flex;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
+.rcard-name{flex:1;font-family:var(--mono);font-size:12px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rdl{display:flex;align-items:center;gap:5px;font-size:11px;padding:5px 12px;border-radius:7px;border:1px solid var(--border-hi);background:transparent;color:var(--text);cursor:pointer;font-weight:600;font-family:'Inter',sans-serif;transition:background .1s}
+.rdl:hover{background:var(--pp-dim);color:var(--pp);border-color:rgba(168,85,247,0.35)}
+.rcard-pre{padding:13px 15px;font-size:10px;color:rgba(200,180,255,0.4);font-family:var(--mono);overflow:auto;max-height:160px;line-height:1.7;background:rgba(0,0,0,0.3);white-space:pre}
 
-/* Bottom bar */
-.bottom-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
-.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(168,85,247,0.4)}
+/* Bottom */
+.dl-all-row{margin-top:20px;padding-top:18px;border-top:1px solid var(--border);display:none;align-items:center;gap:12px}
+.dl-all-btn{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:11px 22px;font-family:'Inter',sans-serif;font-size:13px;font-weight:800;border-radius:10px;cursor:pointer;box-shadow:0 4px 16px rgba(34,197,94,0.3);transition:all .2s}
+.dl-all-btn:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(34,197,94,0.4)}
+.dl-sum{font-size:11px;color:var(--muted)}
+
+.toast{position:fixed;bottom:24px;right:24px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 18px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999;opacity:0;transform:translateY(8px) scale(.96);transition:all .2s;pointer-events:none}
 .toast.show{opacity:1;transform:translateY(0) scale(1)}
 </style></head><body>
 <canvas id="bg"></canvas>
 <div class="page">
-
 <div class="hdr">
-  <div class="hdr-logo">⚡</div>
+  <div class="hdr-logo">&#9889;</div>
   <div class="hdr-name">AC Auth <em>Backend</em></div>
   <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
   <nav class="hdr-nav">
@@ -1118,102 +1105,51 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   </div>
 </div>
 
-<div class="sp-wrap">
-  <div class="sp-title">Symbol Patcher</div>
-  <div class="sp-sub">Auto-replace old obfuscated symbols in your source files with new ones from an updated libil2cpp.so</div>
-  <div class="sp-by">BY AMBLOCK</div>
+<div class="wrap">
+  <div class="pg-title">Symbol Patcher</div>
+  <div class="pg-sub">Drop libil2cpp.so to get new symbols, then drop your source files and patch them all at once.</div>
 
-  <div class="steps">
-
-    <!-- STEP 1: Old SymbolMap.json -->
-    <div class="step" id="step1">
-      <div class="step-hdr">
-        <div class="step-num" id="sn1">1</div>
-        <div class="step-label">Load Old Symbol Map</div>
-        <div class="step-hint">SymbolMap.json or Frida-Map.js — from the previous game version</div>
-      </div>
-      <div class="step-body">
-        <div class="dz" id="dz-old" onclick="triggerOldPick(event)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-          </svg>
-          <div class="dz-title">Drop SymbolMap.json or Frida-Map.js here</div>
-          <div class="dz-hint">or click to browse — Symbol Getter output for the old game version</div>
-          <div class="dz-ok" id="old-ok" style="display:none"></div>
-        </div>
-      </div>
-    </div>
-    <input type="file" id="fi-old" style="display:none">
-
-    <!-- STEP 2: New libil2cpp.so -->
-    <div class="step" id="step2">
-      <div class="step-hdr">
-        <div class="step-num" id="sn2">2</div>
-        <div class="step-label">Load New libil2cpp.so</div>
-        <div class="step-hint">From the updated game version</div>
-      </div>
-      <div class="step-body">
-        <div class="dz" id="dz-new" onclick="document.getElementById('fi-new').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <div class="dz-title">Drop libil2cpp.so here</div>
-          <div class="dz-hint">or click to browse — parsed entirely in your browser</div>
-          <div class="dz-ok" id="new-ok" style="display:none"></div>
-        </div>
-        <input type="file" id="fi-new" accept=".so" style="display:none">
-        <div class="progress" id="prog-so"><div class="prog-bar" id="pb-so"></div></div>
-        <div class="status-line" id="st-so"></div>
-      </div>
-    </div>
-
-    <!-- STEP 3: Source files -->
-    <div class="step" id="step3">
-      <div class="step-hdr">
-        <div class="step-num" id="sn3">3</div>
-        <div class="step-label">Add Source Files to Patch</div>
-        <div class="step-hint">Drop as many as you want — .ts, .js, .cpp, .hpp, .h, .cs, .txt …</div>
-      </div>
-      <div class="step-body">
-        <div class="dz" id="dz-src" onclick="document.getElementById('fi-src').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-          <div class="dz-title">Drop source files here</div>
-          <div class="dz-hint">or click to browse — multiple files supported</div>
-        </div>
-        <input type="file" id="fi-src" multiple style="display:none">
-        <div class="file-list" id="file-list"></div>
-      </div>
-    </div>
-
+  <!-- SO drop -->
+  <div class="zone-label">1 &mdash; New libil2cpp.so</div>
+  <div class="dz" id="dz-so">
+    <div class="dz-icon">&#128229;</div>
+    <div class="dz-main">Drop libil2cpp.so here</div>
+    <div class="dz-sub">or click to browse</div>
+    <div class="dz-ok" id="so-ok"></div>
   </div>
 
-  <!-- Patch button -->
-  <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
-    <button class="abtn abtn-purple" id="patch-btn" onclick="runPatch()" style="font-size:13px;padding:11px 24px">
-      ⚡ Patch All Files
-    </button>
-    <div class="status-line" id="st-patch" style="margin:0"></div>
+  <!-- Source files -->
+  <div class="zone-label">2 &mdash; Your Source Files (drop as many as you want)</div>
+  <div class="files-area" id="files-area">
+    <div class="files-empty" id="files-empty">No files added yet &mdash; drop them below</div>
+  </div>
+  <div class="dz" id="dz-src" style="padding:16px 20px;margin-bottom:24px">
+    <div class="dz-main" style="font-size:13px">&#43; Drop source files here &mdash; .ts .js .cpp .hpp .h .cs or any text file</div>
+    <div class="dz-sub">Click to browse &mdash; multiple files supported</div>
+  </div>
+
+  <!-- Patch -->
+  <div class="patch-row">
+    <button class="patch-btn" id="patch-btn" onclick="runPatch()">&#9889; Patch All Files</button>
+    <span class="pstatus info" id="pstatus"></span>
   </div>
 
   <!-- Results -->
   <div class="results" id="results"></div>
 
-  <div class="bottom-bar" id="bottom-bar" style="display:none">
-    <button class="abtn abtn-green" onclick="downloadAll()">⬇ Download All Patched Files</button>
-    <span style="font-size:11px;color:var(--muted)" id="summary-line"></span>
+  <div class="dl-all-row" id="dl-all-row">
+    <button class="dl-all-btn" onclick="dlAll()">&#11015; Download All Patched</button>
+    <span class="dl-sum" id="dl-sum"></span>
   </div>
 </div>
 </div>
 
+<input type="file" id="fi-so" style="display:none">
+<input type="file" id="fi-src" multiple style="display:none">
 <div class="toast" id="toast"></div>
 
 <script>
-// ── ELF PARSER (same as Symbol Getter) ────────────────────────────────────────
+// ── IL2CPP API ORDER (same positional list as Symbol Getter) ──────────────────
 const IL2CPP_API = [
   "il2cpp_init","il2cpp_init_utf16","il2cpp_shutdown","il2cpp_set_config_dir",
   "il2cpp_set_data_dir","il2cpp_set_temp_dir","il2cpp_set_commandline_arguments",
@@ -1290,12 +1226,12 @@ const IL2CPP_API = [
 ];
 const SKIP_RE = /^(_Z|SystemNative|Java_|pthread|__cxa|__start|__stop|NLSocket|ZStream|Flush|Dll[CG]|Globalization|JNI_|ReadEvents|mono_pal|__dynamic|__gxx|UnityAds|CloseN|CreateN)/;
 
+// ── ELF PARSER ────────────────────────────────────────────────────────────────
 function r32(b,o){return((b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0);}
 function r64(b,o){return r32(b,o+4)*0x100000000+r32(b,o);}
 function r16(b,o){return b[o]|(b[o+1]<<8);}
 function cstr(b,o){let s='';while(o<b.length&&b[o]!==0)s+=String.fromCharCode(b[o++]);return s;}
-
-function extractObfSymbols(buf) {
+function parseElf(buf){
   if(buf[0]!==0x7f||buf[1]!==0x45||buf[2]!==0x4c||buf[3]!==0x46)throw new Error('Not an ELF file');
   const is64=buf[4]===2;
   const entries=[];
@@ -1305,256 +1241,368 @@ function extractObfSymbols(buf) {
     for(let i=0;i<shnum;i++){const b=Number(shoff)+i*shentsz;secs.push({type:r32(buf,b+4),off:r64(buf,b+24),size:r64(buf,b+32),link:r32(buf,b+40),entsz:r64(buf,b+56)});}
     for(const s of secs){
       if(s.type!==11&&s.type!==2)continue;
-      const strsec=secs[s.link];const esz=Number(s.entsz)||24;const cnt=Math.floor(Number(s.size)/esz);
+      const ss=secs[s.link];const esz=Number(s.entsz)||24;const cnt=Math.floor(Number(s.size)/esz);
       for(let j=0;j<cnt;j++){const b=Number(s.off)+j*esz;const nm=r32(buf,b);const info=buf[b+4];const shndx=r16(buf,b+6);const addr=r64(buf,b+8);const bind=info>>4;
-        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,Number(strsec.off)+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr:Number(addr)});}}
+        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,Number(ss.off)+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr:Number(addr)});}}
     }
-  } else {
+  }else{
     const shoff=r32(buf,32),shentsz=r16(buf,46),shnum=r16(buf,48);
     const secs=[];
     for(let i=0;i<shnum;i++){const b=shoff+i*shentsz;secs.push({type:r32(buf,b+4),off:r32(buf,b+16),size:r32(buf,b+20),link:r32(buf,b+24),entsz:r32(buf,b+36)});}
     for(const s of secs){
       if(s.type!==11&&s.type!==2)continue;
-      const strsec=secs[s.link];const esz=s.entsz||16;const cnt=Math.floor(s.size/esz);
+      const ss=secs[s.link];const esz=s.entsz||16;const cnt=Math.floor(s.size/esz);
       for(let j=0;j<cnt;j++){const b=s.off+j*esz;const nm=r32(buf,b);const addr=r32(buf,b+4);const info=buf[b+12];const shndx=r16(buf,b+14);const bind=info>>4;
-        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,strsec.off+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr});}}
+        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,ss.off+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr});}}
     }
   }
   entries.sort((a,b)=>a.addr-b.addr);
   return [...new Map(entries.map(e=>[e.name,e])).values()].sort((a,b)=>a.addr-b.addr).map(e=>e.name);
 }
 
-function buildMap(syms){const map={};const len=Math.min(syms.length,IL2CPP_API.length);for(let i=0;i<len;i++)map[IL2CPP_API[i]]=syms[i];return map;}
-
 // ── STATE ─────────────────────────────────────────────────────────────────────
-let oldMap = null;   // { api_name -> old_obf_symbol }  from SymbolMap.json
-let newMap = null;   // { api_name -> new_obf_symbol }  from new .so
-let patchMap = null; // { old_obf_symbol -> new_obf_symbol }
-let sourceFiles = []; // [{name, text, patched, replaceCount}]
+// newSymMap: { il2cpp_api_name -> new_obf_symbol }  from .so
+// sourceFiles: [{name, text, size, patched, hits}]
+// patchedBlobs: { filename -> Blob }
+let newSymMap = null;
+let sourceFiles = [];
 let patchedBlobs = {};
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show';clearTimeout(t._h);t._h=setTimeout(()=>t.className='toast',2200);}
-function setStepDone(n){const el=document.getElementById('sn'+n);el.classList.add('done');el.textContent='✓';}
-function fmtSize(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB';}
-function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
-// ── DRAG & DROP WIRING ────────────────────────────────────────────────────────
-function wireDz(dzId, handler){
-  const dz=document.getElementById(dzId);
-  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
-  dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
-  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');handler(e.dataTransfer.files);});
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast show';
+  clearTimeout(t._h);t._h=setTimeout(()=>t.className='toast',2500);
 }
-function triggerOldPick(e){
-  e.stopPropagation();
-  const fi=document.getElementById('fi-old');
-  fi.value='';
-  fi.click();
-}
-wireDz('dz-old', files=>loadOldMap(files[0]));
-wireDz('dz-new', files=>loadNewSo(files[0]));
-wireDz('dz-src', files=>addSourceFiles(files));
-document.getElementById('fi-old').addEventListener('change',e=>loadOldMap(e.target.files[0]));
-document.getElementById('fi-new').addEventListener('change',e=>loadNewSo(e.target.files[0]));
-document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.target.files));
+function fmtSize(b){return b<1024?b+'B':b<1048576?(b/1024).toFixed(1)+'KB':(b/1048576).toFixed(1)+'MB';}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// ── STEP 1: Load old symbol map (SymbolMap.json OR Frida-Map.js) ──────────────
-async function loadOldMap(file){
-  if(!file)return;
-  const name=file.name;
-  const lname=name.toLowerCase();
-  const isJs=lname.endsWith('.js')&&!lname.endsWith('.json');
-  const text=await file.text();
-  oldMap={};
-  try{
-    const looksLikeFridaMap=text.indexOf('findExportByName')>=0;
-    if(!isJs&&!looksLikeFridaMap){
-      // SymbolMap.json: { "il2cpp_init": "MGbMLHixhhz", ... }
-      const raw=JSON.parse(text);
-      for(const[k,v]of Object.entries(raw)){
-        if(k==='__header')continue;
-        if(typeof v==='string')oldMap[k]=v;
-      }
-    } else {
-      for(const line of text.split('\n')){
-        const t=line.trim();
-        if(!t.startsWith('il2cpp_'))continue;
-        const ci=t.indexOf(':');
-        if(ci<0)continue;
-        const api=t.slice(0,ci).trim();
-        const fk='findExportByName("';
-        const fi=t.indexOf(fk);
-        if(fi<0)continue;
-        const ss=fi+fk.length;
-        const se=t.indexOf('")',ss);
-        if(se<0)continue;
-        const sym=t.slice(ss,se);
-        if(api&&sym)oldMap[api]=sym;
-      }
-    }    const cnt=Object.keys(oldMap).length;
-    if(cnt===0){toast('No symbols found in '+name+' — check file format');return;}
-    document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+name;
-    document.getElementById('old-ok').style.display='';
-    document.getElementById('dz-old').classList.add('done');
-    setStepDone(1);
-    toast('Old map loaded: '+cnt+' symbols');
-    tryBuildPatchMap();
-  }catch(e){toast('Parse error: '+e.message);console.error('loadOldMap error:',e);}
+// ── WIRE UP DROP ZONES ────────────────────────────────────────────────────────
+function setupDz(dzId, onFiles){
+  const dz = document.getElementById(dzId);
+  dz.addEventListener('dragover', e=>{e.preventDefault();dz.classList.add('over');});
+  dz.addEventListener('dragleave', ()=>dz.classList.remove('over'));
+  dz.addEventListener('drop', e=>{
+    e.preventDefault();
+    dz.classList.remove('over');
+    if(e.dataTransfer.files.length) onFiles(e.dataTransfer.files);
+  });
 }
 
-// ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
-async function loadNewSo(file){
-  if(!file)return;
-  if(!file.name.endsWith('.so')){toast('Need a .so file');return;}
-  const progEl=document.getElementById('prog-so');
-  const pbEl=document.getElementById('pb-so');
-  const stEl=document.getElementById('st-so');
-  stEl.className='status-line';
-  stEl.textContent='Reading file...';
-  progEl.className='progress show'; pbEl.style.width='10%';
-  const buf=new Uint8Array(await file.arrayBuffer());
-  pbEl.style.width='45%'; stEl.textContent='Parsing ELF...';
-  let syms;
-  try{syms=extractObfSymbols(buf);}catch(e){stEl.textContent='ELF error: '+e.message;stEl.className='status-line err';return;}
-  pbEl.style.width='90%';
-  newMap=buildMap(syms);
-  const cnt=Object.keys(newMap).length;
-  pbEl.style.width='100%';
-  stEl.textContent='✓ Parsed '+cnt+' symbols from '+file.name;
-  stEl.className='status-line ok';
-  document.getElementById('new-ok').textContent='✓ '+cnt+' symbols mapped';
-  document.getElementById('new-ok').style.display='';
-  document.getElementById('dz-new').classList.add('done');
-  setStepDone(2);
-  toast('New .so loaded: '+cnt+' symbols');
-  setTimeout(()=>{progEl.className='progress';},700);
-  tryBuildPatchMap();
-}
+// SO drop zone — click opens file picker
+const dzSo = document.getElementById('dz-so');
+const fiSo = document.getElementById('fi-so');
+dzSo.addEventListener('click', ()=>{ fiSo.value=''; fiSo.click(); });
+fiSo.addEventListener('change', ()=>{ if(fiSo.files.length) loadSo(fiSo.files[0]); });
+setupDz('dz-so', files=>loadSo(files[0]));
 
-// Build old_obf -> new_obf translation table
-function tryBuildPatchMap(){
-  if(!oldMap||!newMap)return;
-  patchMap={};
-  let hits=0;
-  for(const api of Object.keys(oldMap)){
-    const oldSym=oldMap[api];
-    const newSym=newMap[api];
-    if(oldSym&&newSym&&oldSym!==newSym){
-      patchMap[oldSym]=newSym;
-      hits++;
+// Source files drop zone — click opens file picker
+const dzSrc = document.getElementById('dz-src');
+const fiSrc = document.getElementById('fi-src');
+dzSrc.addEventListener('click', ()=>{ fiSrc.value=''; fiSrc.click(); });
+fiSrc.addEventListener('change', ()=>{ if(fiSrc.files.length) addFiles(fiSrc.files); });
+setupDz('dz-src', files=>addFiles(files));
+// Also allow drop anywhere on the files-area
+setupDz('files-area', files=>addFiles(files));
+
+// ── LOAD SO ───────────────────────────────────────────────────────────────────
+async function loadSo(file){
+  if(!file) return;
+  const okEl = document.getElementById('so-ok');
+  const dz = document.getElementById('dz-so');
+  okEl.style.display = 'none';
+  dz.classList.remove('loaded');
+  document.querySelector('#dz-so .dz-main').textContent = 'Parsing...';
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const syms = parseElf(buf);
+    // Build api_name -> new_obf_symbol map
+    newSymMap = {};
+    for(let i=0;i<Math.min(syms.length, IL2CPP_API.length);i++){
+      newSymMap[IL2CPP_API[i]] = syms[i];
     }
+    const cnt = Object.keys(newSymMap).length;
+    document.querySelector('#dz-so .dz-main').textContent = file.name;
+    okEl.textContent = '✓ ' + cnt + ' symbols mapped from new .so';
+    okEl.style.display = 'block';
+    dz.classList.add('loaded');
+    toast('Loaded ' + cnt + ' new symbols');
+    updatePatchStatus();
+  } catch(e) {
+    document.querySelector('#dz-so .dz-main').textContent = 'Drop libil2cpp.so here';
+    toast('Error: ' + e.message);
   }
-  document.getElementById('st-patch').textContent=hits+' symbols will be remapped';
-  document.getElementById('st-patch').className='status-line ok';
 }
 
-// ── STEP 3: Source files ──────────────────────────────────────────────────────
-async function addSourceFiles(fileList){
-  for(const file of fileList){
-    if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
-    const text=await file.text();
-    sourceFiles.push({name:file.name,text,patched:null,replaceCount:0,size:file.size});
+// ── ADD SOURCE FILES ──────────────────────────────────────────────────────────
+async function addFiles(fileList){
+  let added = 0;
+  for(const file of Array.from(fileList)){
+    if(sourceFiles.find(f=>f.name===file.name)){ toast(file.name+' already added'); continue; }
+    const text = await file.text();
+    sourceFiles.push({name:file.name, text, size:file.size, patched:null, hits:0});
+    added++;
   }
-  if(sourceFiles.length>0)setStepDone(3);
-  renderFileList();
+  if(added) { renderFileList(); updatePatchStatus(); }
 }
 
 function removeFile(name){
-  sourceFiles=sourceFiles.filter(f=>f.name!==name);
+  sourceFiles = sourceFiles.filter(f=>f.name!==name);
   delete patchedBlobs[name];
   renderFileList();
   renderResults();
+  updatePatchStatus();
 }
 
 function renderFileList(){
-  const list=document.getElementById('file-list');
-  if(!sourceFiles.length){list.innerHTML='';return;}
-  list.innerHTML=sourceFiles.map(f=>\`
-    <div class="file-item">
-      <span class="file-icon">📄</span>
-      <span class="file-name">\${escHtml(f.name)}</span>
-      <span class="file-size">\${fmtSize(f.size)}</span>
-      <span class="file-status \${f.patched!==null?(f.replaceCount>0?'fs-done':'fs-skip'):'fs-pending'}">\${f.patched!==null?(f.replaceCount>0?f.replaceCount+' replaced':'No changes'):'Pending'}</span>
-      <button class="file-remove" onclick="removeFile('\${f.name.replace(/'/g,"\\\\'")}')" title="Remove">✕</button>
-    </div>
-  \`).join('')+\`<div class="add-more" onclick="document.getElementById('fi-src').click()">＋ Add more files</div>\`;
+  const area = document.getElementById('files-area');
+  const empty = document.getElementById('files-empty');
+  if(!sourceFiles.length){
+    empty.style.display='';
+    // remove all fitems
+    area.querySelectorAll('.fitem').forEach(el=>el.remove());
+    area.querySelectorAll('.add-row').forEach(el=>el.remove());
+    return;
+  }
+  empty.style.display='none';
+  // rebuild
+  area.querySelectorAll('.fitem,.add-row').forEach(el=>el.remove());
+  for(const f of sourceFiles){
+    const d = document.createElement('div');
+    d.className='fitem';
+    let badge='';
+    if(f.patched===null) badge='<span class="fbadge fb-wait">Pending</span>';
+    else if(f.hits>0) badge='<span class="fbadge fb-hit">'+f.hits+' replaced</span>';
+    else badge='<span class="fbadge fb-miss">No changes</span>';
+    d.innerHTML = '<span class="fname">'+esc(f.name)+'</span>'
+      +'<span class="fsize">'+fmtSize(f.size)+'</span>'
+      +badge
+      +'<button class="frem" title="Remove" onclick="removeFile('+JSON.stringify(f.name)+')">x</button>';
+    area.appendChild(d);
+  }
+  const addRow = document.createElement('div');
+  addRow.className='add-row';
+  addRow.textContent='+ Add more files';
+  addRow.onclick=()=>{fiSrc.value='';fiSrc.click();};
+  area.appendChild(addRow);
+}
+
+function updatePatchStatus(){
+  const st = document.getElementById('pstatus');
+  if(!newSymMap && !sourceFiles.length){ st.textContent=''; return; }
+  if(!newSymMap){ st.className='pstatus err'; st.textContent='Load a libil2cpp.so first'; return; }
+  if(!sourceFiles.length){ st.className='pstatus err'; st.textContent='Add source files to patch'; return; }
+  st.className='pstatus info';
+  st.textContent='Ready — '+Object.keys(newSymMap).length+' new symbols, '+sourceFiles.length+' file'+(sourceFiles.length!==1?'s':'');
 }
 
 // ── PATCH ─────────────────────────────────────────────────────────────────────
 function runPatch(){
-  const stEl=document.getElementById('st-patch');
-  if(!oldMap){stEl.textContent='⚠ Load old SymbolMap.json first';stEl.className='status-line err';return;}
-  if(!newMap){stEl.textContent='⚠ Load new libil2cpp.so first';stEl.className='status-line err';return;}
-  if(!sourceFiles.length){stEl.textContent='⚠ Add at least one source file';stEl.className='status-line err';return;}
-  if(!patchMap){tryBuildPatchMap();}
+  const st = document.getElementById('pstatus');
+  if(!newSymMap){ st.className='pstatus err'; st.textContent='Load libil2cpp.so first'; return; }
+  if(!sourceFiles.length){ st.className='pstatus err'; st.textContent='Add source files first'; return; }
 
-  // Sort old symbols by length descending to avoid partial replacements
-  const sortedOld=Object.keys(patchMap).sort((a,b)=>b.length-a.length);
-  let totalReplaced=0;
-  let filesChanged=0;
+  // Build a set of all NEW obfuscated symbol values so we can detect them in files
+  // The files contain OLD obf symbols. We need to figure out which old sym = which api position.
+  //
+  // Strategy: scan each source file for tokens that look like obfuscated IL2CPP symbols
+  // (match the pattern: alphanumeric+underscore, 8-14 chars, mixed case, not a keyword).
+  // For each token found, figure out WHICH il2cpp api it corresponds to by seeing if 
+  // it appears alongside api context clues (findExportByName, Il2Cpp.$config, etc.)
+  // OR: extract all unique candidate tokens from the file, sort by order-of-appearance,
+  // and positionally map them to IL2CPP_API to find old->new pairs.
+  
+  // SIMPLE APPROACH: 
+  // 1. Extract all candidate obf symbols from the source files (tokens that look like obf syms)
+  // 2. For Frida-Map-style files: parse api_name -> old_sym directly from the file
+  // 3. Build old->new map using the api as the bridge
+  // 4. Do string replacement
+
+  patchedBlobs = {};
+  let totalHits = 0;
+  let filesChanged = 0;
+
+  // Build new sym values set for quick lookup
+  const newSymValues = new Set(Object.values(newSymMap));
+  // Build new sym reverse: new_obf -> api_name (for detecting already-patched files)
+  const newSymReverse = {};
+  for(const[api,sym] of Object.entries(newSymMap)) newSymReverse[sym]=api;
 
   for(const f of sourceFiles){
-    let content=f.text;
-    let count=0;
-    for(const oldSym of sortedOld){
-      const newSym=patchMap[oldSym];
-      // Replace all occurrences — use split/join for safety with special regex chars
-      const before=content;
-      // Escape special regex chars in symbol name
-      const re=new RegExp(oldSym,'g');
-      content=content.replace(re,()=>{count++;return newSym;});
+    // Extract old->new pairs from this file
+    // Works for: Frida-Map.js, mymenu.ts, any file containing findExportByName("XXX")
+    // or Il2Cpp.$config.exports patterns or direct obf symbol strings
+    
+    const oldToNew = {};
+    
+    // Method 1: parse findExportByName("OLDSYM") -> look up api -> get new sym
+    // Lines like: someApi: () => Il2Cpp.module.findExportByName("AbcDefGhi")
+    // OR: Il2Cpp.module.findExportByName("AbcDefGhi")
+    // OR: .findExportByName("AbcDefGhi")
+    const lines = f.text.split('\n');
+    for(const line of lines){
+      const trimmed = line.trim();
+      // Find api name if present
+      let apiName = null;
+      const colonIdx = trimmed.indexOf(':');
+      if(colonIdx>0 && trimmed.startsWith('il2cpp_')){
+        apiName = trimmed.slice(0,colonIdx).trim();
+      }
+      // Find all findExportByName("...") occurrences in this line
+      let searchFrom = 0;
+      const fkey = 'findExportByName("';
+      while(true){
+        const fi = line.indexOf(fkey, searchFrom);
+        if(fi<0) break;
+        const symStart = fi + fkey.length;
+        const symEnd = line.indexOf('")', symStart);
+        if(symEnd<0){ searchFrom=fi+1; continue; }
+        const oldSym = line.slice(symStart, symEnd);
+        searchFrom = symEnd+1;
+        if(!oldSym || oldSym.length<3) continue;
+        if(newSymValues.has(oldSym)) continue; // already new, skip
+        // If we have the api name from this line, use it directly
+        if(apiName && newSymMap[apiName]){
+          oldToNew[oldSym] = newSymMap[apiName];
+        } else {
+          // Try to figure out api from surrounding context or by matching
+          // Check if this sym appears alongside an il2cpp_ name anywhere in the file
+          for(const api of IL2CPP_API){
+            if(newSymMap[api] && f.text.indexOf(api+':') >= 0){
+              // The file has this api referenced - find its old sym
+              // Look for api: ... findExportByName("OLDSYM") on same line
+              const apiLineIdx = f.text.indexOf(api+':');
+              const lineEnd = f.text.indexOf('\n', apiLineIdx);
+              const apiLine = f.text.slice(apiLineIdx, lineEnd>0?lineEnd:undefined);
+              const aFi = apiLine.indexOf(fkey);
+              if(aFi>=0){
+                const aSs = aFi+fkey.length;
+                const aSe = apiLine.indexOf('")', aSs);
+                if(aSe>=0){
+                  const aSym = apiLine.slice(aSs, aSe);
+                  if(aSym && !newSymValues.has(aSym)){
+                    oldToNew[aSym] = newSymMap[api];
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
-    f.patched=content;
-    f.replaceCount=count;
-    if(count>0){filesChanged++;totalReplaced+=count;}
-    patchedBlobs[f.name]=new Blob([content],{type:'text/plain'});
+
+    // Method 2: For files that reference obf symbols directly (not via findExportByName)
+    // Scan the whole file text for any token that matches a known OLD pattern
+    // We infer old by scanning Il2Cpp.$config.exports block if present
+    if(f.text.indexOf('Il2Cpp.$config') >= 0 || f.text.indexOf('$config.exports') >= 0){
+      // Parse the exports block: api_name: () => ... findExportByName("sym")
+      for(const api of IL2CPP_API){
+        const apiKey = api+':';
+        let pos = 0;
+        while(true){
+          const idx = f.text.indexOf(apiKey, pos);
+          if(idx<0) break;
+          const lineEnd = f.text.indexOf('\n', idx);
+          const line2 = f.text.slice(idx, lineEnd>0?lineEnd:undefined);
+          const fkey2 = 'findExportByName("';
+          const fi2 = line2.indexOf(fkey2);
+          if(fi2>=0){
+            const ss2 = fi2+fkey2.length;
+            const se2 = line2.indexOf('")', ss2);
+            if(se2>=0){
+              const oldSym = line2.slice(ss2, se2);
+              if(oldSym && !newSymValues.has(oldSym) && newSymMap[api]){
+                oldToNew[oldSym] = newSymMap[api];
+              }
+            }
+          }
+          pos = idx+1;
+        }
+      }
+    }
+
+    // Now do the actual replacement
+    let content = f.text;
+    let hitCount = 0;
+    // Sort by length descending to avoid partial replacements
+    const pairs = Object.entries(oldToNew).sort((a,b)=>b[0].length-a[0].length);
+    for(const [oldSym, newSym] of pairs){
+      if(oldSym===newSym) continue;
+      let i=0;
+      while(true){
+        const idx = content.indexOf(oldSym, i);
+        if(idx<0) break;
+        // Make sure it's a whole token (not part of a longer identifier)
+        const before = idx>0?content[idx-1]:'';
+        const after = idx+oldSym.length<content.length?content[idx+oldSym.length]:'';
+        const bOk = !before||!/[A-Za-z0-9_]/.test(before);
+        const aOk = !after||!/[A-Za-z0-9_]/.test(after);
+        if(bOk&&aOk){
+          content = content.slice(0,idx)+newSym+content.slice(idx+oldSym.length);
+          i = idx+newSym.length;
+          hitCount++;
+        } else {
+          i = idx+1;
+        }
+      }
+    }
+    f.patched = content;
+    f.hits = hitCount;
+    if(hitCount>0){
+      filesChanged++;
+      totalHits+=hitCount;
+      patchedBlobs[f.name] = new Blob([content],{type:'text/plain'});
+    }
   }
 
   renderFileList();
   renderResults();
-  stEl.textContent=\`✓ Done — \${totalReplaced} replacements across \${filesChanged}/\${sourceFiles.length} files\`;
-  stEl.className='status-line ok';
 
-  const bar=document.getElementById('bottom-bar');
-  const sum=document.getElementById('summary-line');
+  st.className = 'pstatus ok';
+  st.textContent = totalHits+' replacements across '+filesChanged+'/'+sourceFiles.length+' files';
+
   if(filesChanged>0){
-    bar.style.display='flex';
-    sum.textContent=\`\${totalReplaced} symbols updated in \${filesChanged} file\${filesChanged!==1?'s':''}\`;
+    const row = document.getElementById('dl-all-row');
+    row.style.display='flex';
+    document.getElementById('dl-sum').textContent = filesChanged+' file'+(filesChanged!==1?'s':'')+' changed';
   }
-  toast(\`Patched \${filesChanged} file\${filesChanged!==1?'s':''}!\`);
+  toast(totalHits>0 ? 'Patched '+filesChanged+' file'+(filesChanged!==1?'s':'')+'!' : 'No symbols matched — check your files');
 }
 
-function renderResults(){
-  const res=document.getElementById('results');
-  res.innerHTML=sourceFiles.filter(f=>f.patched!==null).map(f=>\`
-    <div class="res-card show">
-      <div class="res-hdr">
-        <span class="res-name">📄 \${escHtml(f.name)}</span>
-        <span class="res-badge \${f.replaceCount>0?'rb-changed':'rb-unchanged'}">\${f.replaceCount>0?f.replaceCount+' symbols updated':'No changes'}</span>
-        \${f.replaceCount>0?\`<button class="res-dl" onclick="dlFile('\${f.name.replace(/'/g,"\\\\'")}')">\${dlIcon()} Download</button>\`:''}
-      </div>
-      <pre class="res-preview">\${escHtml((f.patched||'').slice(0,2000)+(f.patched&&f.patched.length>2000?'\\n...':''))}</pre>
-    </div>
-  \`).join('');
-}
-
-function dlIcon(){return\`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>\`;}
-
+// ── DOWNLOAD ──────────────────────────────────────────────────────────────────
 function dlFile(name){
-  const blob=patchedBlobs[name];if(!blob)return;
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  const blob = patchedBlobs[name];
+  if(!blob) return;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  a.click();
   toast('Downloaded: '+name);
 }
-
-async function downloadAll(){
-  const changed=sourceFiles.filter(f=>f.patched!==null&&f.replaceCount>0);
-  if(!changed.length){toast('No changed files to download');return;}
-  // Download individually if no JSZip available — stagger them
-  for(let i=0;i<changed.length;i++){
-    setTimeout(()=>dlFile(changed[i].name),i*300);
-  }
+function dlAll(){
+  const changed = sourceFiles.filter(f=>f.hits>0);
+  changed.forEach((f,i)=>setTimeout(()=>dlFile(f.name),i*250));
   toast('Downloading '+changed.length+' file'+(changed.length!==1?'s':'')+'...');
+}
+
+// ── RENDER RESULTS ────────────────────────────────────────────────────────────
+function renderResults(){
+  const el = document.getElementById('results');
+  const done = sourceFiles.filter(f=>f.patched!==null);
+  if(!done.length){el.innerHTML='';return;}
+  el.innerHTML = done.map(f=>{
+    const preview = (f.patched||'').slice(0,1500)+(f.patched&&f.patched.length>1500?'\n...':'');
+    const badge = f.hits>0
+      ? '<span class="fbadge fb-hit" style="font-size:11px">'+f.hits+' symbols updated</span>'
+      : '<span class="fbadge fb-miss" style="font-size:11px">No changes</span>';
+    const dlBtn = f.hits>0
+      ? '<button class="rdl" onclick="dlFile('+JSON.stringify(f.name)+')">&#11015; Download</button>'
+      : '';
+    return '<div class="rcard">'
+      +'<div class="rcard-hdr"><span class="rcard-name">'+esc(f.name)+'</span>'+badge+dlBtn+'</div>'
+      +'<pre class="rcard-pre">'+esc(preview)+'</pre>'
+      +'</div>';
+  }).join('');
 }
 
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
@@ -1562,6 +1610,7 @@ async function downloadAll(){
 ${BG_SCRIPT}
 </body></html>`);
 });
+
 
 app.all("*",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
