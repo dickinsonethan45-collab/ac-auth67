@@ -1371,14 +1371,22 @@ async function loadOldMap(file){
         if(typeof v==='string')oldMap[k]=v;
       }
     } else {
-      // Frida-Map.js: il2cpp_init: () => Il2Cpp.module.findExportByName("MGbMLHixhhz"),
-      const re=/^\s*(il2cpp_\w+)\s*:\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/gm;
-      let m;
-      while((m=re.exec(text))!==null){
-        oldMap[m[1]]=m[2];
+      for(const line of text.split('\n')){
+        const t=line.trim();
+        if(!t.startsWith('il2cpp_'))continue;
+        const ci=t.indexOf(':');
+        if(ci<0)continue;
+        const api=t.slice(0,ci).trim();
+        const fk='findExportByName("';
+        const fi=t.indexOf(fk);
+        if(fi<0)continue;
+        const ss=fi+fk.length;
+        const se=t.indexOf('")',ss);
+        if(se<0)continue;
+        const sym=t.slice(ss,se);
+        if(api&&sym)oldMap[api]=sym;
       }
-    }
-    const cnt=Object.keys(oldMap).length;
+    }    const cnt=Object.keys(oldMap).length;
     if(cnt===0){toast('No symbols found in '+name+' — check file format');return;}
     document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+name;
     document.getElementById('old-ok').style.display='';
