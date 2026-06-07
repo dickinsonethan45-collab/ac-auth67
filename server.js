@@ -1320,55 +1320,49 @@ function setStatus(msg,cls){const el=document.getElementById('patch-status');el.
 function runPatch(){
   if(!newSymMap){setStatus('Load libil2cpp.so first','err');return;}
   if(!sourceFiles.length){setStatus('Add source files first','err');return;}
-  const newSymValues=new Set(Object.values(newSymMap));
   patchedBlobs={};
   let totalHits=0,filesChanged=0;
   for(const f of sourceFiles){
+    // Scan every line of the file for: il2cpp_xxx: ... findExportByName("OLDSYM")
+    // Look up il2cpp_xxx in newSymMap to get the new symbol, replace OLDSYM with it
     const oldToNew={};
-    // Parse findExportByName("OLDSYM") lines and map via il2cpp api name
-    for(const api of IL2CPP_API){
-      if(!newSymMap[api])continue;
-      const key=api+':';
-      let pos=0;
-      while(true){
-        const idx=f.text.indexOf(key,pos);
-        if(idx<0)break;
-        const lineEnd=f.text.indexOf('\n',idx);
-        const line=f.text.slice(idx,lineEnd>0?lineEnd:undefined);
-        const fk='findExportByName("';
-        const fi=line.indexOf(fk);
-        if(fi>=0){
-          const ss=fi+fk.length,se=line.indexOf('")',ss);
-          if(se>=0){
-            const old=line.slice(ss,se);
-            if(old&&!newSymValues.has(old)) oldToNew[old]=newSymMap[api];
-          }
-        }
-        pos=idx+1;
-      }
+    for(const line of f.text.split('\n')){
+      const t=line.trim();
+      if(!t.startsWith('il2cpp_'))continue;
+      const ci=t.indexOf(':');
+      if(ci<0)continue;
+      const api=t.slice(0,ci).trim();
+      if(!newSymMap[api])continue; // api not in new .so, skip
+      const fk='findExportByName("';
+      const fi=t.indexOf(fk);
+      if(fi<0)continue;
+      const ss=fi+fk.length;
+      const se=t.indexOf('")',ss);
+      if(se<0)continue;
+      const oldSym=t.slice(ss,se);
+      const newSym=newSymMap[api];
+      if(oldSym&&newSym&&oldSym!==newSym) oldToNew[oldSym]=newSym;
     }
+    // Now replace every old symbol string in the file with the new one
     let content=f.text,hits=0;
-    for(const [o,n] of Object.entries(oldToNew).sort((a,b)=>b[0].length-a[0].length)){
-      if(o===n)continue;
+    for(const [oldSym,newSym] of Object.entries(oldToNew)){
       let i=0;
       while(true){
-        const idx=content.indexOf(o,i);if(idx<0)break;
-        const b=idx>0?content[idx-1]:'',a=idx+o.length<content.length?content[idx+o.length]:'';
-        if(!/[A-Za-z0-9_]/.test(b)&&!/[A-Za-z0-9_]/.test(a)){
-          content=content.slice(0,idx)+n+content.slice(idx+o.length);
-          i=idx+n.length;hits++;
-        }else{i=idx+1;}
+        const idx=content.indexOf(oldSym,i);
+        if(idx<0)break;
+        content=content.slice(0,idx)+newSym+content.slice(idx+oldSym.length);
+        i=idx+newSym.length;
+        hits++;
       }
     }
     f.patched=content;f.hits=hits;
     if(hits>0){filesChanged++;totalHits+=hits;patchedBlobs[f.name]=new Blob([content],{type:'text/plain'});}
   }
   renderFileList();renderResults();
-  setStatus(totalHits>0?totalHits+' replacements in '+filesChanged+'/'+sourceFiles.length+' files':'No symbols matched \u2014 make sure files use findExportByName',totalHits>0?'ok':'err');
+  setStatus(totalHits>0?totalHits+' symbols replaced in '+filesChanged+'/'+sourceFiles.length+' files':'No matches \u2014 check the .so is for the same game version',totalHits>0?'ok':'err');
   if(filesChanged>0){document.getElementById('dl-all-btn').style.display='inline-block';}
-  toast(totalHits>0?'Patched '+filesChanged+' file'+(filesChanged!==1?'s':'')+'!':'No matches found');
+  toast(totalHits>0?'Done! '+totalHits+' symbols updated':'No matches found');
 }
-
 function dlFile(name){const blob=patchedBlobs[name];if(!blob)return;const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();}
 function dlAll(){sourceFiles.filter(f=>f.hits>0).forEach((f,i)=>setTimeout(()=>dlFile(f.name),i*250));toast('Downloading...');}
 
