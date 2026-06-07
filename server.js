@@ -1133,7 +1133,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
         <div class="step-hint">SymbolMap.json or Frida-Map.js — from the previous game version</div>
       </div>
       <div class="step-body">
-        <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
+        <div class="dz" id="dz-old" onclick="triggerOldPick(event)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
@@ -1142,9 +1142,9 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
           <div class="dz-hint">or click to browse — Symbol Getter output for the old game version</div>
           <div class="dz-ok" id="old-ok" style="display:none"></div>
         </div>
-        <input type="file" id="fi-old" accept=".json,.js" style="display:none">
       </div>
     </div>
+    <input type="file" id="fi-old" style="display:none">
 
     <!-- STEP 2: New libil2cpp.so -->
     <div class="step" id="step2">
@@ -1346,6 +1346,12 @@ function wireDz(dzId, handler){
   dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
   dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');handler(e.dataTransfer.files);});
 }
+function triggerOldPick(e){
+  e.stopPropagation();
+  const fi=document.getElementById('fi-old');
+  fi.value='';
+  fi.click();
+}
 wireDz('dz-old', files=>loadOldMap(files[0]));
 wireDz('dz-new', files=>loadNewSo(files[0]));
 wireDz('dz-src', files=>addSourceFiles(files));
@@ -1357,13 +1363,13 @@ document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.
 async function loadOldMap(file){
   if(!file)return;
   const name=file.name;
-  const isJson=name.endsWith('.json');
-  const isJs=name.endsWith('.js');
-  if(!isJson&&!isJs){toast('Need a .json or .js map file');return;}
+  const lname=name.toLowerCase();
+  const isJs=lname.endsWith('.js')&&!lname.endsWith('.json');
   const text=await file.text();
   oldMap={};
   try{
-    if(isJson){
+    const looksLikeFridaMap=text.indexOf('findExportByName')>=0;
+    if(!isJs&&!looksLikeFridaMap){
       // SymbolMap.json: { "il2cpp_init": "MGbMLHixhhz", ... }
       const raw=JSON.parse(text);
       for(const[k,v]of Object.entries(raw)){
@@ -1394,7 +1400,7 @@ async function loadOldMap(file){
     setStepDone(1);
     toast('Old map loaded: '+cnt+' symbols');
     tryBuildPatchMap();
-  }catch(e){toast('Parse error: '+e.message);}
+  }catch(e){toast('Parse error: '+e.message);console.error('loadOldMap error:',e);}
 }
 
 // ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
