@@ -1111,22 +1111,24 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 
   <!-- SO pick -->
   <div class="zone-label">1 &mdash; New libil2cpp.so</div>
-  <div id="so-zone" style="border:1.5px dashed rgba(255,255,255,0.12);border-radius:14px;padding:28px 20px;text-align:center;background:rgba(255,255,255,0.02);margin-bottom:16px;">
+  <div id="so-zone" style="border:1.5px dashed rgba(255,255,255,0.12);border-radius:14px;padding:28px 20px;text-align:center;background:rgba(255,255,255,0.02);margin-bottom:16px;cursor:pointer;position:relative;z-index:10">
     <div style="font-size:28px;margin-bottom:8px">&#128229;</div>
-    <label for="fi-so" style="display:inline-block;background:linear-gradient(135deg,#a855f7,#ec4899);color:#fff;padding:10px 24px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:.2px;margin-bottom:10px">&#128193; Choose libil2cpp.so</label>
-    <div style="font-size:11px;color:rgba(200,180,255,0.35);margin-top:4px">or drag and drop onto this area</div>
+    <div style="font-size:14px;font-weight:600;color:#e8e0ff">Drop libil2cpp.so here or click to browse</div>
+    <div style="font-size:11px;color:rgba(200,180,255,0.35);margin-top:4px">.so file from updated game</div>
     <div id="so-ok" style="font-size:13px;font-weight:700;color:#22c55e;margin-top:10px;display:none"></div>
   </div>
+  <input type="file" id="fi-so" accept=".so" style="display:none">
 
   <!-- Source files -->
   <div class="zone-label">2 &mdash; Your Source Files (drop as many as you want)</div>
   <div class="files-area" id="files-area">
     <div class="files-empty" id="files-empty">No files added yet &mdash; drop them below</div>
   </div>
-  <div id="dz-src" style="border:1.5px dashed rgba(255,255,255,0.08);border-radius:12px;padding:16px 20px;text-align:center;margin-bottom:24px;background:rgba(255,255,255,0.015)">
-    <label for="fi-src" style="display:inline-block;background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);padding:8px 20px;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:.2px">&#43; Choose Source Files</label>
-    <span style="font-size:11px;color:rgba(200,180,255,0.3);margin-left:10px">or drag &amp; drop .ts .js .cpp .hpp .h .cs ...</span>
+  <div id="dz-src" style="border:1.5px dashed rgba(255,255,255,0.08);border-radius:12px;padding:16px 20px;text-align:center;margin-bottom:24px;background:rgba(255,255,255,0.015);cursor:pointer;position:relative;z-index:10">
+    <div style="font-size:13px;font-weight:600;color:#c084fc">+ Add Source Files &mdash; click or drop here</div>
+    <div style="font-size:11px;color:rgba(200,180,255,0.3);margin-top:4px">.ts .js .cpp .hpp .h .cs or any text file</div>
   </div>
+  <input type="file" id="fi-src" multiple style="display:none">
 
   <!-- Patch -->
   <div class="patch-row">
@@ -1144,8 +1146,8 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 </div>
 </div>
 
-<input type="file" id="fi-so" accept=".so" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
-<input type="file" id="fi-src" multiple style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1289,29 +1291,23 @@ function setupDz(dzId, onFiles){
   });
 }
 
-// SO: label handles click natively, just wire change + drag on the zone div
 const fiSo = document.getElementById('fi-so');
-fiSo.addEventListener('change', ()=>{ if(fiSo.files.length) loadSo(fiSo.files[0]); });
 const soZone = document.getElementById('so-zone');
+let soPickerOpen=false;
+soZone.addEventListener('click', ()=>{if(soPickerOpen)return;soPickerOpen=true;fiSo.value='';fiSo.click();setTimeout(()=>soPickerOpen=false,2000);});
 soZone.addEventListener('dragover', e=>{e.preventDefault();soZone.style.borderColor='rgba(168,85,247,0.5)';});
 soZone.addEventListener('dragleave', ()=>soZone.style.borderColor='rgba(255,255,255,0.12)');
-soZone.addEventListener('drop', e=>{
-  e.preventDefault();
-  soZone.style.borderColor='rgba(255,255,255,0.12)';
-  if(e.dataTransfer.files.length) loadSo(e.dataTransfer.files[0]);
-});
+soZone.addEventListener('drop', e=>{e.preventDefault();soZone.style.borderColor='rgba(255,255,255,0.12)';if(e.dataTransfer.files.length)loadSo(e.dataTransfer.files[0]);});
+fiSo.addEventListener('change', ()=>{if(fiSo.files.length)loadSo(fiSo.files[0]);});
 
-// Source files: label handles click, wire change + drag
 const fiSrc = document.getElementById('fi-src');
-fiSrc.addEventListener('change', ()=>{ if(fiSrc.files.length) addFiles(fiSrc.files); });
 const dzSrc = document.getElementById('dz-src');
+let srcPickerOpen=false;
+dzSrc.addEventListener('click', ()=>{if(srcPickerOpen)return;srcPickerOpen=true;fiSrc.value='';fiSrc.click();setTimeout(()=>srcPickerOpen=false,2000);});
 dzSrc.addEventListener('dragover', e=>{e.preventDefault();dzSrc.style.borderColor='rgba(168,85,247,0.4)';});
 dzSrc.addEventListener('dragleave', ()=>dzSrc.style.borderColor='rgba(255,255,255,0.08)');
-dzSrc.addEventListener('drop', e=>{
-  e.preventDefault();
-  dzSrc.style.borderColor='rgba(255,255,255,0.08)';
-  if(e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-});
+dzSrc.addEventListener('drop', e=>{e.preventDefault();dzSrc.style.borderColor='rgba(255,255,255,0.08)';if(e.dataTransfer.files.length)addFiles(e.dataTransfer.files);});
+fiSrc.addEventListener('change', ()=>{if(fiSrc.files.length)addFiles(fiSrc.files);});
 setupDz('files-area', files=>addFiles(files));
 
 // ── LOAD SO ───────────────────────────────────────────────────────────────────
@@ -1392,7 +1388,7 @@ function renderFileList(){
   const addRow = document.createElement('div');
   addRow.className='add-row';
   addRow.textContent='+ Add more files';
-  addRow.onclick=()=>{fiSrc.value='';fiSrc.click();};
+  addRow.onclick=()=>{if(srcPickerOpen)return;srcPickerOpen=true;fiSrc.value='';fiSrc.click();setTimeout(()=>srcPickerOpen=false,2000);};
   area.appendChild(addRow);
 }
 
