@@ -1129,8 +1129,8 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     <div class="step" id="step1">
       <div class="step-hdr">
         <div class="step-num" id="sn1">1</div>
-        <div class="step-label">Load Old SymbolMap.json</div>
-        <div class="step-hint">From the previous version (Symbol Getter output)</div>
+        <div class="step-label">Load Old Symbol Map</div>
+        <div class="step-hint">SymbolMap.json or Frida-Map.js — from the previous game version</div>
       </div>
       <div class="step-body">
         <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
@@ -1138,11 +1138,11 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
           </svg>
-          <div class="dz-title">Drop SymbolMap.json here</div>
-          <div class="dz-hint">or click to browse — output from Symbol Getter for old game version</div>
+          <div class="dz-title">Drop SymbolMap.json or Frida-Map.js here</div>
+          <div class="dz-hint">or click to browse — Symbol Getter output for the old game version</div>
           <div class="dz-ok" id="old-ok" style="display:none"></div>
         </div>
-        <input type="file" id="fi-old" accept=".json" style="display:none">
+        <input type="file" id="fi-old" accept=".json,.js" style="display:none">
       </div>
     </div>
 
@@ -1353,27 +1353,40 @@ document.getElementById('fi-old').addEventListener('change',e=>loadOldMap(e.targ
 document.getElementById('fi-new').addEventListener('change',e=>loadNewSo(e.target.files[0]));
 document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.target.files));
 
-// ── STEP 1: Load old SymbolMap.json ──────────────────────────────────────────
+// ── STEP 1: Load old symbol map (SymbolMap.json OR Frida-Map.js) ──────────────
 async function loadOldMap(file){
   if(!file)return;
-  if(!file.name.endsWith('.json')){toast('Need a .json file');return;}
+  const name=file.name;
+  const isJson=name.endsWith('.json');
+  const isJs=name.endsWith('.js');
+  if(!isJson&&!isJs){toast('Need a .json or .js map file');return;}
+  const text=await file.text();
+  oldMap={};
   try{
-    const text=await file.text();
-    const raw=JSON.parse(text);
-    // Accept both plain {api_name: obf} and with __header key
-    oldMap={};
-    for(const[k,v]of Object.entries(raw)){
-      if(k==='__header')continue;
-      if(typeof v==='string')oldMap[k]=v;
+    if(isJson){
+      // SymbolMap.json: { "il2cpp_init": "MGbMLHixhhz", ... }
+      const raw=JSON.parse(text);
+      for(const[k,v]of Object.entries(raw)){
+        if(k==='__header')continue;
+        if(typeof v==='string')oldMap[k]=v;
+      }
+    } else {
+      // Frida-Map.js: il2cpp_init: () => Il2Cpp.module.findExportByName("MGbMLHixhhz"),
+      const re=/^\s*(il2cpp_\w+)\s*:\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/gm;
+      let m;
+      while((m=re.exec(text))!==null){
+        oldMap[m[1]]=m[2];
+      }
     }
     const cnt=Object.keys(oldMap).length;
-    document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+file.name;
+    if(cnt===0){toast('No symbols found in '+name+' — check file format');return;}
+    document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+name;
     document.getElementById('old-ok').style.display='';
     document.getElementById('dz-old').classList.add('done');
     setStepDone(1);
     toast('Old map loaded: '+cnt+' symbols');
     tryBuildPatchMap();
-  }catch(e){toast('JSON parse error: '+e.message);}
+  }catch(e){toast('Parse error: '+e.message);}
 }
 
 // ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
