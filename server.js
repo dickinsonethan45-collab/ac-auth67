@@ -989,10 +989,11 @@ ${BG_SCRIPT}
 </body></html>`);
 });
 
-// ── SYMBOL PATCHER PAGE ────────────────────────────────────────────────────────
+// ── SYMBOL PATCHER PAGE ──────────────────────────────────────────────
 app.get("/symbol-patcher", (req, res) => {
   res.send(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Symbol Patcher — AC Auth</title>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Symbol Patcher — AC Auth</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1006,90 +1007,79 @@ app.get("/symbol-patcher", (req, res) => {
 }
 html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}
 #bg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.page{position:relative;z-index:1;max-width:1020px;margin:0 auto;padding-bottom:80px}
+.page{position:relative;z-index:1;max-width:980px;margin:0 auto;padding-bottom:80px}
 .hdr{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--border);background:rgba(0,0,10,0.55);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100}
-.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(168,85,247,0.5);animation:logopulse 4s ease-in-out infinite;flex-shrink:0}
-@keyframes logopulse{0%,100%{box-shadow:0 0 24px rgba(168,85,247,0.5)}50%{box-shadow:0 0 40px rgba(168,85,247,0.8),0 0 60px rgba(236,72,153,0.3)}}
+.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(168,85,247,0.5);flex-shrink:0}
 .hdr-name{font-size:18px;font-weight:900;color:#fff;letter-spacing:-.5px}
 .hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));border:1px solid rgba(168,85,247,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden}
-.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(168,85,247,0.08),transparent);animation:shimmer 2.5s linear infinite}
-@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
-.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(168,85,247,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}
-@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));border:1px solid rgba(168,85,247,0.35);border-radius:100px;padding:5px 14px 5px 10px}
+.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(168,85,247,0.8);flex-shrink:0}
 .made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}
 .hdr-nav{display:flex;gap:4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:4px}
 .hnav-btn{font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;color:var(--muted);text-decoration:none;transition:all .15s;letter-spacing:.2px}
 .hnav-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}
-.hnav-active{background:linear-gradient(135deg,var(--pp),var(--pk))!important;color:#fff!important;box-shadow:0 2px 12px rgba(168,85,247,0.4)}
+.hnav-active{background:linear-gradient(135deg,var(--pp),var(--pk))!important;color:#fff!important}
 .hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
 .hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
-.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
-.abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
+.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s}
 .abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(168,85,247,0.25)}
+
+/* Main content */
 .wrap{padding:32px 28px}
 .pg-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px}
-.pg-sub{font-size:13px;color:var(--muted);margin-bottom:28px}
+.pg-sub{font-size:13px;color:var(--muted);margin-bottom:6px}
+.pg-by{font-size:11px;color:rgba(200,180,255,0.2);letter-spacing:.5px;margin-bottom:28px}
+.sec-label{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
 
-/* Drop zones */
-.zone-label{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
-.dz{border:1.5px dashed rgba(255,255,255,0.12);border-radius:14px;padding:28px 20px;text-align:center;cursor:pointer;transition:all .15s;background:rgba(255,255,255,0.02);margin-bottom:16px;user-select:none}
-.dz:hover,.dz.over{border-color:rgba(168,85,247,0.5);background:rgba(168,85,247,0.06)}
-.dz.loaded{border-color:rgba(34,197,94,0.5);background:rgba(34,197,94,0.04);cursor:default}
-.dz-icon{font-size:28px;margin-bottom:8px}
-.dz-main{font-size:14px;font-weight:600;color:var(--text)}
-.dz-sub{font-size:11px;color:var(--muted);margin-top:4px}
-.dz-ok{font-size:13px;font-weight:700;color:#22c55e;margin-top:6px;display:none}
+/* Drop zones - identical to Symbol Getter */
+.drop-zone{border:1.5px dashed var(--border-hi);border-radius:18px;padding:3rem 2rem;text-align:center;cursor:pointer;transition:background .15s,border-color .15s;margin-bottom:20px;user-select:none;background:var(--bg1)}
+.drop-zone:hover,.drop-zone.drag{background:rgba(168,85,247,0.06);border-color:rgba(168,85,247,0.4)}
+.drop-zone svg{width:36px;height:36px;color:var(--muted);display:block;margin:0 auto 14px}
+.dz-title{font-size:15px;font-weight:600;color:var(--text)}
+.dz-hint{font-size:13px;color:var(--muted);margin-top:5px}
+.dz-ok{font-size:13px;font-weight:700;color:#22c55e;margin-top:8px;display:none}
+#so-input{display:none}
+#src-input{display:none}
 
 /* File list */
-.files-area{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;min-height:60px}
-.files-empty{text-align:center;color:var(--muted);font-size:12px;padding:12px 0}
-.fitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);margin-bottom:6px}
+.file-list{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;min-height:54px}
+.file-empty{text-align:center;color:var(--muted);font-size:12px;padding:8px}
+.fitem{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;background:rgba(0,0,0,0.2)}
 .fitem:last-child{margin-bottom:0}
-.fname{flex:1;font-family:var(--mono);font-size:11px;color:rgba(200,180,255,0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fname{flex:1;font-family:var(--mono);font-size:11px;color:rgba(200,180,255,0.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fsize{font-size:10px;color:var(--muted);white-space:nowrap}
 .fbadge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
 .fb-wait{background:rgba(168,85,247,0.1);color:rgba(168,85,247,0.6);border:1px solid rgba(168,85,247,0.2)}
 .fb-hit{background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.25)}
 .fb-miss{background:rgba(100,100,100,0.08);color:#666;border:1px solid rgba(100,100,100,0.15)}
-.frem{background:none;border:none;color:#555;cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px;transition:color .1s}
-.frem:hover{color:#ff5555;background:rgba(255,85,85,0.1)}
-.add-row{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed rgba(255,255,255,0.08);border-radius:8px;padding:9px;cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;margin-top:8px;transition:all .15s}
-.add-row:hover{border-color:rgba(168,85,247,0.3);color:var(--pp);background:var(--pp-dim)}
+.frem{background:none;border:none;color:#555;cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px}
+.frem:hover{color:#ff5555}
 
-/* Patch button + status */
-.patch-row{display:flex;align-items:center;gap:14px;margin-bottom:24px;flex-wrap:wrap}
-.patch-btn{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;border:none;padding:13px 28px;font-family:'Inter',sans-serif;font-size:14px;font-weight:800;border-radius:12px;cursor:pointer;letter-spacing:.3px;box-shadow:0 4px 20px rgba(168,85,247,0.35);transition:all .2s}
+/* Patch button */
+.patch-btn{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;border:none;padding:13px 32px;font-family:'Inter',sans-serif;font-size:14px;font-weight:800;border-radius:12px;cursor:pointer;box-shadow:0 4px 20px rgba(168,85,247,0.35);transition:all .2s;margin-bottom:16px}
 .patch-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(168,85,247,0.5)}
-.patch-btn:active{transform:none}
-.patch-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
-.pstatus{font-size:12px;font-family:var(--mono)}
-.pstatus.ok{color:var(--success)}
-.pstatus.err{color:var(--danger)}
-.pstatus.info{color:var(--muted)}
+.patch-status{font-size:13px;font-family:var(--mono);color:var(--muted);margin-bottom:20px;min-height:20px}
+.patch-status.ok{color:var(--success)}
+.patch-status.err{color:var(--danger)}
 
 /* Results */
-.results{display:flex;flex-direction:column;gap:10px}
-.rcard{background:var(--bg1);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.rcard{background:var(--bg1);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:10px}
 .rcard-hdr{display:flex;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
 .rcard-name{flex:1;font-family:var(--mono);font-size:12px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rdl{display:flex;align-items:center;gap:5px;font-size:11px;padding:5px 12px;border-radius:7px;border:1px solid var(--border-hi);background:transparent;color:var(--text);cursor:pointer;font-weight:600;font-family:'Inter',sans-serif;transition:background .1s}
-.rdl:hover{background:var(--pp-dim);color:var(--pp);border-color:rgba(168,85,247,0.35)}
-.rcard-pre{padding:13px 15px;font-size:10px;color:rgba(200,180,255,0.4);font-family:var(--mono);overflow:auto;max-height:160px;line-height:1.7;background:rgba(0,0,0,0.3);white-space:pre}
+.rdl{font-size:11px;padding:5px 12px;border-radius:7px;border:1px solid var(--border-hi);background:transparent;color:var(--text);cursor:pointer;font-weight:600;font-family:'Inter',sans-serif}
+.rdl:hover{background:var(--pp-dim);color:var(--pp)}
+.rcard-pre{padding:12px 15px;font-size:10px;color:rgba(200,180,255,0.4);font-family:var(--mono);overflow:auto;max-height:150px;line-height:1.7;background:rgba(0,0,0,0.3);white-space:pre}
 
-/* Bottom */
-.dl-all-row{margin-top:20px;padding-top:18px;border-top:1px solid var(--border);display:none;align-items:center;gap:12px}
-.dl-all-btn{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:11px 22px;font-family:'Inter',sans-serif;font-size:13px;font-weight:800;border-radius:10px;cursor:pointer;box-shadow:0 4px 16px rgba(34,197,94,0.3);transition:all .2s}
-.dl-all-btn:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(34,197,94,0.4)}
-.dl-sum{font-size:11px;color:var(--muted)}
+.dl-all-btn{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:11px 24px;font-family:'Inter',sans-serif;font-size:13px;font-weight:800;border-radius:10px;cursor:pointer;margin-top:10px;display:none}
+.dl-all-btn:hover{filter:brightness(1.1)}
 
-.toast{position:fixed;bottom:24px;right:24px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 18px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999;opacity:0;transform:translateY(8px) scale(.96);transition:all .2s;pointer-events:none}
-.toast.show{opacity:1;transform:translateY(0) scale(1)}
+.toast{position:fixed;bottom:24px;right:24px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 18px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
 </style></head><body>
 <canvas id="bg"></canvas>
 <div class="page">
 <div class="hdr">
-  <div class="hdr-logo">&#9889;</div>
+  <div class="hdr-logo">⚡</div>
   <div class="hdr-name">AC Auth <em>Backend</em></div>
   <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
   <nav class="hdr-nav">
@@ -1107,51 +1097,46 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 
 <div class="wrap">
   <div class="pg-title">Symbol Patcher</div>
-  <div class="pg-sub">Drop libil2cpp.so to get new symbols, then drop your source files and patch them all at once.</div>
+  <div class="pg-sub">Drop your new libil2cpp.so, add your source files, hit patch.</div>
+  <div class="pg-by">BY AMBLOCK</div>
 
-  <!-- SO pick -->
-  <div class="zone-label">1 &mdash; New libil2cpp.so</div>
-  <div id="so-zone" style="border:1.5px dashed rgba(255,255,255,0.12);border-radius:14px;padding:28px 20px;text-align:center;background:rgba(255,255,255,0.02);margin-bottom:16px;cursor:pointer;position:relative;z-index:10">
-    <div style="font-size:28px;margin-bottom:8px">&#128229;</div>
-    <div style="font-size:14px;font-weight:600;color:#e8e0ff">Drop libil2cpp.so here or click to browse</div>
-    <div style="font-size:11px;color:rgba(200,180,255,0.35);margin-top:4px">.so file from updated game</div>
-    <div id="so-ok" style="font-size:13px;font-weight:700;color:#22c55e;margin-top:10px;display:none"></div>
+  <!-- Step 1: libil2cpp.so -->
+  <div class="sec-label">1 — New libil2cpp.so</div>
+  <div class="drop-zone" id="so-dz">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <div class="dz-title" id="so-title">Drop libil2cpp.so here</div>
+    <div class="dz-hint">or click to browse</div>
+    <div class="dz-ok" id="so-ok"></div>
   </div>
-  <input type="file" id="fi-so" accept=".so" style="display:none">
+  <input type="file" id="so-input" accept=".so">
 
-  <!-- Source files -->
-  <div class="zone-label">2 &mdash; Your Source Files (drop as many as you want)</div>
-  <div class="files-area" id="files-area">
-    <div class="files-empty" id="files-empty">No files added yet &mdash; drop them below</div>
+  <!-- Step 2: source files -->
+  <div class="sec-label">2 — Your Source Files</div>
+  <div class="file-list" id="file-list">
+    <div class="file-empty" id="file-empty">No files added yet</div>
   </div>
-  <div id="dz-src" style="border:1.5px dashed rgba(255,255,255,0.08);border-radius:12px;padding:16px 20px;text-align:center;margin-bottom:24px;background:rgba(255,255,255,0.015);cursor:pointer;position:relative;z-index:10">
-    <div style="font-size:13px;font-weight:600;color:#c084fc">+ Add Source Files &mdash; click or drop here</div>
-    <div style="font-size:11px;color:rgba(200,180,255,0.3);margin-top:4px">.ts .js .cpp .hpp .h .cs or any text file</div>
+  <div class="drop-zone" id="src-dz" style="padding:2rem">
+    <div class="dz-title">+ Drop source files here</div>
+    <div class="dz-hint">or click to browse — .ts .js .cpp .hpp .h .cs or any text file — multiple supported</div>
   </div>
-  <input type="file" id="fi-src" multiple style="display:none">
+  <input type="file" id="src-input" multiple>
 
   <!-- Patch -->
-  <div class="patch-row">
-    <button class="patch-btn" id="patch-btn" onclick="runPatch()">&#9889; Patch All Files</button>
-    <span class="pstatus info" id="pstatus"></span>
-  </div>
+  <button class="patch-btn" onclick="runPatch()">⚡ Patch All Files</button>
+  <div class="patch-status" id="patch-status"></div>
 
   <!-- Results -->
-  <div class="results" id="results"></div>
-
-  <div class="dl-all-row" id="dl-all-row">
-    <button class="dl-all-btn" onclick="dlAll()">&#11015; Download All Patched</button>
-    <span class="dl-sum" id="dl-sum"></span>
-  </div>
+  <div id="results"></div>
+  <button class="dl-all-btn" id="dl-all-btn" onclick="dlAll()">⬇ Download All Patched</button>
 </div>
 </div>
-
-
-
 <div class="toast" id="toast"></div>
 
 <script>
-// ── IL2CPP API ORDER (same positional list as Symbol Getter) ──────────────────
 const IL2CPP_API = [
   "il2cpp_init","il2cpp_init_utf16","il2cpp_shutdown","il2cpp_set_config_dir",
   "il2cpp_set_data_dir","il2cpp_set_temp_dir","il2cpp_set_commandline_arguments",
@@ -1227,386 +1212,172 @@ const IL2CPP_API = [
   "il2cpp_array_set_byte_length"
 ];
 const SKIP_RE = /^(_Z|SystemNative|Java_|pthread|__cxa|__start|__stop|NLSocket|ZStream|Flush|Dll[CG]|Globalization|JNI_|ReadEvents|mono_pal|__dynamic|__gxx|UnityAds|CloseN|CreateN)/;
-
-// ── ELF PARSER ────────────────────────────────────────────────────────────────
 function r32(b,o){return((b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0);}
 function r64(b,o){return r32(b,o+4)*0x100000000+r32(b,o);}
 function r16(b,o){return b[o]|(b[o+1]<<8);}
 function cstr(b,o){let s='';while(o<b.length&&b[o]!==0)s+=String.fromCharCode(b[o++]);return s;}
 function parseElf(buf){
-  if(buf[0]!==0x7f||buf[1]!==0x45||buf[2]!==0x4c||buf[3]!==0x46)throw new Error('Not an ELF file');
-  const is64=buf[4]===2;
-  const entries=[];
+  if(buf[0]!==0x7f||buf[1]!==0x45||buf[2]!==0x4c||buf[3]!==0x46)throw new Error('Not ELF');
+  const is64=buf[4]===2,entries=[];
   if(is64){
-    const shoff=r64(buf,40),shentsz=r16(buf,58),shnum=r16(buf,60);
-    const secs=[];
+    const shoff=r64(buf,40),shentsz=r16(buf,58),shnum=r16(buf,60),secs=[];
     for(let i=0;i<shnum;i++){const b=Number(shoff)+i*shentsz;secs.push({type:r32(buf,b+4),off:r64(buf,b+24),size:r64(buf,b+32),link:r32(buf,b+40),entsz:r64(buf,b+56)});}
-    for(const s of secs){
-      if(s.type!==11&&s.type!==2)continue;
-      const ss=secs[s.link];const esz=Number(s.entsz)||24;const cnt=Math.floor(Number(s.size)/esz);
-      for(let j=0;j<cnt;j++){const b=Number(s.off)+j*esz;const nm=r32(buf,b);const info=buf[b+4];const shndx=r16(buf,b+6);const addr=r64(buf,b+8);const bind=info>>4;
-        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,Number(ss.off)+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr:Number(addr)});}}
-    }
+    for(const s of secs){if(s.type!==11&&s.type!==2)continue;const ss=secs[s.link],esz=Number(s.entsz)||24,cnt=Math.floor(Number(s.size)/esz);
+      for(let j=0;j<cnt;j++){const b=Number(s.off)+j*esz,nm=r32(buf,b),info=buf[b+4],shndx=r16(buf,b+6),addr=r64(buf,b+8),bind=info>>4;
+        if(shndx&&shndx!==0xfff1&&bind===1){const name=cstr(buf,Number(ss.off)+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr:Number(addr)});}}}
   }else{
-    const shoff=r32(buf,32),shentsz=r16(buf,46),shnum=r16(buf,48);
-    const secs=[];
+    const shoff=r32(buf,32),shentsz=r16(buf,46),shnum=r16(buf,48),secs=[];
     for(let i=0;i<shnum;i++){const b=shoff+i*shentsz;secs.push({type:r32(buf,b+4),off:r32(buf,b+16),size:r32(buf,b+20),link:r32(buf,b+24),entsz:r32(buf,b+36)});}
-    for(const s of secs){
-      if(s.type!==11&&s.type!==2)continue;
-      const ss=secs[s.link];const esz=s.entsz||16;const cnt=Math.floor(s.size/esz);
-      for(let j=0;j<cnt;j++){const b=s.off+j*esz;const nm=r32(buf,b);const addr=r32(buf,b+4);const info=buf[b+12];const shndx=r16(buf,b+14);const bind=info>>4;
-        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,ss.off+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr});}}
-    }
+    for(const s of secs){if(s.type!==11&&s.type!==2)continue;const ss=secs[s.link],esz=s.entsz||16,cnt=Math.floor(s.size/esz);
+      for(let j=0;j<cnt;j++){const b=s.off+j*esz,nm=r32(buf,b),addr=r32(buf,b+4),info=buf[b+12],shndx=r16(buf,b+14),bind=info>>4;
+        if(shndx&&shndx!==0xfff1&&bind===1){const name=cstr(buf,ss.off+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr});}}}
   }
   entries.sort((a,b)=>a.addr-b.addr);
   return [...new Map(entries.map(e=>[e.name,e])).values()].sort((a,b)=>a.addr-b.addr).map(e=>e.name);
 }
 
-// ── STATE ─────────────────────────────────────────────────────────────────────
-// newSymMap: { il2cpp_api_name -> new_obf_symbol }  from .so
-// sourceFiles: [{name, text, size, patched, hits}]
-// patchedBlobs: { filename -> Blob }
-let newSymMap = null;
-let sourceFiles = [];
-let patchedBlobs = {};
+// state
+let newSymMap=null, sourceFiles=[], patchedBlobs={};
 
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-function toast(msg){
-  const t=document.getElementById('toast');
-  t.textContent=msg;t.className='toast show';
-  clearTimeout(t._h);t._h=setTimeout(()=>t.className='toast',2500);
-}
-function fmtSize(b){return b<1024?b+'B':b<1048576?(b/1024).toFixed(1)+'KB':(b/1048576).toFixed(1)+'MB';}
+// helpers
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show';clearTimeout(t._h);t._h=setTimeout(()=>t.className='toast',2500);}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fmtSize(b){return b<1024?b+'B':b<1048576?(b/1024).toFixed(1)+'KB':(b/1048576).toFixed(1)+'MB';}
 
-// ── WIRE UP DROP ZONES ────────────────────────────────────────────────────────
-function setupDz(dzId, onFiles){
-  const dz = document.getElementById(dzId);
-  dz.addEventListener('dragover', e=>{e.preventDefault();dz.classList.add('over');});
-  dz.addEventListener('dragleave', ()=>dz.classList.remove('over'));
-  dz.addEventListener('drop', e=>{
-    e.preventDefault();
-    dz.classList.remove('over');
-    if(e.dataTransfer.files.length) onFiles(e.dataTransfer.files);
-  });
-}
+// SO drop zone - exact same pattern as Symbol Getter
+const soDz = document.getElementById('so-dz');
+const soIn = document.getElementById('so-input');
+soDz.addEventListener('click', () => soIn.click());
+soDz.addEventListener('dragover', e => { e.preventDefault(); soDz.classList.add('drag'); });
+soDz.addEventListener('dragleave', () => soDz.classList.remove('drag'));
+soDz.addEventListener('drop', e => { e.preventDefault(); soDz.classList.remove('drag'); if(e.dataTransfer.files[0]) loadSo(e.dataTransfer.files[0]); });
+soIn.addEventListener('change', () => { if(soIn.files[0]) loadSo(soIn.files[0]); });
 
-const fiSo = document.getElementById('fi-so');
-const soZone = document.getElementById('so-zone');
-let soPickerOpen=false;
-soZone.addEventListener('click', ()=>{if(soPickerOpen)return;soPickerOpen=true;fiSo.value='';fiSo.click();setTimeout(()=>soPickerOpen=false,2000);});
-soZone.addEventListener('dragover', e=>{e.preventDefault();soZone.style.borderColor='rgba(168,85,247,0.5)';});
-soZone.addEventListener('dragleave', ()=>soZone.style.borderColor='rgba(255,255,255,0.12)');
-soZone.addEventListener('drop', e=>{e.preventDefault();soZone.style.borderColor='rgba(255,255,255,0.12)';if(e.dataTransfer.files.length)loadSo(e.dataTransfer.files[0]);});
-fiSo.addEventListener('change', ()=>{if(fiSo.files.length)loadSo(fiSo.files[0]);});
+// Src drop zone - same pattern
+const srcDz = document.getElementById('src-dz');
+const srcIn = document.getElementById('src-input');
+srcDz.addEventListener('click', () => srcIn.click());
+srcDz.addEventListener('dragover', e => { e.preventDefault(); srcDz.classList.add('drag'); });
+srcDz.addEventListener('dragleave', () => srcDz.classList.remove('drag'));
+srcDz.addEventListener('drop', e => { e.preventDefault(); srcDz.classList.remove('drag'); addFiles(e.dataTransfer.files); });
+srcIn.addEventListener('change', () => { if(srcIn.files.length) addFiles(srcIn.files); });
 
-const fiSrc = document.getElementById('fi-src');
-const dzSrc = document.getElementById('dz-src');
-let srcPickerOpen=false;
-dzSrc.addEventListener('click', ()=>{if(srcPickerOpen)return;srcPickerOpen=true;fiSrc.value='';fiSrc.click();setTimeout(()=>srcPickerOpen=false,2000);});
-dzSrc.addEventListener('dragover', e=>{e.preventDefault();dzSrc.style.borderColor='rgba(168,85,247,0.4)';});
-dzSrc.addEventListener('dragleave', ()=>dzSrc.style.borderColor='rgba(255,255,255,0.08)');
-dzSrc.addEventListener('drop', e=>{e.preventDefault();dzSrc.style.borderColor='rgba(255,255,255,0.08)';if(e.dataTransfer.files.length)addFiles(e.dataTransfer.files);});
-fiSrc.addEventListener('change', ()=>{if(fiSrc.files.length)addFiles(fiSrc.files);});
-setupDz('files-area', files=>addFiles(files));
-
-// ── LOAD SO ───────────────────────────────────────────────────────────────────
 async function loadSo(file){
-  if(!file) return;
-  const okEl = document.getElementById('so-ok');
-  const dz = document.getElementById('dz-so');
-  okEl.style.display = 'none';
-  dz.classList.remove('loaded');
-  document.querySelector('#dz-so .dz-main').textContent = 'Parsing...';
-  try {
+  document.getElementById('so-title').textContent = 'Parsing...';
+  try{
     const buf = new Uint8Array(await file.arrayBuffer());
     const syms = parseElf(buf);
-    // Build api_name -> new_obf_symbol map
     newSymMap = {};
-    for(let i=0;i<Math.min(syms.length, IL2CPP_API.length);i++){
-      newSymMap[IL2CPP_API[i]] = syms[i];
-    }
+    for(let i=0;i<Math.min(syms.length,IL2CPP_API.length);i++) newSymMap[IL2CPP_API[i]]=syms[i];
     const cnt = Object.keys(newSymMap).length;
-    document.querySelector('#dz-so .dz-main').textContent = file.name;
-    okEl.textContent = '✓ ' + cnt + ' symbols mapped from new .so';
-    okEl.style.display = 'block';
-    dz.classList.add('loaded');
+    document.getElementById('so-title').textContent = file.name;
+    const ok = document.getElementById('so-ok');
+    ok.textContent = '\u2713 ' + cnt + ' symbols mapped';
+    ok.style.display = 'block';
+    soDz.style.borderColor = 'rgba(34,197,94,0.5)';
     toast('Loaded ' + cnt + ' new symbols');
-    updatePatchStatus();
-  } catch(e) {
-    document.querySelector('#dz-so .dz-main').textContent = 'Drop libil2cpp.so here';
+    setStatus('Ready \u2014 ' + cnt + ' new symbols loaded. Add source files and patch.', '');
+  }catch(e){
+    document.getElementById('so-title').textContent = 'Drop libil2cpp.so here';
     toast('Error: ' + e.message);
   }
 }
 
-// ── ADD SOURCE FILES ──────────────────────────────────────────────────────────
 async function addFiles(fileList){
-  let added = 0;
+  let added=0;
   for(const file of Array.from(fileList)){
-    if(sourceFiles.find(f=>f.name===file.name)){ toast(file.name+' already added'); continue; }
+    if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
     const text = await file.text();
-    sourceFiles.push({name:file.name, text, size:file.size, patched:null, hits:0});
+    sourceFiles.push({name:file.name,text,size:file.size,patched:null,hits:0});
     added++;
   }
-  if(added) { renderFileList(); updatePatchStatus(); }
+  if(added) renderFileList();
 }
 
 function removeFile(name){
-  sourceFiles = sourceFiles.filter(f=>f.name!==name);
+  sourceFiles=sourceFiles.filter(f=>f.name!==name);
   delete patchedBlobs[name];
   renderFileList();
   renderResults();
-  updatePatchStatus();
 }
 
 function renderFileList(){
-  const area = document.getElementById('files-area');
-  const empty = document.getElementById('files-empty');
-  if(!sourceFiles.length){
-    empty.style.display='';
-    // remove all fitems
-    area.querySelectorAll('.fitem').forEach(el=>el.remove());
-    area.querySelectorAll('.add-row').forEach(el=>el.remove());
-    return;
-  }
+  const list=document.getElementById('file-list');
+  const empty=document.getElementById('file-empty');
+  list.querySelectorAll('.fitem').forEach(e=>e.remove());
+  if(!sourceFiles.length){empty.style.display='';return;}
   empty.style.display='none';
-  // rebuild
-  area.querySelectorAll('.fitem,.add-row').forEach(el=>el.remove());
   for(const f of sourceFiles){
-    const d = document.createElement('div');
-    d.className='fitem';
-    let badge='';
-    if(f.patched===null) badge='<span class="fbadge fb-wait">Pending</span>';
-    else if(f.hits>0) badge='<span class="fbadge fb-hit">'+f.hits+' replaced</span>';
-    else badge='<span class="fbadge fb-miss">No changes</span>';
-    d.innerHTML = '<span class="fname">'+esc(f.name)+'</span>'
-      +'<span class="fsize">'+fmtSize(f.size)+'</span>'
-      +badge
-      +'<button class="frem" title="Remove" onclick="removeFile('+JSON.stringify(f.name)+')">x</button>';
-    area.appendChild(d);
+    const d=document.createElement('div');d.className='fitem';
+    const badge=f.patched===null?'<span class="fbadge fb-wait">Pending</span>':f.hits>0?'<span class="fbadge fb-hit">'+f.hits+' replaced</span>':'<span class="fbadge fb-miss">No changes</span>';
+    d.innerHTML='<span class="fname">'+esc(f.name)+'</span><span class="fsize">'+fmtSize(f.size)+'</span>'+badge+'<button class="frem" onclick="removeFile('+JSON.stringify(f.name)+')">x</button>';
+    list.appendChild(d);
   }
-  const addRow = document.createElement('div');
-  addRow.className='add-row';
-  addRow.textContent='+ Add more files';
-  addRow.onclick=()=>{if(srcPickerOpen)return;srcPickerOpen=true;fiSrc.value='';fiSrc.click();setTimeout(()=>srcPickerOpen=false,2000);};
-  area.appendChild(addRow);
 }
 
-function updatePatchStatus(){
-  const st = document.getElementById('pstatus');
-  if(!newSymMap && !sourceFiles.length){ st.textContent=''; return; }
-  if(!newSymMap){ st.className='pstatus err'; st.textContent='Load a libil2cpp.so first'; return; }
-  if(!sourceFiles.length){ st.className='pstatus err'; st.textContent='Add source files to patch'; return; }
-  st.className='pstatus info';
-  st.textContent='Ready — '+Object.keys(newSymMap).length+' new symbols, '+sourceFiles.length+' file'+(sourceFiles.length!==1?'s':'');
-}
+function setStatus(msg,cls){const el=document.getElementById('patch-status');el.textContent=msg;el.className='patch-status'+(cls?' '+cls:'');}
 
-// ── PATCH ─────────────────────────────────────────────────────────────────────
 function runPatch(){
-  const st = document.getElementById('pstatus');
-  if(!newSymMap){ st.className='pstatus err'; st.textContent='Load libil2cpp.so first'; return; }
-  if(!sourceFiles.length){ st.className='pstatus err'; st.textContent='Add source files first'; return; }
-
-  // Build a set of all NEW obfuscated symbol values so we can detect them in files
-  // The files contain OLD obf symbols. We need to figure out which old sym = which api position.
-  //
-  // Strategy: scan each source file for tokens that look like obfuscated IL2CPP symbols
-  // (match the pattern: alphanumeric+underscore, 8-14 chars, mixed case, not a keyword).
-  // For each token found, figure out WHICH il2cpp api it corresponds to by seeing if 
-  // it appears alongside api context clues (findExportByName, Il2Cpp.$config, etc.)
-  // OR: extract all unique candidate tokens from the file, sort by order-of-appearance,
-  // and positionally map them to IL2CPP_API to find old->new pairs.
-  
-  // SIMPLE APPROACH: 
-  // 1. Extract all candidate obf symbols from the source files (tokens that look like obf syms)
-  // 2. For Frida-Map-style files: parse api_name -> old_sym directly from the file
-  // 3. Build old->new map using the api as the bridge
-  // 4. Do string replacement
-
-  patchedBlobs = {};
-  let totalHits = 0;
-  let filesChanged = 0;
-
-  // Build new sym values set for quick lookup
-  const newSymValues = new Set(Object.values(newSymMap));
-  // Build new sym reverse: new_obf -> api_name (for detecting already-patched files)
-  const newSymReverse = {};
-  for(const[api,sym] of Object.entries(newSymMap)) newSymReverse[sym]=api;
-
+  if(!newSymMap){setStatus('Load libil2cpp.so first','err');return;}
+  if(!sourceFiles.length){setStatus('Add source files first','err');return;}
+  const newSymValues=new Set(Object.values(newSymMap));
+  patchedBlobs={};
+  let totalHits=0,filesChanged=0;
   for(const f of sourceFiles){
-    // Extract old->new pairs from this file
-    // Works for: Frida-Map.js, mymenu.ts, any file containing findExportByName("XXX")
-    // or Il2Cpp.$config.exports patterns or direct obf symbol strings
-    
-    const oldToNew = {};
-    
-    // Method 1: parse findExportByName("OLDSYM") -> look up api -> get new sym
-    // Lines like: someApi: () => Il2Cpp.module.findExportByName("AbcDefGhi")
-    // OR: Il2Cpp.module.findExportByName("AbcDefGhi")
-    // OR: .findExportByName("AbcDefGhi")
-    const lines = f.text.split('\n');
-    for(const line of lines){
-      const trimmed = line.trim();
-      // Find api name if present
-      let apiName = null;
-      const colonIdx = trimmed.indexOf(':');
-      if(colonIdx>0 && trimmed.startsWith('il2cpp_')){
-        apiName = trimmed.slice(0,colonIdx).trim();
-      }
-      // Find all findExportByName("...") occurrences in this line
-      let searchFrom = 0;
-      const fkey = 'findExportByName("';
+    const oldToNew={};
+    // Parse findExportByName("OLDSYM") lines and map via il2cpp api name
+    for(const api of IL2CPP_API){
+      if(!newSymMap[api])continue;
+      const key=api+':';
+      let pos=0;
       while(true){
-        const fi = line.indexOf(fkey, searchFrom);
-        if(fi<0) break;
-        const symStart = fi + fkey.length;
-        const symEnd = line.indexOf('")', symStart);
-        if(symEnd<0){ searchFrom=fi+1; continue; }
-        const oldSym = line.slice(symStart, symEnd);
-        searchFrom = symEnd+1;
-        if(!oldSym || oldSym.length<3) continue;
-        if(newSymValues.has(oldSym)) continue; // already new, skip
-        // If we have the api name from this line, use it directly
-        if(apiName && newSymMap[apiName]){
-          oldToNew[oldSym] = newSymMap[apiName];
-        } else {
-          // Try to figure out api from surrounding context or by matching
-          // Check if this sym appears alongside an il2cpp_ name anywhere in the file
-          for(const api of IL2CPP_API){
-            if(newSymMap[api] && f.text.indexOf(api+':') >= 0){
-              // The file has this api referenced - find its old sym
-              // Look for api: ... findExportByName("OLDSYM") on same line
-              const apiLineIdx = f.text.indexOf(api+':');
-              const lineEnd = f.text.indexOf('\n', apiLineIdx);
-              const apiLine = f.text.slice(apiLineIdx, lineEnd>0?lineEnd:undefined);
-              const aFi = apiLine.indexOf(fkey);
-              if(aFi>=0){
-                const aSs = aFi+fkey.length;
-                const aSe = apiLine.indexOf('")', aSs);
-                if(aSe>=0){
-                  const aSym = apiLine.slice(aSs, aSe);
-                  if(aSym && !newSymValues.has(aSym)){
-                    oldToNew[aSym] = newSymMap[api];
-                  }
-                }
-              }
-            }
+        const idx=f.text.indexOf(key,pos);
+        if(idx<0)break;
+        const lineEnd=f.text.indexOf('\n',idx);
+        const line=f.text.slice(idx,lineEnd>0?lineEnd:undefined);
+        const fk='findExportByName("';
+        const fi=line.indexOf(fk);
+        if(fi>=0){
+          const ss=fi+fk.length,se=line.indexOf('")',ss);
+          if(se>=0){
+            const old=line.slice(ss,se);
+            if(old&&!newSymValues.has(old)) oldToNew[old]=newSymMap[api];
           }
         }
+        pos=idx+1;
       }
     }
-
-    // Method 2: For files that reference obf symbols directly (not via findExportByName)
-    // Scan the whole file text for any token that matches a known OLD pattern
-    // We infer old by scanning Il2Cpp.$config.exports block if present
-    if(f.text.indexOf('Il2Cpp.$config') >= 0 || f.text.indexOf('$config.exports') >= 0){
-      // Parse the exports block: api_name: () => ... findExportByName("sym")
-      for(const api of IL2CPP_API){
-        const apiKey = api+':';
-        let pos = 0;
-        while(true){
-          const idx = f.text.indexOf(apiKey, pos);
-          if(idx<0) break;
-          const lineEnd = f.text.indexOf('\n', idx);
-          const line2 = f.text.slice(idx, lineEnd>0?lineEnd:undefined);
-          const fkey2 = 'findExportByName("';
-          const fi2 = line2.indexOf(fkey2);
-          if(fi2>=0){
-            const ss2 = fi2+fkey2.length;
-            const se2 = line2.indexOf('")', ss2);
-            if(se2>=0){
-              const oldSym = line2.slice(ss2, se2);
-              if(oldSym && !newSymValues.has(oldSym) && newSymMap[api]){
-                oldToNew[oldSym] = newSymMap[api];
-              }
-            }
-          }
-          pos = idx+1;
-        }
-      }
-    }
-
-    // Now do the actual replacement
-    let content = f.text;
-    let hitCount = 0;
-    // Sort by length descending to avoid partial replacements
-    const pairs = Object.entries(oldToNew).sort((a,b)=>b[0].length-a[0].length);
-    for(const [oldSym, newSym] of pairs){
-      if(oldSym===newSym) continue;
+    let content=f.text,hits=0;
+    for(const [o,n] of Object.entries(oldToNew).sort((a,b)=>b[0].length-a[0].length)){
+      if(o===n)continue;
       let i=0;
       while(true){
-        const idx = content.indexOf(oldSym, i);
-        if(idx<0) break;
-        // Make sure it's a whole token (not part of a longer identifier)
-        const before = idx>0?content[idx-1]:'';
-        const after = idx+oldSym.length<content.length?content[idx+oldSym.length]:'';
-        const bOk = !before||!/[A-Za-z0-9_]/.test(before);
-        const aOk = !after||!/[A-Za-z0-9_]/.test(after);
-        if(bOk&&aOk){
-          content = content.slice(0,idx)+newSym+content.slice(idx+oldSym.length);
-          i = idx+newSym.length;
-          hitCount++;
-        } else {
-          i = idx+1;
-        }
+        const idx=content.indexOf(o,i);if(idx<0)break;
+        const b=idx>0?content[idx-1]:'',a=idx+o.length<content.length?content[idx+o.length]:'';
+        if(!/[A-Za-z0-9_]/.test(b)&&!/[A-Za-z0-9_]/.test(a)){
+          content=content.slice(0,idx)+n+content.slice(idx+o.length);
+          i=idx+n.length;hits++;
+        }else{i=idx+1;}
       }
     }
-    f.patched = content;
-    f.hits = hitCount;
-    if(hitCount>0){
-      filesChanged++;
-      totalHits+=hitCount;
-      patchedBlobs[f.name] = new Blob([content],{type:'text/plain'});
-    }
+    f.patched=content;f.hits=hits;
+    if(hits>0){filesChanged++;totalHits+=hits;patchedBlobs[f.name]=new Blob([content],{type:'text/plain'});}
   }
-
-  renderFileList();
-  renderResults();
-
-  st.className = 'pstatus ok';
-  st.textContent = totalHits+' replacements across '+filesChanged+'/'+sourceFiles.length+' files';
-
-  if(filesChanged>0){
-    const row = document.getElementById('dl-all-row');
-    row.style.display='flex';
-    document.getElementById('dl-sum').textContent = filesChanged+' file'+(filesChanged!==1?'s':'')+' changed';
-  }
-  toast(totalHits>0 ? 'Patched '+filesChanged+' file'+(filesChanged!==1?'s':'')+'!' : 'No symbols matched — check your files');
+  renderFileList();renderResults();
+  setStatus(totalHits>0?totalHits+' replacements in '+filesChanged+'/'+sourceFiles.length+' files':'No symbols matched \u2014 make sure files use findExportByName',totalHits>0?'ok':'err');
+  if(filesChanged>0){document.getElementById('dl-all-btn').style.display='inline-block';}
+  toast(totalHits>0?'Patched '+filesChanged+' file'+(filesChanged!==1?'s':'')+'!':'No matches found');
 }
 
-// ── DOWNLOAD ──────────────────────────────────────────────────────────────────
-function dlFile(name){
-  const blob = patchedBlobs[name];
-  if(!blob) return;
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=name;
-  a.click();
-  toast('Downloaded: '+name);
-}
-function dlAll(){
-  const changed = sourceFiles.filter(f=>f.hits>0);
-  changed.forEach((f,i)=>setTimeout(()=>dlFile(f.name),i*250));
-  toast('Downloading '+changed.length+' file'+(changed.length!==1?'s':'')+'...');
-}
+function dlFile(name){const blob=patchedBlobs[name];if(!blob)return;const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();}
+function dlAll(){sourceFiles.filter(f=>f.hits>0).forEach((f,i)=>setTimeout(()=>dlFile(f.name),i*250));toast('Downloading...');}
 
-// ── RENDER RESULTS ────────────────────────────────────────────────────────────
 function renderResults(){
-  const el = document.getElementById('results');
-  const done = sourceFiles.filter(f=>f.patched!==null);
-  if(!done.length){el.innerHTML='';return;}
-  el.innerHTML = done.map(f=>{
-    const preview = (f.patched||'').slice(0,1500)+(f.patched&&f.patched.length>1500?'\n...':'');
-    const badge = f.hits>0
-      ? '<span class="fbadge fb-hit" style="font-size:11px">'+f.hits+' symbols updated</span>'
-      : '<span class="fbadge fb-miss" style="font-size:11px">No changes</span>';
-    const dlBtn = f.hits>0
-      ? '<button class="rdl" onclick="dlFile('+JSON.stringify(f.name)+')">&#11015; Download</button>'
-      : '';
-    return '<div class="rcard">'
-      +'<div class="rcard-hdr"><span class="rcard-name">'+esc(f.name)+'</span>'+badge+dlBtn+'</div>'
-      +'<pre class="rcard-pre">'+esc(preview)+'</pre>'
-      +'</div>';
+  const el=document.getElementById('results');
+  el.innerHTML=sourceFiles.filter(f=>f.patched!==null).map(f=>{
+    const badge=f.hits>0?'<span class="fbadge fb-hit">'+f.hits+' updated</span>':'<span class="fbadge fb-miss">No changes</span>';
+    const dl=f.hits>0?'<button class="rdl" onclick="dlFile('+JSON.stringify(f.name)+')">\u2b07 Download</button>':'';
+    return '<div class="rcard"><div class="rcard-hdr"><span class="rcard-name">'+esc(f.name)+'</span>'+badge+dl+'</div><pre class="rcard-pre">'+esc((f.patched||'').slice(0,1500))+'</pre></div>';
   }).join('');
 }
 
@@ -1615,7 +1386,6 @@ function renderResults(){
 ${BG_SCRIPT}
 </body></html>`);
 });
-
 
 app.all("*splat",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
