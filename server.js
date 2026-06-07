@@ -1109,13 +1109,13 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   <div class="pg-title">Symbol Patcher</div>
   <div class="pg-sub">Drop libil2cpp.so to get new symbols, then drop your source files and patch them all at once.</div>
 
-  <!-- SO drop -->
+  <!-- SO pick -->
   <div class="zone-label">1 &mdash; New libil2cpp.so</div>
-  <div class="dz" id="dz-so">
-    <div class="dz-icon">&#128229;</div>
-    <div class="dz-main">Drop libil2cpp.so here</div>
-    <div class="dz-sub">or click to browse</div>
-    <div class="dz-ok" id="so-ok"></div>
+  <div id="so-zone" style="border:1.5px dashed rgba(255,255,255,0.12);border-radius:14px;padding:28px 20px;text-align:center;background:rgba(255,255,255,0.02);margin-bottom:16px;">
+    <div style="font-size:28px;margin-bottom:8px">&#128229;</div>
+    <label for="fi-so" style="display:inline-block;background:linear-gradient(135deg,#a855f7,#ec4899);color:#fff;padding:10px 24px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:.2px;margin-bottom:10px">&#128193; Choose libil2cpp.so</label>
+    <div style="font-size:11px;color:rgba(200,180,255,0.35);margin-top:4px">or drag and drop onto this area</div>
+    <div id="so-ok" style="font-size:13px;font-weight:700;color:#22c55e;margin-top:10px;display:none"></div>
   </div>
 
   <!-- Source files -->
@@ -1123,9 +1123,9 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   <div class="files-area" id="files-area">
     <div class="files-empty" id="files-empty">No files added yet &mdash; drop them below</div>
   </div>
-  <div class="dz" id="dz-src" style="padding:16px 20px;margin-bottom:24px">
-    <div class="dz-main" style="font-size:13px">&#43; Drop source files here &mdash; .ts .js .cpp .hpp .h .cs or any text file</div>
-    <div class="dz-sub">Click to browse &mdash; multiple files supported</div>
+  <div id="dz-src" style="border:1.5px dashed rgba(255,255,255,0.08);border-radius:12px;padding:16px 20px;text-align:center;margin-bottom:24px;background:rgba(255,255,255,0.015)">
+    <label for="fi-src" style="display:inline-block;background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);padding:8px 20px;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:.2px">&#43; Choose Source Files</label>
+    <span style="font-size:11px;color:rgba(200,180,255,0.3);margin-left:10px">or drag &amp; drop .ts .js .cpp .hpp .h .cs ...</span>
   </div>
 
   <!-- Patch -->
@@ -1144,8 +1144,8 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 </div>
 </div>
 
-<input type="file" id="fi-so" style="display:none">
-<input type="file" id="fi-src" multiple style="display:none">
+<input type="file" id="fi-so" accept=".so" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+<input type="file" id="fi-src" multiple style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1289,20 +1289,29 @@ function setupDz(dzId, onFiles){
   });
 }
 
-// SO drop zone — click opens file picker
-const dzSo = document.getElementById('dz-so');
+// SO: label handles click natively, just wire change + drag on the zone div
 const fiSo = document.getElementById('fi-so');
-dzSo.addEventListener('click', ()=>{ fiSo.value=''; fiSo.click(); });
 fiSo.addEventListener('change', ()=>{ if(fiSo.files.length) loadSo(fiSo.files[0]); });
-setupDz('dz-so', files=>loadSo(files[0]));
+const soZone = document.getElementById('so-zone');
+soZone.addEventListener('dragover', e=>{e.preventDefault();soZone.style.borderColor='rgba(168,85,247,0.5)';});
+soZone.addEventListener('dragleave', ()=>soZone.style.borderColor='rgba(255,255,255,0.12)');
+soZone.addEventListener('drop', e=>{
+  e.preventDefault();
+  soZone.style.borderColor='rgba(255,255,255,0.12)';
+  if(e.dataTransfer.files.length) loadSo(e.dataTransfer.files[0]);
+});
 
-// Source files drop zone — click opens file picker
-const dzSrc = document.getElementById('dz-src');
+// Source files: label handles click, wire change + drag
 const fiSrc = document.getElementById('fi-src');
-dzSrc.addEventListener('click', ()=>{ fiSrc.value=''; fiSrc.click(); });
 fiSrc.addEventListener('change', ()=>{ if(fiSrc.files.length) addFiles(fiSrc.files); });
-setupDz('dz-src', files=>addFiles(files));
-// Also allow drop anywhere on the files-area
+const dzSrc = document.getElementById('dz-src');
+dzSrc.addEventListener('dragover', e=>{e.preventDefault();dzSrc.style.borderColor='rgba(168,85,247,0.4)';});
+dzSrc.addEventListener('dragleave', ()=>dzSrc.style.borderColor='rgba(255,255,255,0.08)');
+dzSrc.addEventListener('drop', e=>{
+  e.preventDefault();
+  dzSrc.style.borderColor='rgba(255,255,255,0.08)';
+  if(e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+});
 setupDz('files-area', files=>addFiles(files));
 
 // ── LOAD SO ───────────────────────────────────────────────────────────────────
