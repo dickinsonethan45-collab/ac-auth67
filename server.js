@@ -1621,7 +1621,7 @@ ${BG_SCRIPT}
 });
 
 
-app.all("*",(req,res)=>{
+app.all("*splat",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
   res.status(200).json({});
 });
