@@ -1125,43 +1125,13 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 
   <div class="steps">
 
-    <!-- STEP 1: Old SymbolMap.json -->
     <div class="step" id="step1">
-      <div class="step-hdr">
-        <div class="step-num" id="sn1">1</div>
-        <div class="step-label">Load Source File</div>
-        <div class="step-hint">From the previous version (Symbol Getter output)</div>
-      </div>
-      <div class="step-body">
-        <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-          </svg>
-          <div class="dz-title">Drop source file here</div>
-          <div class="dz-hint">or click to browse — .ts, .js, .cpp, .hpp, .h, .cs, .txt ...</div>
-          <div class="dz-ok" id="old-ok" style="display:none"></div>
-        </div>
-        <input type="file" id="fi-old" accept=".json" style="display:none">
-      </div>
-    </div>
-
-    <!-- STEP 2: New libil2cpp.so -->
-    <div class="step" id="step2">
-      <div class="step-hdr">
-        <div class="step-num" id="sn2">2</div>
-        <div class="step-label">Load New libil2cpp.so</div>
-        <div class="step-hint">From the updated game version</div>
-      </div>
+      <div class="step-hdr"><div class="step-num">1</div><div class="step-label">libil2cpp.so</div></div>
       <div class="step-body">
         <div class="dz" id="dz-new" onclick="document.getElementById('fi-new').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <div class="dz-title">Drop libil2cpp.so here</div>
-          <div class="dz-hint">or click to browse — parsed entirely in your browser</div>
+          <div class="dz-hint">or click to browse</div>
           <div class="dz-ok" id="new-ok" style="display:none"></div>
         </div>
         <input type="file" id="fi-new" accept=".so" style="display:none">
@@ -1170,23 +1140,16 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
       </div>
     </div>
 
-    <!-- STEP 3: Source files -->
-    <div class="step" id="step3">
-      <div class="step-hdr">
-        <div class="step-num" id="sn3">3</div>
-        <div class="step-label">Add Source Files to Patch</div>
-        <div class="step-hint">Drop as many as you want — .ts, .js, .cpp, .hpp, .h, .cs, .txt …</div>
-      </div>
+    <div class="step" id="step2">
+      <div class="step-hdr"><div class="step-num">2</div><div class="step-label">Your source file</div></div>
       <div class="step-body">
-        <div class="dz" id="dz-src" onclick="document.getElementById('fi-src').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-          <div class="dz-title">Drop source files here</div>
-          <div class="dz-hint">or click to browse — multiple files supported</div>
+        <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <div class="dz-title">Drop source file here</div>
+          <div class="dz-hint">or click to browse — .ts, .js, .cpp, .hpp, .h, .cs</div>
+          <div class="dz-ok" id="old-ok" style="display:none"></div>
         </div>
-        <input type="file" id="fi-src" multiple style="display:none">
-        <div class="file-list" id="file-list"></div>
+        <input type="file" id="fi-old" accept=".ts,.js,.cpp,.hpp,.h,.cs" style="display:none">
       </div>
     </div>
 
