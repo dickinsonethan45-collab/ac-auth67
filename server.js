@@ -1126,17 +1126,16 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   <div class="steps">
 
     <div class="step" id="step1">
-      <div class="step-hdr"><div class="step-num" id="sn1">1</div><div class="step-label">libil2cpp.so</div></div>
+      <div class="step-hdr"><div class="step-num" id="sn1">1</div><div class="step-label">Frida-Map.js (new symbols)</div></div>
       <div class="step-body">
         <div class="dz" id="dz-new" onclick="document.getElementById('fi-new').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <div class="dz-title">Drop libil2cpp.so here</div>
-          <div class="dz-hint">or click to browse</div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <div class="dz-title">Drop Frida-Map.js here</div>
+          <div class="dz-hint">or click to browse — generated symbols file</div>
           <div class="dz-ok" id="new-ok" style="display:none"></div>
         </div>
-        <input type="file" id="fi-new" accept=".so" style="display:none">
-        <div class="progress" id="prog-so"><div class="prog-bar" id="pb-so"></div></div>
-        <div class="status-line" id="st-so"></div>
+        <input type="file" id="fi-new" accept=".js" style="display:none">
+        <div class="status-line" id="st-new"></div>
       </div>
     </div>
 
@@ -1347,33 +1346,30 @@ async function loadOldMap(file){
 // ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
 async function loadNewSo(file){
   if(!file)return;
-  if(!file.name.endsWith('.so')){toast('Need a .so file');return;}
-  const progEl=document.getElementById('prog-so');
-  const pbEl=document.getElementById('pb-so');
-  const stEl=document.getElementById('st-so');
-  stEl.className='status-line';
-  stEl.textContent='Reading file...';
-  progEl.className='progress show'; pbEl.style.width='10%';
-  const buf=new Uint8Array(await file.arrayBuffer());
-  pbEl.style.width='45%'; stEl.textContent='Parsing ELF...';
-  let syms;
-  try{syms=extractObfSymbols(buf);}catch(e){stEl.textContent='ELF error: '+e.message;stEl.className='status-line err';return;}
-  pbEl.style.width='90%';
-  newMap=buildMap(syms);
-  const cnt=Object.keys(newMap).length;
-  pbEl.style.width='100%';
-  stEl.textContent='✓ Parsed '+cnt+' symbols from '+file.name;
-  stEl.className='status-line ok';
-  document.getElementById('new-ok').textContent='✓ '+cnt+' symbols mapped';
-  document.getElementById('new-ok').style.display='';
-  document.getElementById('dz-new').classList.add('done');
-  setStepDone(2);
-  toast('New .so loaded: '+cnt+' symbols');
-  setTimeout(()=>{progEl.className='progress';},700);
-  tryBuildPatchMap();
-  // Auto-patch if both files loaded
-  if(oldMap&&newMap&&sourceFiles.length>0){
-    setTimeout(runPatch,800);
+  if(!file.name.endsWith('.js')){toast('Need a .js file (Frida-Map)');return;}
+  try{
+    const text=await file.text();
+    newMap={};
+    // Parse Frida-Map format: api_name: () => Il2Cpp.module.findExportByName("SYMBOL")
+    const regex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
+    let m;
+    while((m=regex.exec(text))!==null){
+      newMap[m[1]]=m[2];
+    }
+    const cnt=Object.keys(newMap).length;
+    if(cnt===0){toast('No symbols found in file');return;}
+    document.getElementById('new-ok').textContent='✓ '+cnt+' symbols loaded';
+    document.getElementById('new-ok').style.display='';
+    document.getElementById('dz-new').classList.add('done');
+    setStepDone(1);
+    document.getElementById('st-new').className='status-line ok';
+    document.getElementById('st-new').textContent='✓ Loaded from '+file.name;
+    toast('Frida-Map loaded: '+cnt+' symbols');
+    tryBuildPatchMap();
+  }catch(e){
+    document.getElementById('st-new').className='status-line err';
+    document.getElementById('st-new').textContent='Error: '+e.message;
+    toast('Error: '+e.message);
   }
 }
 
