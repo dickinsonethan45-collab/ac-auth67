@@ -990,7 +990,7 @@ ${BG_SCRIPT}
 
 
 app.get("/patcher", (req, res) => {
-  const html = `<!DOCTYPE html>
+  res.send(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -1042,7 +1042,6 @@ app.get("/patcher", (req, res) => {
     .abtn-ghost { background: rgba(255,255,255,0.04); color: #a855f7;
       border: 1px solid rgba(168,85,247,0.25); }
     .abtn-ghost:hover { background: rgba(168,85,247,0.12); }
-    
     .wrap { padding: 32px 28px; }
     .title { font-size: 26px; font-weight: 900; color: #fff; letter-spacing: -0.5px; margin-bottom: 6px; }
     .sub { font-size: 13px; color: rgba(200,180,255,0.35); margin-bottom: 28px; }
@@ -1252,10 +1251,9 @@ document.getElementById('btn').addEventListener('click', () => {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString();
   setTimeout(tick, 1000);
 })();
-<\/script>
+</script>
 </body>
-</html>`;
-  res.send(html);
+</html>`);
 });
 
 
