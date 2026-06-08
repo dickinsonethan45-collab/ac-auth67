@@ -1350,8 +1350,8 @@ async function loadNewSo(file){
   try{
     const text=await file.text();
     newMap={};
-    // Parse Frida-Map format: api_name: () => Il2Cpp.module.findExportByName("SYMBOL")
-    const regex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
+    // Parse Frida-Map format with flexible spacing: il2cpp_name: () => Il2Cpp.module.findExportByName("SYMBOL")
+    const regex=/(\w+)\s*:\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\s*\(\s*"([^"]+)"\s*\)/g;
     let m;
     while((m=regex.exec(text))!==null){
       newMap[m[1]]=m[2];
@@ -1396,8 +1396,8 @@ async function addSourceFiles(fileList){
     if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
     const text=await file.text();
     sourceFiles.push({name:file.name,text,patched:null,replaceCount:0,size:file.size});
-    // Extract old symbols from this file
-    const regex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
+    // Extract old symbols from this file with flexible spacing
+    const regex=/(\w+)\s*:\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\s*\(\s*"([^"]+)"\s*\)/g;
     let m;
     while((m=regex.exec(text))!==null){
       if(!oldMap[m[1]])oldMap[m[1]]=m[2];
