@@ -1350,21 +1350,22 @@ async function loadNewSo(file){
   try{
     const text=await file.text();
     newMap={};
-    // Parse Frida-Map format with flexible spacing: il2cpp_name: () => Il2Cpp.module.findExportByName("SYMBOL")
-    const regex=/(\w+)\s*:\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\s*\(\s*"([^"]+)"\s*\)/g;
+    // Parse Frida-Map format - handles tabs, spaces, any whitespace
+    const regex=/(\w+)\s*:\s*\(\s*\)\s*=>\s*Il2Cpp\s*\.\s*module\s*\.\s*findExportByName\s*\(\s*"([^"]+)"\s*\)/g;
     let m;
+    let count=0;
     while((m=regex.exec(text))!==null){
       newMap[m[1]]=m[2];
+      count++;
     }
-    const cnt=Object.keys(newMap).length;
-    if(cnt===0){toast('No symbols found in file');return;}
-    document.getElementById('new-ok').textContent='✓ '+cnt+' symbols loaded';
+    if(count===0){toast('No symbols found - check file format');return;}
+    document.getElementById('new-ok').textContent='✓ '+count+' symbols loaded';
     document.getElementById('new-ok').style.display='';
     document.getElementById('dz-new').classList.add('done');
     setStepDone(1);
     document.getElementById('st-new').className='status-line ok';
-    document.getElementById('st-new').textContent='✓ Loaded from '+file.name;
-    toast('Frida-Map loaded: '+cnt+' symbols');
+    document.getElementById('st-new').textContent='✓ Loaded '+count+' symbols from '+file.name;
+    toast('Frida-Map loaded: '+count+' symbols');
     tryBuildPatchMap();
   }catch(e){
     document.getElementById('st-new').className='status-line err';
@@ -1396,8 +1397,8 @@ async function addSourceFiles(fileList){
     if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
     const text=await file.text();
     sourceFiles.push({name:file.name,text,patched:null,replaceCount:0,size:file.size});
-    // Extract old symbols from this file with flexible spacing
-    const regex=/(\w+)\s*:\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\s*\(\s*"([^"]+)"\s*\)/g;
+    // Extract old symbols - handles tabs, spaces, any whitespace
+    const regex=/(\w+)\s*:\s*\(\s*\)\s*=>\s*Il2Cpp\s*\.\s*module\s*\.\s*findExportByName\s*\(\s*"([^"]+)"\s*\)/g;
     let m;
     while((m=regex.exec(text))!==null){
       if(!oldMap[m[1]])oldMap[m[1]]=m[2];
