@@ -990,59 +990,43 @@ ${BG_SCRIPT}
 
 app.get("/patcher", (req, res) => {
   res.send(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width">
-<title>Symbol Patcher</title>
+<html><head><meta charset="UTF-8"><title>Symbol Patcher</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0a0a0a;color:#00ff88;font-family:'Courier New',monospace;font-size:13px;min-height:100vh;padding:20px}
 .header{color:#00ff88;font-size:20px;font-weight:500;margin-bottom:16px;border-left:3px solid #00ff88;padding-left:10px}
 .section{background:#111;border:1px solid #1a3a1a;border-left:3px solid #00ff88;padding:14px;margin-bottom:16px}
 .label{color:#00cc66;font-size:12px;margin-bottom:12px;text-transform:uppercase}
-.dz{border:2px dashed #00cc66;padding:20px;text-align:center;cursor:pointer;background:rgba(0,255,136,0.05);border-radius:4px;margin-bottom:8px}
+.dz{border:2px dashed #00cc66;padding:20px;text-align:center;cursor:pointer;background:rgba(0,255,136,0.05);border-radius:4px}
 .dz:hover{border-color:#00ff88;background:rgba(0,255,136,0.1)}
-.dz-text{color:#00ff88;margin:8px 0;font-size:14px}
+.dz-text{color:#00ff88;margin:8px 0}
 .dz-hint{color:#00cc66;font-size:11px}
 .status{margin-top:8px;padding:8px;font-size:11px;border-radius:2px;display:none}
 .status.show{display:block}
 .status.ok{background:rgba(0,255,136,0.1);color:#86efac;border:1px solid #00cc66}
 .status.err{background:rgba(255,100,100,0.1);color:#ff6b6b;border:1px solid #ff3333}
-button{width:100%;background:#00ff88;color:#000;border:none;padding:10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:12px;border-radius:2px}
-button:hover:not(:disabled){background:#00cc66}
+button{width:100%;background:#00ff88;color:#000;border:none;padding:10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:12px}
 button:disabled{opacity:0.5}
-input[type=file]{display:none}
-.download{display:block;background:#00ff88;color:#000;padding:10px;text-align:center;font-weight:700;font-size:12px;border-radius:2px;text-decoration:none;margin-top:12px}
-.toast{position:fixed;bottom:20px;right:20px;background:#00ff88;color:#000;padding:10px 16px;font-family:'Courier New',monospace;font-size:12px;font-weight:700;display:none}
-nav{display:flex;gap:12px;margin-bottom:20px}
-nav a{color:#00ff88;text-decoration:none;font-weight:700}
-nav a:hover{color:#00cc66}
-nav a.active{color:#ffaa00}
-</style>
-</head>
-<body>
-<nav>
-  <a href="/">Sessions</a>
-  <a href="/symbol-getter">Symbol Getter</a>
-  <a href="/patcher" class="active">Update Symbols</a>
-  <a href="/logout" style="margin-left:auto">Sign Out</a>
-</nav>
+.download{display:block;background:#00ff88;color:#000;padding:10px;text-align:center;font-weight:700;margin-top:12px}
+.toast{position:fixed;bottom:20px;right:20px;background:#00ff88;color:#000;padding:10px 16px;font-size:12px;display:none}
+nav{display:flex;gap:12px;margin-bottom:20px}nav a{color:#00ff88;text-decoration:none;font-weight:700}nav a.active{color:#ffaa00}
+</style></head><body>
+<nav><a href="/">Sessions</a><a href="/symbol-getter">Symbol Getter</a><a href="/patcher" class="active">Update Symbols</a></nav>
 <div class="header">Update Symbols</div>
 <div class="section">
-  <div class="label">1. Frida-Map.js (new symbols)</div>
+  <div class="label">1. Frida-Map.js</div>
   <div class="dz" id="dz1" onclick="document.getElementById('f1').click()">
     <div class="dz-text">Drop Frida-Map.js</div>
-    <div class="dz-hint">or click to browse</div>
+    <div class="dz-hint">or click</div>
   </div>
   <div id="s1" class="status"></div>
   <input type="file" id="f1" accept=".js">
 </div>
 <div class="section">
-  <div class="label">2. Source file (old symbols)</div>
+  <div class="label">2. Source file</div>
   <div class="dz" id="dz2" onclick="document.getElementById('f2').click()">
     <div class="dz-text">Drop your file</div>
-    <div class="dz-hint">.ts, .js, .cpp, .h, .cs</div>
+    <div class="dz-hint">.ts .js .cpp .h .cs</div>
   </div>
   <div id="s2" class="status"></div>
   <input type="file" id="f2">
@@ -1052,110 +1036,106 @@ nav a.active{color:#ffaa00}
 <div class="toast" id="toast"></div>
 <script>
 const toast = msg => {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.display = 'block';
-  clearTimeout(t._h);
-  t._h = setTimeout(() => t.style.display = 'none', 2500);
+  document.getElementById('toast').textContent = msg;
+  document.getElementById('toast').style.display = 'block';
+  setTimeout(() => { document.getElementById('toast').style.display = 'none'; }, 2500);
 };
 let fridaMap = null, sourceFile = null, sourceText = null;
-const setupDz = (dzId, inputId) => {
-  const dz = document.getElementById(dzId), inp = document.getElementById(inputId);
+['dz1', 'dz2'].forEach((dzId, idx) => {
+  const inputId = 'f' + (idx + 1);
+  const dz = document.getElementById(dzId);
+  const inp = document.getElementById(inputId);
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('active'); });
   dz.addEventListener('dragleave', () => dz.classList.remove('active'));
   dz.addEventListener('drop', e => {
-    e.preventDefault(); dz.classList.remove('active');
+    e.preventDefault();
+    dz.classList.remove('active');
     inp.files = e.dataTransfer.files;
     inp.dispatchEvent(new Event('change'));
   });
-  inp.addEventListener('change', e => {
-    inp === document.getElementById('f1') ? handleFrida(inp.files[0]) : handleSource(inp.files[0]);
-  });
-};
-setupDz('dz1', 'f1');
-setupDz('dz2', 'f2');
-const handleFrida = async file => {
-  if (!file) return;
-  try {
-    const text = await file.text(), map = {};
-    text.split(/\n/).forEach(line => {
-      if (!line.includes('findExportByName')) return;
-      const colonIdx = line.indexOf(':');
-      if (colonIdx === -1) return;
-      const api = line.substring(0, colonIdx).trim();
-      if (!/^\\w+$/.test(api)) return;
-      const m = line.match(/"([^"]+)"/);
-      if (m) map[api] = m[1];
-    });
-    if (Object.keys(map).length === 0) {
-      document.getElementById('s1').className = 'status err show';
-      document.getElementById('s1').textContent = 'No symbols';
-    } else {
-      fridaMap = map;
-      document.getElementById('s1').className = 'status ok show';
-      document.getElementById('s1').textContent = '✓ ' + Object.keys(map).length + ' symbols';
-      toast('Loaded');
-      checkReady();
+  inp.addEventListener('change', async e => {
+    const file = inp.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      if (inputId === 'f1') {
+        const map = {};
+        const lines = text.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.indexOf('findExportByName') === -1) continue;
+          const colonIdx = line.indexOf(':');
+          if (colonIdx === -1) continue;
+          const api = line.substring(0, colonIdx).trim();
+          const match = line.match(/"([^"]+)"/);
+          if (match) map[api] = match[1];
+        }
+        if (Object.keys(map).length === 0) {
+          document.getElementById('s1').className = 'status err show';
+          document.getElementById('s1').textContent = 'No symbols';
+        } else {
+          fridaMap = map;
+          document.getElementById('s1').className = 'status ok show';
+          document.getElementById('s1').textContent = '✓ ' + Object.keys(map).length;
+          toast('Loaded');
+          document.getElementById('btn').disabled = !(fridaMap && sourceFile && sourceText);
+        }
+      } else {
+        sourceFile = file;
+        sourceText = text;
+        document.getElementById('s2').className = 'status ok show';
+        document.getElementById('s2').textContent = '✓ ' + file.name;
+        toast('Ready');
+        document.getElementById('btn').disabled = !(fridaMap && sourceFile && sourceText);
+      }
+    } catch (e) {
+      const sid = inputId === 'f1' ? 's1' : 's2';
+      document.getElementById(sid).className = 'status err show';
+      document.getElementById(sid).textContent = 'Error: ' + e.message;
     }
-  } catch (e) {
-    document.getElementById('s1').className = 'status err show';
-    document.getElementById('s1').textContent = 'Error: ' + e.message;
-  }
-};
-const handleSource = async file => {
-  if (!file) return;
-  try {
-    sourceFile = file;
-    sourceText = await file.text();
-    document.getElementById('s2').className = 'status ok show';
-    document.getElementById('s2').textContent = '✓ ' + file.name;
-    toast('Ready');
-    checkReady();
-  } catch (e) {
-    document.getElementById('s2').className = 'status err show';
-    document.getElementById('s2').textContent = 'Error: ' + e.message;
-  }
-};
-const checkReady = () => {
-  document.getElementById('btn').disabled = !(fridaMap && sourceFile && sourceText);
-};
+  });
+});
 document.getElementById('btn').addEventListener('click', () => {
   if (!fridaMap || !sourceFile || !sourceText) return;
   const oldMap = {};
-  sourceText.split(/\n/).forEach(line => {
-    if (!line.includes('findExportByName')) return;
+  const lines = sourceText.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.indexOf('findExportByName') === -1) continue;
     const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) return;
+    if (colonIdx === -1) continue;
     const api = line.substring(0, colonIdx).trim();
-    if (!/^\\w+$/.test(api)) return;
-    const m = line.match(/"([^"]+)"/);
-    if (m && !oldMap[api]) oldMap[api] = m[1];
-  });
+    const match = line.match(/"([^"]+)"/);
+    if (match && !oldMap[api]) oldMap[api] = match[1];
+  }
   const patchMap = {};
   for (const api in oldMap) {
-    const oldSym = oldMap[api], newSym = fridaMap[api];
+    const oldSym = oldMap[api];
+    const newSym = fridaMap[api];
     if (oldSym && newSym && oldSym !== newSym) patchMap[oldSym] = newSym;
   }
   if (Object.keys(patchMap).length === 0) { toast('No symbols'); return; }
   let patched = sourceText;
-  Object.entries(patchMap).forEach(([old, nu]) => {
-    patched = patched.split(old).join(nu);
-  });
+  for (const oldSym in patchMap) {
+    const newSym = patchMap[oldSym];
+    const parts = patched.split(oldSym);
+    patched = parts.join(newSym);
+  }
   const blob = new Blob([patched], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = sourceFile.name;
   link.className = 'download';
-  link.textContent = 'Download ' + sourceFile.name;
+  link.textContent = 'Download';
   document.getElementById('result').innerHTML = '';
   document.getElementById('result').appendChild(link);
   toast('Done');
 });
 </script>
-</body>
-</html>`);
+</body></html>`);
 });
+
 
 app.all("*",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
