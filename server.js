@@ -1359,31 +1359,28 @@ async function loadOldMap(file){
   if(!file.name.endsWith('.js')){toast('Need a .js file (Frida-Map)');return;}
   try{
     const text=await file.text();
-    // Extract the object from the JavaScript source
-    // Handles: const FridaMap = {...}, module.exports = {...}, export default {...}
-    let raw={};
-    
-    // Try direct eval in a sandboxed scope
-    const sandbox={module:{exports:{}},exports:{},FridaMap:null};
-    try{
-      new Function('const FridaMap = ',text+';return FridaMap;').call(sandbox);
-      const evalResult=new Function(text+';return typeof FridaMap!=="undefined"?FridaMap:(typeof module!=="undefined"&&module.exports)?module.exports:(typeof exports!=="undefined")?exports:null;').call(sandbox);
-      if(evalResult)raw=evalResult;
-    }catch(e1){
-      // Fallback: extract object literal using regex
-      const match=text.match(/(?:const\s+\w+\s*=\s*|module\.exports\s*=\s*|export\s+default\s+)(\{[\s\S]*\})/);
-      if(match){
-        try{raw=JSON.parse(match[1]);}catch(e2){}
-      }
-    }
-    
-    // Accept both plain {api_name: obf} and with __header key
     oldMap={};
-    for(const[k,v]of Object.entries(raw)){
-      if(k==='__header')continue;
-      if(typeof v==='string')oldMap[k]=v;
+    
+    // Try to parse Frida-Map format: api_name: () => Il2Cpp.module.findExportByName("SYMBOL")
+    const fridaRegex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
+    let match;
+    while((match=fridaRegex.exec(text))!==null){
+      oldMap[match[1]]=match[2];
     }
+    
+    // If Frida format didn't work, try plain JSON {api_name: "symbol"}
+    if(Object.keys(oldMap).length===0){
+      try{
+        const raw=JSON.parse(text);
+        for(const[k,v]of Object.entries(raw)){
+          if(k==='__header')continue;
+          if(typeof v==='string')oldMap[k]=v;
+        }
+      }catch(e){}
+    }
+    
     const cnt=Object.keys(oldMap).length;
+    if(cnt===0){toast('No symbols found in file');return;}
     document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+file.name;
     document.getElementById('old-ok').style.display='';
     document.getElementById('dz-old').classList.add('done');
