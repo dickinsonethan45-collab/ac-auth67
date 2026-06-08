@@ -991,7 +991,8 @@ app.all("*splat",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
   res.status(200).json({});
 });
-app.listen(PORT,()=>console.log(`Server running on port ${PORT}`));
+const server = app.listen(PORT,()=>console.log(`Server running on port ${PORT}`));
+server.on('error',(e)=>{if(e.code==='EADDRINUSE'){console.log(`Port ${PORT} in use, retrying...`);setTimeout(()=>server.listen(PORT),1000);}else{throw e;}});
 app.all("*splat",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
   res.status(200).json({});
