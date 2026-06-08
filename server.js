@@ -1125,31 +1125,68 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 
   <div class="steps">
 
+    <!-- STEP 1: Old SymbolMap.json -->
     <div class="step" id="step1">
-      <div class="step-hdr"><div class="step-num" id="sn1">1</div><div class="step-label">Frida-Map.js (new symbols)</div></div>
+      <div class="step-hdr">
+        <div class="step-num" id="sn1">1</div>
+        <div class="step-label">Load Old SymbolMap.json</div>
+        <div class="step-hint">From the previous version (Symbol Getter output)</div>
+      </div>
       <div class="step-body">
-        <div class="dz" id="dz-new" onclick="document.getElementById('fi-new').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <div class="dz-title">Drop Frida-Map.js here</div>
-          <div class="dz-hint">or click to browse — generated symbols file</div>
-          <div class="dz-ok" id="new-ok" style="display:none"></div>
+        <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+          </svg>
+          <div class="dz-title">Drop SymbolMap.json here</div>
+          <div class="dz-hint">or click to browse — output from Symbol Getter for old game version</div>
+          <div class="dz-ok" id="old-ok" style="display:none"></div>
         </div>
-        <input type="file" id="fi-new" accept=".js" style="display:none">
-        <div class="status-line" id="st-new"></div>
+        <input type="file" id="fi-old" accept=".json" style="display:none">
       </div>
     </div>
 
+    <!-- STEP 2: New libil2cpp.so -->
     <div class="step" id="step2">
-      <div class="step-hdr"><div class="step-num" id="sn2">2</div><div class="step-label">Your source files</div></div>
+      <div class="step-hdr">
+        <div class="step-num" id="sn2">2</div>
+        <div class="step-label">Load New libil2cpp.so</div>
+        <div class="step-hint">From the updated game version</div>
+      </div>
       <div class="step-body">
-        <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <div class="dz-title">Drop source files here</div>
-          <div class="dz-hint">or click to browse — drop as many files as you want</div>
-          <div class="dz-ok" id="old-ok" style="display:none"></div>
+        <div class="dz" id="dz-new" onclick="document.getElementById('fi-new').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div class="dz-title">Drop libil2cpp.so here</div>
+          <div class="dz-hint">or click to browse — parsed entirely in your browser</div>
+          <div class="dz-ok" id="new-ok" style="display:none"></div>
         </div>
-        <input type="file" id="fi-old" multiple accept=".ts,.js,.cpp,.hpp,.h,.cs" style="display:none">
-        <div id="file-list"></div>
+        <input type="file" id="fi-new" accept=".so" style="display:none">
+        <div class="progress" id="prog-so"><div class="prog-bar" id="pb-so"></div></div>
+        <div class="status-line" id="st-so"></div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Source files -->
+    <div class="step" id="step3">
+      <div class="step-hdr">
+        <div class="step-num" id="sn3">3</div>
+        <div class="step-label">Add Source Files to Patch</div>
+        <div class="step-hint">Drop as many as you want — .ts, .js, .cpp, .hpp, .h, .cs, .txt …</div>
+      </div>
+      <div class="step-body">
+        <div class="dz" id="dz-src" onclick="document.getElementById('fi-src').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          <div class="dz-title">Drop source files here</div>
+          <div class="dz-hint">or click to browse — multiple files supported</div>
+        </div>
+        <input type="file" id="fi-src" multiple style="display:none">
+        <div class="file-list" id="file-list"></div>
       </div>
     </div>
 
@@ -1309,72 +1346,63 @@ function wireDz(dzId, handler){
   dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
   dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');handler(e.dataTransfer.files);});
 }
-wireDz('dz-old', files=>addSourceFiles(files));
+wireDz('dz-old', files=>loadOldMap(files[0]));
 wireDz('dz-new', files=>loadNewSo(files[0]));
 wireDz('dz-src', files=>addSourceFiles(files));
-document.getElementById('fi-old').addEventListener('change',e=>addSourceFiles(e.target.files));
+document.getElementById('fi-old').addEventListener('change',e=>loadOldMap(e.target.files[0]));
 document.getElementById('fi-new').addEventListener('change',e=>loadNewSo(e.target.files[0]));
 document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.target.files));
 
-// ── STEP 1: Load source file with old symbols ───────────────────────────────
+// ── STEP 1: Load old SymbolMap.json ──────────────────────────────────────────
 async function loadOldMap(file){
   if(!file)return;
-  if(!file.name.match(/\.(ts|js)$/)){toast('Need a .ts or .js file');return;}
+  if(!file.name.endsWith('.json')){toast('Need a .json file');return;}
   try{
     const text=await file.text();
-    sourceFiles=[{name:file.name,text,patched:null,replaceCount:0,size:file.size}];
-    
-    // Extract old symbols from: api_name: () => Il2Cpp.module.findExportByName("SYMBOL")
+    const raw=JSON.parse(text);
+    // Accept both plain {api_name: obf} and with __header key
     oldMap={};
-    const fridaRegex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
-    let match;
-    while((match=fridaRegex.exec(text))!==null){
-      oldMap[match[1]]=match[2];
+    for(const[k,v]of Object.entries(raw)){
+      if(k==='__header')continue;
+      if(typeof v==='string')oldMap[k]=v;
     }
-    
     const cnt=Object.keys(oldMap).length;
-    if(cnt===0){toast('No symbols found in file');return;}
     document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+file.name;
     document.getElementById('old-ok').style.display='';
     document.getElementById('dz-old').classList.add('done');
     setStepDone(1);
-    toast('Source file loaded: '+cnt+' symbols');
+    toast('Old map loaded: '+cnt+' symbols');
     tryBuildPatchMap();
-  }catch(e){toast('Parse error: '+e.message);}
+  }catch(e){toast('JSON parse error: '+e.message);}
 }
 
 // ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
 async function loadNewSo(file){
   if(!file)return;
-  if(!file.name.endsWith('.js')){toast('Need a .js file (Frida-Map)');return;}
-  try{
-    const text=await file.text();
-    newMap={};
-    const lines=text.split('\n');
-    let count=0;
-    for(const line of lines){
-      if(!line.includes('findExportByName'))continue;
-      const colonIdx=line.indexOf(':');
-      if(colonIdx===-1)continue;
-      const apiName=line.substring(0,colonIdx).trim();
-      if(!/^\w+$/.test(apiName))continue;
-      const match=line.match(/"([^"]+)"/);
-      if(match){newMap[apiName]=match[1];count++;}
-    }
-    if(count===0){toast('No symbols found');return;}
-    document.getElementById('new-ok').textContent='✓ '+count+' symbols loaded';
-    document.getElementById('new-ok').style.display='';
-    document.getElementById('dz-new').classList.add('done');
-    setStepDone(1);
-    document.getElementById('st-new').className='status-line ok';
-    document.getElementById('st-new').textContent='✓ Loaded '+count+' symbols from '+file.name;
-    toast('Frida-Map loaded: '+count+' symbols');
-    tryBuildPatchMap();
-  }catch(e){
-    document.getElementById('st-new').className='status-line err';
-    document.getElementById('st-new').textContent='Error: '+e.message;
-    toast('Error: '+e.message);
-  }
+  if(!file.name.endsWith('.so')){toast('Need a .so file');return;}
+  const progEl=document.getElementById('prog-so');
+  const pbEl=document.getElementById('pb-so');
+  const stEl=document.getElementById('st-so');
+  stEl.className='status-line';
+  stEl.textContent='Reading file...';
+  progEl.className='progress show'; pbEl.style.width='10%';
+  const buf=new Uint8Array(await file.arrayBuffer());
+  pbEl.style.width='45%'; stEl.textContent='Parsing ELF...';
+  let syms;
+  try{syms=extractObfSymbols(buf);}catch(e){stEl.textContent='ELF error: '+e.message;stEl.className='status-line err';return;}
+  pbEl.style.width='90%';
+  newMap=buildMap(syms);
+  const cnt=Object.keys(newMap).length;
+  pbEl.style.width='100%';
+  stEl.textContent='✓ Parsed '+cnt+' symbols from '+file.name;
+  stEl.className='status-line ok';
+  document.getElementById('new-ok').textContent='✓ '+cnt+' symbols mapped';
+  document.getElementById('new-ok').style.display='';
+  document.getElementById('dz-new').classList.add('done');
+  setStepDone(2);
+  toast('New .so loaded: '+cnt+' symbols');
+  setTimeout(()=>{progEl.className='progress';},700);
+  tryBuildPatchMap();
 }
 
 // Build old_obf -> new_obf translation table
@@ -1400,20 +1428,8 @@ async function addSourceFiles(fileList){
     if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
     const text=await file.text();
     sourceFiles.push({name:file.name,text,patched:null,replaceCount:0,size:file.size});
-    const lines=text.split('\n');
-    for(const line of lines){
-      if(!line.includes('findExportByName'))continue;
-      const colonIdx=line.indexOf(':');
-      if(colonIdx===-1)continue;
-      const apiName=line.substring(0,colonIdx).trim();
-      if(!/^\w+$/.test(apiName))continue;
-      const match=line.match(/"([^"]+)"/);
-      if(match&&!oldMap[apiName])oldMap[apiName]=match[1];
-    }
   }
-  if(sourceFiles.length>0){
-    tryBuildPatchMap();
-  }
+  if(sourceFiles.length>0)setStepDone(3);
   renderFileList();
 }
 
