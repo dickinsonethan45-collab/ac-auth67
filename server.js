@@ -1141,15 +1141,16 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     </div>
 
     <div class="step" id="step2">
-      <div class="step-hdr"><div class="step-num">2</div><div class="step-label">Your source file</div></div>
+      <div class="step-hdr"><div class="step-num">2</div><div class="step-label">Your source files</div></div>
       <div class="step-body">
         <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <div class="dz-title">Drop source file here</div>
-          <div class="dz-hint">or click to browse — .ts, .js, .cpp, .hpp, .h, .cs</div>
+          <div class="dz-title">Drop source files here</div>
+          <div class="dz-hint">or click to browse — drop as many files as you want</div>
           <div class="dz-ok" id="old-ok" style="display:none"></div>
         </div>
-        <input type="file" id="fi-old" accept=".ts,.js,.cpp,.hpp,.h,.cs" style="display:none">
+        <input type="file" id="fi-old" multiple accept=".ts,.js,.cpp,.hpp,.h,.cs" style="display:none">
+        <div id="file-list"></div>
       </div>
     </div>
 
@@ -1309,10 +1310,10 @@ function wireDz(dzId, handler){
   dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
   dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');handler(e.dataTransfer.files);});
 }
-wireDz('dz-old', files=>loadOldMap(files[0]));
+wireDz('dz-old', files=>addSourceFiles(files));
 wireDz('dz-new', files=>loadNewSo(files[0]));
 wireDz('dz-src', files=>addSourceFiles(files));
-document.getElementById('fi-old').addEventListener('change',e=>loadOldMap(e.target.files[0]));
+document.getElementById('fi-old').addEventListener('change',e=>addSourceFiles(e.target.files));
 document.getElementById('fi-new').addEventListener('change',e=>loadNewSo(e.target.files[0]));
 document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.target.files));
 
@@ -1399,8 +1400,17 @@ async function addSourceFiles(fileList){
     if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
     const text=await file.text();
     sourceFiles.push({name:file.name,text,patched:null,replaceCount:0,size:file.size});
+    // Extract old symbols from this file
+    const regex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
+    let m;
+    while((m=regex.exec(text))!==null){
+      if(!oldMap[m[1]])oldMap[m[1]]=m[2];
+    }
   }
-  if(sourceFiles.length>0)setStepDone(3);
+  if(sourceFiles.length>0){
+    setStepDone(3);
+    tryBuildPatchMap();
+  }
   renderFileList();
 }
 
