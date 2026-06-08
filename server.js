@@ -1311,51 +1311,57 @@ function wireDz(dzId, handler){
 }
 wireDz('dz-old', files=>addSourceFiles(files));
 wireDz('dz-new', files=>loadNewSo(files[0]));
+wireDz('dz-src', files=>addSourceFiles(files));
 document.getElementById('fi-old').addEventListener('change',e=>addSourceFiles(e.target.files));
 document.getElementById('fi-new').addEventListener('change',e=>loadNewSo(e.target.files[0]));
+document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.target.files));
 
 // ── STEP 1: Load source file with old symbols ───────────────────────────────
-// ── STEP 2: Load new Frida-Map.js ───────────────────────────────────────────
+async function loadOldMap(file){
+  if(!file)return;
+  if(!file.name.match(/\.(ts|js)$/)){toast('Need a .ts or .js file');return;}
+  try{
+    const text=await file.text();
+    sourceFiles=[{name:file.name,text,patched:null,replaceCount:0,size:file.size}];
+    
+    // Extract old symbols from: api_name: () => Il2Cpp.module.findExportByName("SYMBOL")
+    oldMap={};
+    const fridaRegex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
+    let match;
+    while((match=fridaRegex.exec(text))!==null){
+      oldMap[match[1]]=match[2];
+    }
+    
+    const cnt=Object.keys(oldMap).length;
+    if(cnt===0){toast('No symbols found in file');return;}
+    document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+file.name;
+    document.getElementById('old-ok').style.display='';
+    document.getElementById('dz-old').classList.add('done');
+    setStepDone(1);
+    toast('Source file loaded: '+cnt+' symbols');
+    tryBuildPatchMap();
+  }catch(e){toast('Parse error: '+e.message);}
+}
+
+// ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
 async function loadNewSo(file){
   if(!file)return;
   if(!file.name.endsWith('.js')){toast('Need a .js file (Frida-Map)');return;}
   try{
     const text=await file.text();
     newMap={};
-    
-    // Simple line-by-line parsing
-    const lines = text.split('\n');
-    let count = 0;
-    
+    const lines=text.split('\n');
+    let count=0;
     for(const line of lines){
-      // Look for: api_name: () => Il2Cpp.module.findExportByName("SYMBOL"),
-      if(!line.includes('findExportByName')) continue;
-      
-      // Extract api name (before the colon)
-      const colonIdx = line.indexOf(':');
-      if(colonIdx === -1) continue;
-      const apiName = line.substring(0, colonIdx).trim();
-      
-      // Extract symbol (inside quotes after findExportByName)
-      const startQuote = line.lastIndexOf('"');
-      if(startQuote === -1) continue;
-      let endQuote = line.lastIndexOf('"');
-      if(endQuote === startQuote) {
-        // Find opening quote
-        endQuote = line.indexOf('"', line.indexOf('findExportByName'));
-        if(endQuote === -1 || endQuote === startQuote) continue;
-      }
-      
-      const symbol = line.substring(startQuote + 1, line.lastIndexOf('"'));
-      if(symbol && apiName && /^\w+$/.test(apiName)){
-        newMap[apiName] = symbol;
-        count++;
-      }
+      if(!line.includes('findExportByName'))continue;
+      const colonIdx=line.indexOf(':');
+      if(colonIdx===-1)continue;
+      const apiName=line.substring(0,colonIdx).trim();
+      if(!/^\w+$/.test(apiName))continue;
+      const match=line.match(/"([^"]+)"/);
+      if(match){newMap[apiName]=match[1];count++;}
     }
-    
-    console.log('Parsed count:', count);
     if(count===0){toast('No symbols found');return;}
-    
     document.getElementById('new-ok').textContent='✓ '+count+' symbols loaded';
     document.getElementById('new-ok').style.display='';
     document.getElementById('dz-new').classList.add('done');
@@ -1365,7 +1371,6 @@ async function loadNewSo(file){
     toast('Frida-Map loaded: '+count+' symbols');
     tryBuildPatchMap();
   }catch(e){
-    console.error('Error:', e);
     document.getElementById('st-new').className='status-line err';
     document.getElementById('st-new').textContent='Error: '+e.message;
     toast('Error: '+e.message);
@@ -1395,22 +1400,15 @@ async function addSourceFiles(fileList){
     if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
     const text=await file.text();
     sourceFiles.push({name:file.name,text,patched:null,replaceCount:0,size:file.size});
-    
-    // Extract old symbols - simple line-by-line parsing
-    const lines = text.split('\n');
+    const lines=text.split('\n');
     for(const line of lines){
-      if(!line.includes('findExportByName')) continue;
-      const colonIdx = line.indexOf(':');
-      if(colonIdx === -1) continue;
-      const apiName = line.substring(0, colonIdx).trim();
-      
-      const startQuote = line.lastIndexOf('"');
-      if(startQuote === -1) continue;
-      const symbol = line.substring(startQuote + 1, line.lastIndexOf('"'));
-      
-      if(symbol && apiName && /^\w+$/.test(apiName) && !oldMap[apiName]){
-        oldMap[apiName] = symbol;
-      }
+      if(!line.includes('findExportByName'))continue;
+      const colonIdx=line.indexOf(':');
+      if(colonIdx===-1)continue;
+      const apiName=line.substring(0,colonIdx).trim();
+      if(!/^\w+$/.test(apiName))continue;
+      const match=line.match(/"([^"]+)"/);
+      if(match&&!oldMap[apiName])oldMap[apiName]=match[1];
     }
   }
   if(sourceFiles.length>0){
