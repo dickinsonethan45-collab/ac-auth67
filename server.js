@@ -1126,7 +1126,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   <div class="steps">
 
     <div class="step" id="step1">
-      <div class="step-hdr"><div class="step-num">1</div><div class="step-label">libil2cpp.so</div></div>
+      <div class="step-hdr"><div class="step-num" id="sn1">1</div><div class="step-label">libil2cpp.so</div></div>
       <div class="step-body">
         <div class="dz" id="dz-new" onclick="document.getElementById('fi-new').click()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -1141,7 +1141,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     </div>
 
     <div class="step" id="step2">
-      <div class="step-hdr"><div class="step-num">2</div><div class="step-label">Your source files</div></div>
+      <div class="step-hdr"><div class="step-num" id="sn2">2</div><div class="step-label">Your source files</div></div>
       <div class="step-body">
         <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -1408,7 +1408,6 @@ async function addSourceFiles(fileList){
     }
   }
   if(sourceFiles.length>0){
-    setStepDone(3);
     tryBuildPatchMap();
   }
   renderFileList();
