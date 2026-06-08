@@ -990,8 +990,274 @@ ${BG_SCRIPT}
 
 
 app.get("/patcher", (req, res) => {
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Update Symbols — AC Auth</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}:root{--pp:#a855f7;--pk:#ec4899;--or:#f97316;--pp-dim:rgba(168,85,247,0.12);--border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.14);--bg0:#00000f;--bg1:rgba(255,255,255,0.025);--bg2:rgba(255,255,255,0.04);--bg3:#1a1a1a;--text:#e8e0ff;--muted:rgba(200,180,255,0.35);--mono:'JetBrains Mono',monospace;--success:#50fa7b;--danger:#ff5555;}html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}#bg{position:fixed;inset:0;z-index:0;pointer-events:none}.page{position:relative;z-index:1;max-width:1020px;margin:0 auto;padding-bottom:80px}.hdr{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--border);background:rgba(0,0,10,0.55);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100}.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(168,85,247,0.5);animation:logopulse 4s ease-in-out infinite;flex-shrink:0}@keyframes logopulse{0%,100%{box-shadow:0 0 24px rgba(168,85,247,0.5)}50%{box-shadow:0 0 40px rgba(168,85,247,0.8),0 0 60px rgba(236,72,153,0.3)}}.hdr-name{font-size:18px;font-weight:900;color:#fff;letter-spacing:-.5px}.hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));border:1px solid rgba(168,85,247,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden}.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(168,85,247,0.08),transparent);animation:shimmer 2.5s linear infinite}@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(168,85,247,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}.made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}.hdr-nav{display:flex;gap:4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:4px}.hnav-btn{font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;color:var(--muted);text-decoration:none;transition:all .15s;letter-spacing:.2px}.hnav-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}.hnav-active{background:linear-gradient(135deg,var(--pp),var(--pk))!important;color:#fff!important;box-shadow:0 2px 12px rgba(168,85,247,0.4)}.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}.hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}.abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}.abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(168,85,247,0.25)}.abtn-ghost:hover{background:var(--pp-dim)}.patcher-wrap{padding:32px 28px}.patcher-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px}.patcher-sub{font-size:13px;color:var(--muted);margin-bottom:28px}.section{background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}.section-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:14px}.dz{border:2px dashed var(--border-hi);border-radius:12px;padding:28px;text-align:center;cursor:pointer;transition:all .15s;user-select:none;background:var(--bg2)}.dz:hover,.dz.active{border-color:var(--pp);background:var(--pp-dim)}.dz svg{width:28px;height:28px;color:var(--muted);display:block;margin:0 auto 12px}.dz-text{font-size:14px;font-weight:600;color:var(--text);margin:4px 0}.dz-hint{font-size:12px;color:var(--muted);margin-top:4px}#f1,#f2{display:none}.status{margin-top:8px;padding:8px 12px;border-radius:6px;font-size:12px;display:none;font-family:var(--mono)}.status.show{display:block}.status.ok{background:rgba(80,250,123,0.1);color:var(--success);border:1px solid rgba(80,250,123,0.3)}.status.err{background:rgba(255,85,85,0.1);color:var(--danger);border:1px solid rgba(255,85,85,0.3)}button{width:100%;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;border:none;padding:12px;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px;transition:all .15s;margin-top:14px}button:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 24px rgba(168,85,247,0.4)}button:disabled{opacity:0.5;cursor:not-allowed}#result{margin-top:14px}.download{display:block;background:var(--success);color:#000;padding:12px;text-align:center;font-weight:700;font-size:12px;border-radius:8px;text-decoration:none;cursor:pointer}.download:hover{filter:brightness(0.9)}.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(168,85,247,0.4)}.toast.show{opacity:1;transform:translateY(0)}</style></head><body><canvas id="bg"></canvas><div class="page"><div class="hdr"><div class="hdr-logo">⚡</div><div class="hdr-name">AC Auth <em>Backend</em></div><div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div><nav class="hdr-nav"><a href="/" class="hnav-btn">Sessions</a><a href="/symbol-getter" class="hnav-btn">Symbol Getter</a><a href="/patcher" class="hnav-btn hnav-active">Update Symbols</a></nav><div class="hdr-r"><div class="hdr-clock" id="clock"></div><form method="POST" action="/logout" style="display:inline"><button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button></form></div></div><div class="patcher-wrap"><div class="patcher-title">Update Symbols</div><div class="patcher-sub">Patch old symbols with new Frida-Map</div><div class="section"><div class="section-label">1. Frida-Map.js (new symbols)</div><div class="dz" id="dz1" onclick="document.getElementById('f1').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><div class="dz-text">Drop Frida-Map.js</div><div class="dz-hint">or click to browse</div></div><div id="s1" class="status"></div><input type="file" id="f1" accept=".js"></div><div class="section"><div class="section-label">2. Source file (old symbols)</div><div class="dz" id="dz2" onclick="document.getElementById('f2').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><div class="dz-text">Drop your file</div><div class="dz-hint">.ts, .js, .cpp, .h, .cs</div></div><div id="s2" class="status"></div><input type="file" id="f2"></div><button id="btn" disabled>Update Symbols</button><div id="result"></div></div></div><div class="toast" id="toast"></div><script>const toast=(msg)=>{const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500)};let fridaMap=null,sourceFile=null,sourceText=null;const setupDz=(dzId,inputId)=>{const dz=document.getElementById(dzId),inp=document.getElementById(inputId);['dragover','dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();if(ev==='dragover')dz.classList.add('active');if(ev==='dragleave')dz.classList.remove('active');if(ev==='drop'){dz.classList.remove('active');inp.files=e.dataTransfer.files;inp.dispatchEvent(new Event('change'))}}));inp.addEventListener('change',e=>{inp===document.getElementById('f1')?handleFrida(inp.files[0]):handleSource(inp.files[0])})};setupDz('dz1','f1');setupDz('dz2','f2');const handleFrida=async(file)=>{if(!file)return;try{const text=await file.text(),map={};for(const line of text.split('\n')){if(!line.includes('findExportByName'))continue;const colonIdx=line.indexOf(':');if(colonIdx===-1)continue;const api=line.substring(0,colonIdx).trim();if(!/^\w+$/.test(api))continue;const m=line.match(/"([^"]+)"/);if(m)map[api]=m[1]}if(Object.keys(map).length===0){document.getElementById('s1').className='status err show';document.getElementById('s1').textContent='No symbols found'}else{fridaMap=map;document.getElementById('s1').className='status ok show';document.getElementById('s1').textContent='✓ '+Object.keys(map).length+' symbols';toast('Loaded');checkReady()}}catch(e){document.getElementById('s1').className='status err show';document.getElementById('s1').textContent='Error: '+e.message}};const handleSource=async(file)=>{if(!file)return;try{sourceFile=file;sourceText=await file.text();document.getElementById('s2').className='status ok show';document.getElementById('s2').textContent='✓ '+file.name;toast('Source ready');checkReady()}catch(e){document.getElementById('s2').className='status err show';document.getElementById('s2').textContent='Error: '+e.message}};const checkReady=()=>{document.getElementById('btn').disabled=!(fridaMap&&sourceFile&&sourceText)};document.getElementById('btn').addEventListener('click',()=>{if(!fridaMap||!sourceFile||!sourceText)return;const oldMap={};for(const line of sourceText.split('\n')){if(!line.includes('findExportByName'))continue;const colonIdx=line.indexOf(':');if(colonIdx===-1)continue;const api=line.substring(0,colonIdx).trim();if(!/^\w+$/.test(api))continue;const m=line.match(/"([^"]+)"/);if(m&&!oldMap[api])oldMap[api]=m[1]}const patchMap={};for(const api in oldMap){const oldSym=oldMap[api],newSym=fridaMap[api];if(oldSym&&newSym&&oldSym!==newSym)patchMap[oldSym]=newSym}if(Object.keys(patchMap).length===0){toast('No symbols to update');return}let patched=sourceText;for(const[oldSym,newSym]of Object.entries(patchMap))patched=patched.replace(new RegExp(oldSym,'g'),newSym);const blob=new Blob([patched],{type:'text/plain'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=sourceFile.name;link.className='download';link.textContent='⬇ Download '+sourceFile.name+' ('+Object.keys(patchMap).length+' updated)';document.getElementById('result').innerHTML='';document.getElementById('result').appendChild(link);toast('✓ Done')});(function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000)})();<\/script></body></html>`);
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Symbol Patcher</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #00000f;
+      font-family: 'JetBrains Mono', -apple-system, sans-serif;
+      color: #e8e0ff;
+      padding: 0;
+      min-height: 100vh;
+    }
+    .page { position: relative; z-index: 1; max-width: 1020px; margin: 0 auto; padding-bottom: 80px; }
+    .hdr {
+      display: flex; align-items: center; gap: 14px; padding: 18px 28px;
+      border-bottom: 1px solid rgba(255,255,255,0.07); background: rgba(0,0,10,0.55);
+      backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100;
+    }
+    .hdr-logo { width: 38px; height: 38px; background: linear-gradient(135deg,#a855f7,#ec4899,#f97316);
+      border-radius: 12px; display: flex; align-items: center; justify-content: center;
+      font-size: 20px; box-shadow: 0 0 24px rgba(168,85,247,0.5); flex-shrink: 0; }
+    .hdr-name { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: -0.5px; }
+    .hdr-name em { font-style: normal; background: linear-gradient(90deg,#a855f7,#ec4899);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .made-by { display: flex; align-items: center; gap: 7px;
+      background: linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));
+      border: 1px solid rgba(168,85,247,0.35); border-radius: 100px;
+      padding: 5px 14px 5px 10px; }
+    .made-by-dot { width: 6px; height: 6px; border-radius: 50%;
+      background: linear-gradient(135deg,#a855f7,#ec4899); flex-shrink: 0; }
+    .made-by-text { font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+      background: linear-gradient(90deg,#c084fc,#f472b6,#fb923c);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap; }
+    .hdr-nav { display: flex; gap: 4px; background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 4px; }
+    .hnav-btn { font-size: 11px; font-weight: 700; padding: 6px 14px; border-radius: 8px;
+      color: rgba(200,180,255,0.35); text-decoration: none; transition: all 0.15s; letter-spacing: 0.2px; }
+    .hnav-btn:hover { color: #e8e0ff; background: rgba(255,255,255,0.06); }
+    .hnav-active { background: linear-gradient(135deg,#a855f7,#ec4899) !important;
+      color: #fff !important; box-shadow: 0 2px 12px rgba(168,85,247,0.4); }
+    .hdr-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .hdr-clock { font-size: 12px; color: rgba(200,180,255,0.35); font-family: 'JetBrains Mono';
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px; padding: 6px 12px; }
+    .abtn { border: none; padding: 9px 16px; cursor: pointer; font-weight: 700; font-size: 12px;
+      border-radius: 10px; transition: all 0.15s; letter-spacing: 0.2px; }
+    .abtn-ghost { background: rgba(255,255,255,0.04); color: #a855f7;
+      border: 1px solid rgba(168,85,247,0.25); }
+    .abtn-ghost:hover { background: rgba(168,85,247,0.12); }
+    
+    .wrap { padding: 32px 28px; }
+    .title { font-size: 26px; font-weight: 900; color: #fff; letter-spacing: -0.5px; margin-bottom: 6px; }
+    .sub { font-size: 13px; color: rgba(200,180,255,0.35); margin-bottom: 28px; }
+    .section { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+      color: rgba(200,180,255,0.35); margin-bottom: 14px; }
+    .dz { border: 2px dashed rgba(255,255,255,0.14); border-radius: 12px; padding: 28px;
+      text-align: center; cursor: pointer; transition: all 0.15s; background: rgba(255,255,255,0.04); }
+    .dz:hover, .dz.active { border-color: #a855f7; background: rgba(168,85,247,0.12); }
+    .dz-text { font-size: 14px; font-weight: 600; color: #e8e0ff; margin: 4px 0; }
+    .dz-hint { font-size: 12px; color: rgba(200,180,255,0.35); margin-top: 4px; }
+    input[type=file] { display: none; }
+    .status { margin-top: 8px; padding: 8px 12px; border-radius: 6px; font-size: 12px;
+      display: none; font-family: 'JetBrains Mono'; }
+    .status.show { display: block; }
+    .status.ok { background: rgba(80,250,123,0.1); color: #50fa7b; border: 1px solid rgba(80,250,123,0.3); }
+    .status.err { background: rgba(255,85,85,0.1); color: #ff5555; border: 1px solid rgba(255,85,85,0.3); }
+    button { width: 100%; background: linear-gradient(135deg,#a855f7,#ec4899);
+      color: #fff; border: none; padding: 12px; font-size: 12px; font-weight: 700;
+      cursor: pointer; border-radius: 8px; transition: all 0.15s; margin-top: 14px; }
+    button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(168,85,247,0.4); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #result { margin-top: 14px; }
+    .download { display: block; background: #50fa7b; color: #000; padding: 12px;
+      text-align: center; font-weight: 700; font-size: 12px; border-radius: 8px;
+      text-decoration: none; cursor: pointer; }
+    .download:hover { filter: brightness(0.9); }
+    .toast { position: fixed; bottom: 28px; right: 28px; background: linear-gradient(135deg,#a855f7,#ec4899);
+      color: #fff; padding: 10px 20px; border-radius: 12px; font-size: 12px; font-weight: 700;
+      z-index: 999; opacity: 0; transform: translateY(10px); transition: all 0.25s; pointer-events: none;
+      box-shadow: 0 8px 32px rgba(168,85,247,0.4); }
+    .toast.show { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+<div class="page">
+<div class="hdr">
+  <div class="hdr-logo">⚡</div>
+  <div class="hdr-name">AC Auth <em>Backend</em></div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
+  <nav class="hdr-nav">
+    <a href="/" class="hnav-btn">Sessions</a>
+    <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/patcher" class="hnav-btn">Update Symbols</a>
+    <a href="/patcher" class="hnav-btn hnav-active">Update Symbols</a>
+  </nav>
+  <div class="hdr-r">
+    <div class="hdr-clock" id="clock"></div>
+    <form method="POST" action="/logout" style="display:inline">
+      <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
+    </form>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="title">Update Symbols</div>
+  <div class="sub">Patch old symbols with new Frida-Map</div>
+
+  <div class="section">
+    <div class="label">1. Frida-Map.js (new symbols)</div>
+    <div class="dz" id="dz1" onclick="document.getElementById('f1').click()">
+      <div style="font-size:24px;margin:0 0 8px">📄</div>
+      <div class="dz-text">Drop Frida-Map.js</div>
+      <div class="dz-hint">or click to browse</div>
+    </div>
+    <div id="s1" class="status"></div>
+    <input type="file" id="f1" accept=".js">
+  </div>
+
+  <div class="section">
+    <div class="label">2. Source file (old symbols)</div>
+    <div class="dz" id="dz2" onclick="document.getElementById('f2').click()">
+      <div style="font-size:24px;margin:0 0 8px">📄</div>
+      <div class="dz-text">Drop your file</div>
+      <div class="dz-hint">.ts, .js, .cpp, .h, .cs</div>
+    </div>
+    <div id="s2" class="status"></div>
+    <input type="file" id="f2">
+  </div>
+
+  <button id="btn" disabled>Update Symbols</button>
+  <div id="result"></div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const toast = (msg) => {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+};
+
+let fridaMap = null, sourceFile = null, sourceText = null;
+
+const setupDz = (dzId, inputId) => {
+  const dz = document.getElementById(dzId), inp = document.getElementById(inputId);
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('active'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('active'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('active');
+    inp.files = e.dataTransfer.files;
+    inp.dispatchEvent(new Event('change'));
+  });
+  inp.addEventListener('change', e => {
+    inp === document.getElementById('f1') ? handleFrida(inp.files[0]) : handleSource(inp.files[0]);
+  });
+};
+setupDz('dz1', 'f1');
+setupDz('dz2', 'f2');
+
+const handleFrida = async (file) => {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const map = {};
+    for (const line of text.split('\n')) {
+      if (!line.includes('findExportByName')) continue;
+      const colonIdx = line.indexOf(':');
+      if (colonIdx === -1) continue;
+      const api = line.substring(0, colonIdx).trim();
+      if (!/^\w+$/.test(api)) continue;
+      const m = line.match(/"([^"]+)"/);
+      if (m) map[api] = m[1];
+    }
+    if (Object.keys(map).length === 0) {
+      document.getElementById('s1').className = 'status err show';
+      document.getElementById('s1').textContent = 'No symbols found';
+    } else {
+      fridaMap = map;
+      document.getElementById('s1').className = 'status ok show';
+      document.getElementById('s1').textContent = '✓ ' + Object.keys(map).length + ' symbols';
+      toast('Loaded');
+      checkReady();
+    }
+  } catch (e) {
+    document.getElementById('s1').className = 'status err show';
+    document.getElementById('s1').textContent = 'Error: ' + e.message;
+  }
+};
+
+const handleSource = async (file) => {
+  if (!file) return;
+  try {
+    sourceFile = file;
+    sourceText = await file.text();
+    document.getElementById('s2').className = 'status ok show';
+    document.getElementById('s2').textContent = '✓ ' + file.name;
+    toast('Source ready');
+    checkReady();
+  } catch (e) {
+    document.getElementById('s2').className = 'status err show';
+    document.getElementById('s2').textContent = 'Error: ' + e.message;
+  }
+};
+
+const checkReady = () => {
+  document.getElementById('btn').disabled = !(fridaMap && sourceFile && sourceText);
+};
+
+document.getElementById('btn').addEventListener('click', () => {
+  if (!fridaMap || !sourceFile || !sourceText) return;
+
+  const oldMap = {};
+  for (const line of sourceText.split('\n')) {
+    if (!line.includes('findExportByName')) continue;
+    const colonIdx = line.indexOf(':');
+    if (colonIdx === -1) continue;
+    const api = line.substring(0, colonIdx).trim();
+    if (!/^\w+$/.test(api)) continue;
+    const m = line.match(/"([^"]+)"/);
+    if (m && !oldMap[api]) oldMap[api] = m[1];
+  }
+
+  const patchMap = {};
+  for (const api in oldMap) {
+    const oldSym = oldMap[api], newSym = fridaMap[api];
+    if (oldSym && newSym && oldSym !== newSym) patchMap[oldSym] = newSym;
+  }
+
+  if (Object.keys(patchMap).length === 0) {
+    toast('No symbols to update');
+    return;
+  }
+
+  let patched = sourceText;
+  for (const [oldSym, newSym] of Object.entries(patchMap))
+    patched = patched.replace(new RegExp(oldSym, 'g'), newSym);
+
+  const blob = new Blob([patched], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = sourceFile.name;
+  link.className = 'download';
+  link.textContent = '⬇ Download ' + sourceFile.name + ' (' + Object.keys(patchMap).length + ' updated)';
+
+  document.getElementById('result').innerHTML = '';
+  document.getElementById('result').appendChild(link);
+  toast('✓ Done');
 });
+
+(function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+  setTimeout(tick, 1000);
+})();
+<\/script>
+</body>
+</html>`;
+  res.send(html);
+});
+
 
 app.all("*",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
