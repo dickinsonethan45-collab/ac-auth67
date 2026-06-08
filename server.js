@@ -1321,6 +1321,7 @@ async function loadNewSo(file){
   if(!file.name.endsWith('.js')){toast('Need a .js file (Frida-Map)');return;}
   try{
     const text=await file.text();
+    console.log('File read, length:', text.length);
     newMap={};
     // Parse Frida-Map format - handles tabs, spaces, any whitespace
     const regex=/(\w+)\s*:\s*\(\s*\)\s*=>\s*Il2Cpp\s*\.\s*module\s*\.\s*findExportByName\s*\(\s*"([^"]+)"\s*\)/g;
@@ -1329,8 +1330,15 @@ async function loadNewSo(file){
     while((m=regex.exec(text))!==null){
       newMap[m[1]]=m[2];
       count++;
+      if(count===1) console.log('First match:', m[1], '=', m[2]);
     }
-    if(count===0){toast('No symbols found - check file format');return;}
+    console.log('Total matches:', count);
+    if(count===0){
+      console.log('No matches found. Testing text sample:');
+      console.log(text.substring(0, 500));
+      toast('No symbols found - check file format');
+      return;
+    }
     document.getElementById('new-ok').textContent='✓ '+count+' symbols loaded';
     document.getElementById('new-ok').style.display='';
     document.getElementById('dz-new').classList.add('done');
@@ -1340,6 +1348,7 @@ async function loadNewSo(file){
     toast('Frida-Map loaded: '+count+' symbols');
     tryBuildPatchMap();
   }catch(e){
+    console.error('Error:', e);
     document.getElementById('st-new').className='status-line err';
     document.getElementById('st-new').textContent='Error: '+e.message;
     toast('Error: '+e.message);
