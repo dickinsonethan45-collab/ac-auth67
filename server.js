@@ -987,6 +987,256 @@ ${BG_SCRIPT}
 </body></html>`);
 });
 
+
+app.get("/patcher", (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Symbol Patcher</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: linear-gradient(135deg, #1a0f2e 0%, #2d1b4e 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e0e7ff;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 600px; margin: 0 auto; }
+    h1 { margin-bottom: 2rem; font-size: 24px; }
+    .section {
+      background: rgba(30, 20, 50, 0.8);
+      border: 0.5px solid rgba(100, 50, 150, 0.3);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+    .label { font-size: 14px; font-weight: 600; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; }
+    .dz {
+      border: 2px dashed rgba(150, 200, 255, 0.5);
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      cursor: pointer;
+      background: rgba(50, 30, 100, 0.2);
+      transition: all 0.2s;
+    }
+    .dz:hover { border-color: #a78bfa; background: rgba(100, 50, 150, 0.3); }
+    .dz-text { font-size: 15px; margin: 8px 0; }
+    .dz-hint { font-size: 12px; opacity: 0.6; }
+    .dz.active { border-color: #86efac; background: rgba(100, 200, 50, 0.1); }
+    input[type="file"] { display: none; }
+    .status {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .status.ok { background: rgba(100, 200, 50, 0.1); color: #86efac; border: 0.5px solid rgba(100, 200, 50, 0.4); }
+    .status.err { background: rgba(240, 82, 82, 0.1); color: #ff9999; border: 0.5px solid rgba(240, 82, 82, 0.4); }
+    button {
+      width: 100%;
+      background: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+      color: white;
+      border: none;
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(167, 139, 250, 0.3); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .download {
+      display: block;
+      margin-top: 1.5rem;
+      background: #86efac;
+      color: #000;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #333;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 6px;
+      font-size: 13px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Symbol Patcher</h1>
+
+    <div class="section">
+      <div class="label">1. Frida-Map.js (new symbols)</div>
+      <div class="dz" id="dz1" onclick="document.getElementById('f1').click()">
+        <div class="dz-text">📄 Drop Frida-Map.js here</div>
+        <div class="dz-hint">or click to browse</div>
+      </div>
+      <div id="s1"></div>
+      <input type="file" id="f1" accept=".js">
+    </div>
+
+    <div class="section">
+      <div class="label">2. Source file (old symbols)</div>
+      <div class="dz" id="dz2" onclick="document.getElementById('f2').click()">
+        <div class="dz-text">📄 Drop your file here</div>
+        <div class="dz-hint">or click to browse — .ts, .js, .cpp, .h, .cs</div>
+      </div>
+      <div id="s2"></div>
+      <input type="file" id="f2">
+    </div>
+
+    <button id="btn" disabled>Update Symbols</button>
+    <div id="result"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const toast = (msg) => {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = 'toast show';
+      setTimeout(() => el.className = 'toast', 2500);
+    };
+
+    let fridaMap = null;
+    let sourceFile = null;
+    let sourceText = null;
+
+    const setupDz = (dzId, inputId) => {
+      const dz = document.getElementById(dzId);
+      const inp = document.getElementById(inputId);
+      dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('active'); });
+      dz.addEventListener('dragleave', () => dz.classList.remove('active'));
+      dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('active'); inp.files = e.dataTransfer.files; inp.dispatchEvent(new Event('change')); });
+      inp.addEventListener('change', e => {
+        if (inp === document.getElementById('f1')) handleFrida(inp.files[0]);
+        else handleSource(inp.files[0]);
+      });
+    };
+    setupDz('dz1', 'f1');
+    setupDz('dz2', 'f2');
+
+    const handleFrida = async (file) => {
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const map = {};
+        for (const line of text.split('\n')) {
+          if (!line.includes('findExportByName')) continue;
+          const colonIdx = line.indexOf(':');
+          if (colonIdx === -1) continue;
+          const api = line.substring(0, colonIdx).trim();
+          if (!/^\w+$/.test(api)) continue;
+          const m = line.match(/"([^"]+)"/);
+          if (m) map[api] = m[1];
+        }
+        if (Object.keys(map).length === 0) {
+          document.getElementById('s1').className = 'status err';
+          document.getElementById('s1').textContent = '✗ No symbols found';
+          return;
+        }
+        fridaMap = map;
+        document.getElementById('s1').className = 'status ok';
+        document.getElementById('s1').textContent = '✓ Loaded ' + Object.keys(map).length + ' symbols';
+        toast('Frida-Map loaded: ' + Object.keys(map).length + ' symbols');
+        checkReady();
+      } catch (e) {
+        document.getElementById('s1').className = 'status err';
+        document.getElementById('s1').textContent = '✗ Error: ' + e.message;
+      }
+    };
+
+    const handleSource = async (file) => {
+      if (!file) return;
+      try {
+        sourceFile = file;
+        sourceText = await file.text();
+        document.getElementById('s2').className = 'status ok';
+        document.getElementById('s2').textContent = '✓ Loaded ' + file.name;
+        toast('Source file loaded');
+        checkReady();
+      } catch (e) {
+        document.getElementById('s2').className = 'status err';
+        document.getElementById('s2').textContent = '✗ Error: ' + e.message;
+      }
+    };
+
+    const checkReady = () => {
+      document.getElementById('btn').disabled = !(fridaMap && sourceFile && sourceText);
+    };
+
+    document.getElementById('btn').addEventListener('click', () => {
+      if (!fridaMap || !sourceFile || !sourceText) return;
+
+      const oldMap = {};
+      for (const line of sourceText.split('\n')) {
+        if (!line.includes('findExportByName')) continue;
+        const colonIdx = line.indexOf(':');
+        if (colonIdx === -1) continue;
+        const api = line.substring(0, colonIdx).trim();
+        if (!/^\w+$/.test(api)) continue;
+        const m = line.match(/"([^"]+)"/);
+        if (m && !oldMap[api]) oldMap[api] = m[1];
+      }
+
+      const patchMap = {};
+      for (const api in oldMap) {
+        const oldSym = oldMap[api];
+        const newSym = fridaMap[api];
+        if (oldSym && newSym && oldSym !== newSym) {
+          patchMap[oldSym] = newSym;
+        }
+      }
+
+      if (Object.keys(patchMap).length === 0) {
+        toast('No symbols to update');
+        return;
+      }
+
+      let patched = sourceText;
+      for (const [oldSym, newSym] of Object.entries(patchMap)) {
+        patched = patched.replace(new RegExp(oldSym, 'g'), newSym);
+      }
+
+      const blob = new Blob([patched], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = sourceFile.name;
+      link.className = 'download';
+      link.textContent = '⬇ Download ' + sourceFile.name + ' (' + Object.keys(patchMap).length + ' replacements)';
+      
+      document.getElementById('result').innerHTML = '';
+      document.getElementById('result').appendChild(link);
+      toast('✓ ' + Object.keys(patchMap).length + ' symbols updated');
+    });
+  </script>
+</body>
+</html>`);
+});
+
+
 app.all("*",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
   res.status(200).json({});
