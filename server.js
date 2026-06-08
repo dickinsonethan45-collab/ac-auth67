@@ -482,6 +482,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   <nav class="hdr-nav">
     <a href="/" class="hnav-btn hnav-active">Sessions</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/patcher" class="hnav-btn">Update Symbols</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -751,6 +752,7 @@ pre{padding:18px;font-size:11px;color:rgba(200,180,255,0.5);font-family:var(--mo
   <nav class="hdr-nav">
     <a href="/" class="hnav-btn">Sessions</a>
     <a href="/symbol-getter" class="hnav-btn hnav-active">Symbol Getter</a>
+    <a href="/patcher" class="hnav-btn">Update Symbols</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
