@@ -482,6 +482,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   <nav class="hdr-nav">
     <a href="/" class="hnav-btn hnav-active">Sessions</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/symbol-patcher" class="hnav-btn">Symbol Patcher</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -751,6 +752,7 @@ pre{padding:18px;font-size:11px;color:rgba(200,180,255,0.5);font-family:var(--mo
   <nav class="hdr-nav">
     <a href="/" class="hnav-btn">Sessions</a>
     <a href="/symbol-getter" class="hnav-btn hnav-active">Symbol Getter</a>
+    <a href="/symbol-patcher" class="hnav-btn">Symbol Patcher</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -987,13 +989,554 @@ ${BG_SCRIPT}
 </body></html>`);
 });
 
-app.all("*splat",(req,res)=>{
-  console.log(`[Unhandled] ${req.method} ${req.path}`);
-  res.status(200).json({});
+// ── SYMBOL PATCHER PAGE ────────────────────────────────────────────────────────
+app.get("/symbol-patcher", (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Symbol Patcher — AC Auth</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --pp:#a855f7;--pk:#ec4899;--or:#f97316;
+  --pp-dim:rgba(168,85,247,0.12);
+  --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.14);
+  --bg0:#00000f;--bg1:rgba(255,255,255,0.025);--bg2:rgba(255,255,255,0.04);
+  --text:#e8e0ff;--muted:rgba(200,180,255,0.35);--mono:'JetBrains Mono',monospace;
+  --success:#50fa7b;--danger:#ff5555;
+}
+html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.page{position:relative;z-index:1;max-width:1020px;margin:0 auto;padding-bottom:80px}
+.hdr{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--border);background:rgba(0,0,10,0.55);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100}
+.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(168,85,247,0.5);animation:logopulse 4s ease-in-out infinite;flex-shrink:0}
+@keyframes logopulse{0%,100%{box-shadow:0 0 24px rgba(168,85,247,0.5)}50%{box-shadow:0 0 40px rgba(168,85,247,0.8),0 0 60px rgba(236,72,153,0.3)}}
+.hdr-name{font-size:18px;font-weight:900;color:#fff;letter-spacing:-.5px}
+.hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));border:1px solid rgba(168,85,247,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden}
+.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(168,85,247,0.08),transparent);animation:shimmer 2.5s linear infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(168,85,247,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}
+@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+.made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}
+.hdr-nav{display:flex;gap:4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:4px}
+.hnav-btn{font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;color:var(--muted);text-decoration:none;transition:all .15s;letter-spacing:.2px}
+.hnav-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}
+.hnav-active{background:linear-gradient(135deg,var(--pp),var(--pk))!important;color:#fff!important;box-shadow:0 2px 12px rgba(168,85,247,0.4)}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
+.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
+.abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
+.abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(168,85,247,0.25)}
+.abtn-ghost:hover{background:var(--pp-dim)}
+.abtn-purple{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;box-shadow:0 4px 16px rgba(168,85,247,0.3)}
+.abtn-green{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 16px rgba(34,197,94,0.3)}
+.abtn-sm{padding:6px 12px;font-size:11px}
+
+/* Layout */
+.sp-wrap{padding:32px 28px}
+.sp-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px}
+.sp-sub{font-size:13px;color:var(--muted);margin-bottom:4px}
+.sp-by{font-size:11px;color:rgba(200,180,255,0.2);letter-spacing:.5px;margin-bottom:28px}
+
+/* Steps */
+.steps{display:flex;flex-direction:column;gap:20px;margin-bottom:28px}
+.step{background:var(--bg1);border:1px solid var(--border);border-radius:18px;overflow:hidden}
+.step-hdr{display:flex;align-items:center;gap:14px;padding:16px 20px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
+.step-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;box-shadow:0 0 12px rgba(168,85,247,0.4)}
+.step-num.done{background:linear-gradient(135deg,#22c55e,#16a34a);box-shadow:0 0 12px rgba(34,197,94,0.4)}
+.step-label{font-size:14px;font-weight:700;color:#fff}
+.step-hint{font-size:11px;color:var(--muted);margin-left:auto}
+.step-body{padding:18px 20px}
+
+/* Drop zones */
+.dz{border:1.5px dashed var(--border-hi);border-radius:14px;padding:2.5rem 2rem;text-align:center;cursor:pointer;transition:background .15s,border-color .15s;user-select:none;background:rgba(0,0,0,0.2)}
+.dz:hover,.dz.drag{background:rgba(168,85,247,0.06);border-color:rgba(168,85,247,0.4)}
+.dz.done{border-color:rgba(34,197,94,0.4);background:rgba(34,197,94,0.04)}
+.dz svg{width:32px;height:32px;color:var(--muted);display:block;margin:0 auto 12px}
+.dz-title{font-size:14px;font-weight:600;color:var(--text)}
+.dz-hint{font-size:12px;color:var(--muted);margin-top:4px}
+.dz-ok{font-size:13px;font-weight:700;color:#22c55e;margin-top:4px}
+
+/* File list */
+.file-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.file-item{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.file-icon{font-size:16px}
+.file-name{flex:1;font-family:var(--mono);font-size:12px;color:rgba(200,180,255,0.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-size{font-size:10px;color:var(--muted);white-space:nowrap}
+.file-status{font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap}
+.fs-pending{background:rgba(168,85,247,0.1);color:rgba(168,85,247,0.7);border:1px solid rgba(168,85,247,0.2)}
+.fs-done{background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.2)}
+.fs-skip{background:rgba(100,100,100,0.1);color:#888;border:1px solid rgba(100,100,100,0.2)}
+.file-remove{background:none;border:none;color:rgba(255,100,100,0.4);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;border-radius:6px;transition:color .15s}
+.file-remove:hover{color:#ff5555;background:rgba(255,85,85,0.1)}
+.add-more{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--border-hi);border-radius:10px;padding:10px;cursor:pointer;color:var(--muted);font-size:12px;font-weight:600;transition:all .15s;margin-top:6px}
+.add-more:hover{border-color:rgba(168,85,247,0.3);color:var(--pp);background:var(--pp-dim)}
+
+/* Progress */
+.progress{height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin:10px 0;display:none;overflow:hidden}
+.progress.show{display:block}
+.prog-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--pp),var(--pk));border-radius:2px;transition:width .3s}
+.status-line{font-size:12px;color:var(--muted);font-family:var(--mono);min-height:18px;margin-bottom:10px}
+.status-line.ok{color:var(--success)}
+.status-line.err{color:var(--danger)}
+
+/* Results */
+.results{display:flex;flex-direction:column;gap:10px;margin-top:20px}
+.res-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;overflow:hidden;display:none}
+.res-card.show{display:flex;flex-direction:column}
+.res-hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
+.res-name{flex:1;font-family:var(--mono);font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-badge{font-size:10px;padding:2px 9px;border-radius:99px;font-family:'Inter',sans-serif;white-space:nowrap}
+.rb-changed{background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25)}
+.rb-unchanged{background:rgba(100,100,100,0.1);color:#888;border:1px solid rgba(100,100,100,0.2)}
+.res-dl{display:flex;align-items:center;gap:6px;font-size:11px;font-family:'Inter',sans-serif;padding:5px 12px;border-radius:8px;border:1px solid var(--border-hi);background:transparent;color:var(--text);cursor:pointer;transition:background .12s;font-weight:600}
+.res-dl:hover{background:var(--pp-dim);border-color:rgba(168,85,247,0.35);color:var(--pp)}
+.res-preview{padding:14px 16px;font-size:10px;color:rgba(200,180,255,0.4);font-family:var(--mono);overflow:auto;max-height:180px;line-height:1.7;background:rgba(0,0,0,0.3);white-space:pre}
+
+/* Bottom bar */
+.bottom-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
+.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(168,85,247,0.4)}
+.toast.show{opacity:1;transform:translateY(0) scale(1)}
+</style></head><body>
+<canvas id="bg"></canvas>
+<div class="page">
+
+<div class="hdr">
+  <div class="hdr-logo">⚡</div>
+  <div class="hdr-name">AC Auth <em>Backend</em></div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
+  <nav class="hdr-nav">
+    <a href="/" class="hnav-btn">Sessions</a>
+    <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/symbol-patcher" class="hnav-btn hnav-active">Symbol Patcher</a>
+  </nav>
+  <div class="hdr-r">
+    <div class="hdr-clock" id="clock"></div>
+    <form method="POST" action="/logout" style="display:inline">
+      <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
+    </form>
+  </div>
+</div>
+
+<div class="sp-wrap">
+  <div class="sp-title">Symbol Patcher</div>
+  <div class="sp-sub">Auto-replace old obfuscated symbols in your source files with new ones from an updated libil2cpp.so</div>
+  <div class="sp-by">BY AMBLOCK</div>
+
+  <div class="steps">
+
+    <!-- STEP 1: Old SymbolMap.json -->
+    <div class="step" id="step1">
+      <div class="step-hdr">
+        <div class="step-num" id="sn1">1</div>
+        <div class="step-label">Load Old SymbolMap.json</div>
+        <div class="step-hint">From the previous version (Symbol Getter output)</div>
+      </div>
+      <div class="step-body">
+        <div class="dz" id="dz-old" onclick="document.getElementById('fi-old').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+          </svg>
+          <div class="dz-title">Drop SymbolMap.json here</div>
+          <div class="dz-hint">or click to browse — output from Symbol Getter for old game version</div>
+          <div class="dz-ok" id="old-ok" style="display:none"></div>
+        </div>
+        <input type="file" id="fi-old" accept=".json" style="display:none">
+      </div>
+    </div>
+
+    <!-- STEP 2: New libil2cpp.so -->
+    <div class="step" id="step2">
+      <div class="step-hdr">
+        <div class="step-num" id="sn2">2</div>
+        <div class="step-label">Load New libil2cpp.so</div>
+        <div class="step-hint">From the updated game version</div>
+      </div>
+      <div class="step-body">
+        <div class="dz" id="dz-new" onclick="document.getElementById('fi-new').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div class="dz-title">Drop libil2cpp.so here</div>
+          <div class="dz-hint">or click to browse — parsed entirely in your browser</div>
+          <div class="dz-ok" id="new-ok" style="display:none"></div>
+        </div>
+        <input type="file" id="fi-new" accept=".so" style="display:none">
+        <div class="progress" id="prog-so"><div class="prog-bar" id="pb-so"></div></div>
+        <div class="status-line" id="st-so"></div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Source files -->
+    <div class="step" id="step3">
+      <div class="step-hdr">
+        <div class="step-num" id="sn3">3</div>
+        <div class="step-label">Add Source Files to Patch</div>
+        <div class="step-hint">Drop as many as you want — .ts, .js, .cpp, .hpp, .h, .cs, .txt …</div>
+      </div>
+      <div class="step-body">
+        <div class="dz" id="dz-src" onclick="document.getElementById('fi-src').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          <div class="dz-title">Drop source files here</div>
+          <div class="dz-hint">or click to browse — multiple files supported</div>
+        </div>
+        <input type="file" id="fi-src" multiple style="display:none">
+        <div class="file-list" id="file-list"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Patch button -->
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
+    <button class="abtn abtn-purple" id="patch-btn" onclick="runPatch()" style="font-size:13px;padding:11px 24px">
+      ⚡ Patch All Files
+    </button>
+    <div class="status-line" id="st-patch" style="margin:0"></div>
+  </div>
+
+  <!-- Results -->
+  <div class="results" id="results"></div>
+
+  <div class="bottom-bar" id="bottom-bar" style="display:none">
+    <button class="abtn abtn-green" onclick="downloadAll()">⬇ Download All Patched Files</button>
+    <span style="font-size:11px;color:var(--muted)" id="summary-line"></span>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── ELF PARSER (same as Symbol Getter) ────────────────────────────────────────
+const IL2CPP_API = [
+  "il2cpp_init","il2cpp_init_utf16","il2cpp_shutdown","il2cpp_set_config_dir",
+  "il2cpp_set_data_dir","il2cpp_set_temp_dir","il2cpp_set_commandline_arguments",
+  "il2cpp_set_commandline_arguments_utf16","il2cpp_set_config","il2cpp_class_from_il2cpp_type",
+  "il2cpp_array_new_specific","il2cpp_class_from_type","il2cpp_type_get_class_or_element_class",
+  "il2cpp_domain_get_assemblies","il2cpp_domain_assembly_open","il2cpp_image_get_name",
+  "il2cpp_image_get_entry_point","il2cpp_image_get_class_count","il2cpp_image_get_class",
+  "il2cpp_exception_from_name_msg","il2cpp_get_exception_argument_null","il2cpp_format_exception",
+  "il2cpp_format_stack_trace","il2cpp_unhandled_exception","il2cpp_field_get_flags",
+  "il2cpp_field_get_name","il2cpp_field_get_parent","il2cpp_field_get_type","il2cpp_field_get_value",
+  "il2cpp_field_get_value_object","il2cpp_field_has_attribute","il2cpp_field_set_value",
+  "il2cpp_field_static_get_value","il2cpp_field_static_set_value","il2cpp_field_get_offset",
+  "il2cpp_gc_collect","il2cpp_gc_collect_a_little","il2cpp_gc_disable","il2cpp_gc_enable",
+  "il2cpp_gc_is_disabled","il2cpp_gc_get_max_time_slice_ns","il2cpp_gc_set_max_time_slice_ns",
+  "il2cpp_gc_get_heap_size","il2cpp_gc_get_used_size","il2cpp_gc_wbarrier_set_field",
+  "il2cpp_gchandle_new","il2cpp_gchandle_new_weakref","il2cpp_gchandle_get_target",
+  "il2cpp_gchandle_free","il2cpp_gchandle_foreach_get_target","il2cpp_object_header_size",
+  "il2cpp_array_object_header_size","il2cpp_offset_of_array_length_in_array_object_header",
+  "il2cpp_offset_of_array_bounds_in_array_object_header","il2cpp_allocation_granularity",
+  "il2cpp_image_get_assembly","il2cpp_image_get_filename","il2cpp_last_error",
+  "il2cpp_method_get_param","il2cpp_method_get_class","il2cpp_method_has_attribute",
+  "il2cpp_method_get_flags","il2cpp_method_get_token","il2cpp_method_get_name",
+  "il2cpp_method_is_generic","il2cpp_method_is_inflated","il2cpp_method_get_param_count",
+  "il2cpp_method_get_generic_param_count","il2cpp_method_get_return_type",
+  "il2cpp_method_get_declaring_type","il2cpp_method_get_param_name",
+  "il2cpp_method_get_from_reflection","il2cpp_method_get_object","il2cpp_monitor_enter",
+  "il2cpp_monitor_try_enter","il2cpp_monitor_exit","il2cpp_monitor_pulse","il2cpp_monitor_pulse_all",
+  "il2cpp_monitor_wait","il2cpp_monitor_try_wait","il2cpp_object_new",
+  "il2cpp_object_get_virtual_method","il2cpp_object_get_class","il2cpp_object_get_size",
+  "il2cpp_object_unbox","il2cpp_value_box","il2cpp_object_destroy","il2cpp_object_new_specific",
+  "il2cpp_profiler_install","il2cpp_profiler_set_events","il2cpp_profiler_install_enter_leave",
+  "il2cpp_profiler_install_allocation","il2cpp_profiler_install_gc","il2cpp_profiler_install_fileio",
+  "il2cpp_profiler_install_thread","il2cpp_property_get_flags","il2cpp_property_get_get_method",
+  "il2cpp_property_get_set_method","il2cpp_property_get_name","il2cpp_property_get_parent",
+  "il2cpp_object_get_reflection_type","il2cpp_runtime_class_init","il2cpp_runtime_object_init",
+  "il2cpp_runtime_object_init_exception","il2cpp_runtime_invoke",
+  "il2cpp_runtime_invoke_convert_args","il2cpp_runtime_delegate_invoke",
+  "il2cpp_runtime_is_shutting_down","il2cpp_runtime_unhandled_exception_policy_set",
+  "il2cpp_string_length","il2cpp_string_chars","il2cpp_string_new","il2cpp_string_new_len",
+  "il2cpp_string_new_utf16","il2cpp_string_new_wrapper","il2cpp_string_intern",
+  "il2cpp_string_is_interned","il2cpp_thread_current","il2cpp_thread_attach","il2cpp_thread_detach",
+  "il2cpp_thread_get_all_attached_threads","il2cpp_is_vm_thread",
+  "il2cpp_current_thread_walk_frame_stack","il2cpp_thread_walk_frame_stack",
+  "il2cpp_current_thread_get_top_frame","il2cpp_thread_get_top_frame",
+  "il2cpp_current_thread_get_frame_at","il2cpp_thread_get_frame_at",
+  "il2cpp_current_thread_get_stack_depth","il2cpp_thread_get_stack_depth",
+  "il2cpp_override_stack_backtrace","il2cpp_type_get_object","il2cpp_type_get_type",
+  "il2cpp_type_get_name","il2cpp_type_get_assembly_qualified_name","il2cpp_type_is_byref",
+  "il2cpp_type_get_attrs","il2cpp_type_equals","il2cpp_type_get_name_chunked",
+  "il2cpp_array_new","il2cpp_array_new_full","il2cpp_bounded_array_class_get",
+  "il2cpp_array_element_size","il2cpp_array_length","il2cpp_array_get_byte_length",
+  "il2cpp_array_class_get","il2cpp_array_get","il2cpp_array_set",
+  "il2cpp_class_array_element_size","il2cpp_class_element_class","il2cpp_class_enum_basetype",
+  "il2cpp_class_is_generic","il2cpp_class_is_inflated","il2cpp_class_is_assignable_from",
+  "il2cpp_class_is_subclass_of","il2cpp_class_has_parent","il2cpp_class_from_name",
+  "il2cpp_class_from_system_type","il2cpp_class_get_element_class","il2cpp_class_get_events",
+  "il2cpp_class_get_fields","il2cpp_class_get_nested_types","il2cpp_class_get_interfaces",
+  "il2cpp_class_get_properties","il2cpp_class_get_property_from_name",
+  "il2cpp_class_get_field_from_name","il2cpp_class_get_methods","il2cpp_class_get_method_from_name",
+  "il2cpp_class_get_name","il2cpp_class_get_namespace","il2cpp_class_get_parent",
+  "il2cpp_class_get_declaring_type","il2cpp_class_instance_size","il2cpp_class_num_fields",
+  "il2cpp_class_is_valuetype","il2cpp_class_value_size","il2cpp_class_is_blittable",
+  "il2cpp_class_get_flags","il2cpp_class_is_abstract","il2cpp_class_is_interface",
+  "il2cpp_class_array_new","il2cpp_class_get_type","il2cpp_class_get_type_token",
+  "il2cpp_class_has_attribute","il2cpp_class_has_references","il2cpp_class_is_enum",
+  "il2cpp_class_is_null_class","il2cpp_class_get_image","il2cpp_class_get_assemblyname",
+  "il2cpp_class_get_rank","il2cpp_class_get_data_size","il2cpp_class_get_static_field_data",
+  "il2cpp_class_get_bitmap_size","il2cpp_class_get_bitmap","il2cpp_stats_dump_to_file",
+  "il2cpp_stats_get_value","il2cpp_domain_get","il2cpp_field_set_value_object",
+  "il2cpp_object_new_from_index","il2cpp_object_get_field_count","il2cpp_object_pool_get",
+  "il2cpp_object_pool_return","il2cpp_config_string_to_utf8",
+  "il2cpp_config_set_maximum_threads_alive","il2cpp_config_get_maximum_threads_alive",
+  "il2cpp_array_set_byte_length"
+];
+const SKIP_RE = /^(_Z|SystemNative|Java_|pthread|__cxa|__start|__stop|NLSocket|ZStream|Flush|Dll[CG]|Globalization|JNI_|ReadEvents|mono_pal|__dynamic|__gxx|UnityAds|CloseN|CreateN)/;
+
+function r32(b,o){return((b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0);}
+function r64(b,o){return r32(b,o+4)*0x100000000+r32(b,o);}
+function r16(b,o){return b[o]|(b[o+1]<<8);}
+function cstr(b,o){let s='';while(o<b.length&&b[o]!==0)s+=String.fromCharCode(b[o++]);return s;}
+
+function extractObfSymbols(buf) {
+  if(buf[0]!==0x7f||buf[1]!==0x45||buf[2]!==0x4c||buf[3]!==0x46)throw new Error('Not an ELF file');
+  const is64=buf[4]===2;
+  const entries=[];
+  if(is64){
+    const shoff=r64(buf,40),shentsz=r16(buf,58),shnum=r16(buf,60);
+    const secs=[];
+    for(let i=0;i<shnum;i++){const b=Number(shoff)+i*shentsz;secs.push({type:r32(buf,b+4),off:r64(buf,b+24),size:r64(buf,b+32),link:r32(buf,b+40),entsz:r64(buf,b+56)});}
+    for(const s of secs){
+      if(s.type!==11&&s.type!==2)continue;
+      const strsec=secs[s.link];const esz=Number(s.entsz)||24;const cnt=Math.floor(Number(s.size)/esz);
+      for(let j=0;j<cnt;j++){const b=Number(s.off)+j*esz;const nm=r32(buf,b);const info=buf[b+4];const shndx=r16(buf,b+6);const addr=r64(buf,b+8);const bind=info>>4;
+        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,Number(strsec.off)+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr:Number(addr)});}}
+    }
+  } else {
+    const shoff=r32(buf,32),shentsz=r16(buf,46),shnum=r16(buf,48);
+    const secs=[];
+    for(let i=0;i<shnum;i++){const b=shoff+i*shentsz;secs.push({type:r32(buf,b+4),off:r32(buf,b+16),size:r32(buf,b+20),link:r32(buf,b+24),entsz:r32(buf,b+36)});}
+    for(const s of secs){
+      if(s.type!==11&&s.type!==2)continue;
+      const strsec=secs[s.link];const esz=s.entsz||16;const cnt=Math.floor(s.size/esz);
+      for(let j=0;j<cnt;j++){const b=s.off+j*esz;const nm=r32(buf,b);const addr=r32(buf,b+4);const info=buf[b+12];const shndx=r16(buf,b+14);const bind=info>>4;
+        if(shndx!==0&&shndx!==0xfff1&&bind===1){const name=cstr(buf,strsec.off+nm);if(name&&!SKIP_RE.test(name)&&/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(name))entries.push({name,addr});}}
+    }
+  }
+  entries.sort((a,b)=>a.addr-b.addr);
+  return [...new Map(entries.map(e=>[e.name,e])).values()].sort((a,b)=>a.addr-b.addr).map(e=>e.name);
+}
+
+function buildMap(syms){const map={};const len=Math.min(syms.length,IL2CPP_API.length);for(let i=0;i<len;i++)map[IL2CPP_API[i]]=syms[i];return map;}
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let oldMap = null;   // { api_name -> old_obf_symbol }  from SymbolMap.json
+let newMap = null;   // { api_name -> new_obf_symbol }  from new .so
+let patchMap = null; // { old_obf_symbol -> new_obf_symbol }
+let sourceFiles = []; // [{name, text, patched, replaceCount}]
+let patchedBlobs = {};
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show';clearTimeout(t._h);t._h=setTimeout(()=>t.className='toast',2200);}
+function setStepDone(n){const el=document.getElementById('sn'+n);el.classList.add('done');el.textContent='✓';}
+function fmtSize(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB';}
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ── DRAG & DROP WIRING ────────────────────────────────────────────────────────
+function wireDz(dzId, handler){
+  const dz=document.getElementById(dzId);
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');handler(e.dataTransfer.files);});
+}
+wireDz('dz-old', files=>loadOldMap(files[0]));
+wireDz('dz-new', files=>loadNewSo(files[0]));
+wireDz('dz-src', files=>addSourceFiles(files));
+document.getElementById('fi-old').addEventListener('change',e=>loadOldMap(e.target.files[0]));
+document.getElementById('fi-new').addEventListener('change',e=>loadNewSo(e.target.files[0]));
+document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.target.files));
+
+// ── STEP 1: Load old SymbolMap.json ──────────────────────────────────────────
+async function loadOldMap(file){
+  if(!file)return;
+  if(!file.name.endsWith('.json')){toast('Need a .json file');return;}
+  try{
+    const text=await file.text();
+    const raw=JSON.parse(text);
+    // Accept both plain {api_name: obf} and with __header key
+    oldMap={};
+    for(const[k,v]of Object.entries(raw)){
+      if(k==='__header')continue;
+      if(typeof v==='string')oldMap[k]=v;
+    }
+    const cnt=Object.keys(oldMap).length;
+    document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+file.name;
+    document.getElementById('old-ok').style.display='';
+    document.getElementById('dz-old').classList.add('done');
+    setStepDone(1);
+    toast('Old map loaded: '+cnt+' symbols');
+    tryBuildPatchMap();
+  }catch(e){toast('JSON parse error: '+e.message);}
+}
+
+// ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
+async function loadNewSo(file){
+  if(!file)return;
+  if(!file.name.endsWith('.so')){toast('Need a .so file');return;}
+  const progEl=document.getElementById('prog-so');
+  const pbEl=document.getElementById('pb-so');
+  const stEl=document.getElementById('st-so');
+  stEl.className='status-line';
+  stEl.textContent='Reading file...';
+  progEl.className='progress show'; pbEl.style.width='10%';
+  const buf=new Uint8Array(await file.arrayBuffer());
+  pbEl.style.width='45%'; stEl.textContent='Parsing ELF...';
+  let syms;
+  try{syms=extractObfSymbols(buf);}catch(e){stEl.textContent='ELF error: '+e.message;stEl.className='status-line err';return;}
+  pbEl.style.width='90%';
+  newMap=buildMap(syms);
+  const cnt=Object.keys(newMap).length;
+  pbEl.style.width='100%';
+  stEl.textContent='✓ Parsed '+cnt+' symbols from '+file.name;
+  stEl.className='status-line ok';
+  document.getElementById('new-ok').textContent='✓ '+cnt+' symbols mapped';
+  document.getElementById('new-ok').style.display='';
+  document.getElementById('dz-new').classList.add('done');
+  setStepDone(2);
+  toast('New .so loaded: '+cnt+' symbols');
+  setTimeout(()=>{progEl.className='progress';},700);
+  tryBuildPatchMap();
+}
+
+// Build old_obf -> new_obf translation table
+function tryBuildPatchMap(){
+  if(!oldMap||!newMap)return;
+  patchMap={};
+  let hits=0;
+  for(const api of Object.keys(oldMap)){
+    const oldSym=oldMap[api];
+    const newSym=newMap[api];
+    if(oldSym&&newSym&&oldSym!==newSym){
+      patchMap[oldSym]=newSym;
+      hits++;
+    }
+  }
+  document.getElementById('st-patch').textContent=hits+' symbols will be remapped';
+  document.getElementById('st-patch').className='status-line ok';
+}
+
+// ── STEP 3: Source files ──────────────────────────────────────────────────────
+async function addSourceFiles(fileList){
+  for(const file of fileList){
+    if(sourceFiles.find(f=>f.name===file.name)){toast(file.name+' already added');continue;}
+    const text=await file.text();
+    sourceFiles.push({name:file.name,text,patched:null,replaceCount:0,size:file.size});
+  }
+  if(sourceFiles.length>0)setStepDone(3);
+  renderFileList();
+}
+
+function removeFile(name){
+  sourceFiles=sourceFiles.filter(f=>f.name!==name);
+  delete patchedBlobs[name];
+  renderFileList();
+  renderResults();
+}
+
+function renderFileList(){
+  const list=document.getElementById('file-list');
+  if(!sourceFiles.length){list.innerHTML='';return;}
+  list.innerHTML=sourceFiles.map(f=>\`
+    <div class="file-item">
+      <span class="file-icon">📄</span>
+      <span class="file-name">\${escHtml(f.name)}</span>
+      <span class="file-size">\${fmtSize(f.size)}</span>
+      <span class="file-status \${f.patched!==null?(f.replaceCount>0?'fs-done':'fs-skip'):'fs-pending'}">\${f.patched!==null?(f.replaceCount>0?f.replaceCount+' replaced':'No changes'):'Pending'}</span>
+      <button class="file-remove" onclick="removeFile('\${f.name.replace(/'/g,"\\\\'")}')" title="Remove">✕</button>
+    </div>
+  \`).join('')+\`<div class="add-more" onclick="document.getElementById('fi-src').click()">＋ Add more files</div>\`;
+}
+
+// ── PATCH ─────────────────────────────────────────────────────────────────────
+function runPatch(){
+  const stEl=document.getElementById('st-patch');
+  if(!oldMap){stEl.textContent='⚠ Load old SymbolMap.json first';stEl.className='status-line err';return;}
+  if(!newMap){stEl.textContent='⚠ Load new libil2cpp.so first';stEl.className='status-line err';return;}
+  if(!sourceFiles.length){stEl.textContent='⚠ Add at least one source file';stEl.className='status-line err';return;}
+  if(!patchMap){tryBuildPatchMap();}
+
+  // Sort old symbols by length descending to avoid partial replacements
+  const sortedOld=Object.keys(patchMap).sort((a,b)=>b.length-a.length);
+  let totalReplaced=0;
+  let filesChanged=0;
+
+  for(const f of sourceFiles){
+    let content=f.text;
+    let count=0;
+    for(const oldSym of sortedOld){
+      const newSym=patchMap[oldSym];
+      // Replace all occurrences — use split/join for safety with special regex chars
+      const before=content;
+      // Escape special regex chars in symbol name
+      const re=new RegExp(oldSym,'g');
+      content=content.replace(re,()=>{count++;return newSym;});
+    }
+    f.patched=content;
+    f.replaceCount=count;
+    if(count>0){filesChanged++;totalReplaced+=count;}
+    patchedBlobs[f.name]=new Blob([content],{type:'text/plain'});
+  }
+
+  renderFileList();
+  renderResults();
+  stEl.textContent=\`✓ Done — \${totalReplaced} replacements across \${filesChanged}/\${sourceFiles.length} files\`;
+  stEl.className='status-line ok';
+
+  const bar=document.getElementById('bottom-bar');
+  const sum=document.getElementById('summary-line');
+  if(filesChanged>0){
+    bar.style.display='flex';
+    sum.textContent=\`\${totalReplaced} symbols updated in \${filesChanged} file\${filesChanged!==1?'s':''}\`;
+  }
+  toast(\`Patched \${filesChanged} file\${filesChanged!==1?'s':''}!\`);
+}
+
+function renderResults(){
+  const res=document.getElementById('results');
+  res.innerHTML=sourceFiles.filter(f=>f.patched!==null).map(f=>\`
+    <div class="res-card show">
+      <div class="res-hdr">
+        <span class="res-name">📄 \${escHtml(f.name)}</span>
+        <span class="res-badge \${f.replaceCount>0?'rb-changed':'rb-unchanged'}">\${f.replaceCount>0?f.replaceCount+' symbols updated':'No changes'}</span>
+        \${f.replaceCount>0?\`<button class="res-dl" onclick="dlFile('\${f.name.replace(/'/g,"\\\\'")}')">\${dlIcon()} Download</button>\`:''}
+      </div>
+      <pre class="res-preview">\${escHtml((f.patched||'').slice(0,2000)+(f.patched&&f.patched.length>2000?'\\n...':''))}</pre>
+    </div>
+  \`).join('');
+}
+
+function dlIcon(){return\`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>\`;}
+
+function dlFile(name){
+  const blob=patchedBlobs[name];if(!blob)return;
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  toast('Downloaded: '+name);
+}
+
+async function downloadAll(){
+  const changed=sourceFiles.filter(f=>f.patched!==null&&f.replaceCount>0);
+  if(!changed.length){toast('No changed files to download');return;}
+  // Download individually if no JSZip available — stagger them
+  for(let i=0;i<changed.length;i++){
+    setTimeout(()=>dlFile(changed[i].name),i*300);
+  }
+  toast('Downloading '+changed.length+' file'+(changed.length!==1?'s':'')+'...');
+}
+
+(function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
+</script>
+${BG_SCRIPT}
+</body></html>`);
 });
-const server = app.listen(PORT,()=>console.log(`Server running on port ${PORT}`));
-server.on('error',(e)=>{if(e.code==='EADDRINUSE'){console.log(`Port ${PORT} in use, retrying...`);setTimeout(()=>server.listen(PORT),1000);}else{throw e;}});
-app.all("*splat",(req,res)=>{
+
+app.all("*",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
   res.status(200).json({});
 });
