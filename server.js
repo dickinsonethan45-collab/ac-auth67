@@ -1311,39 +1311,11 @@ function wireDz(dzId, handler){
 }
 wireDz('dz-old', files=>addSourceFiles(files));
 wireDz('dz-new', files=>loadNewSo(files[0]));
-wireDz('dz-src', files=>addSourceFiles(files));
 document.getElementById('fi-old').addEventListener('change',e=>addSourceFiles(e.target.files));
 document.getElementById('fi-new').addEventListener('change',e=>loadNewSo(e.target.files[0]));
-document.getElementById('fi-src').addEventListener('change',e=>addSourceFiles(e.target.files));
 
 // ── STEP 1: Load source file with old symbols ───────────────────────────────
-async function loadOldMap(file){
-  if(!file)return;
-  if(!file.name.match(/\.(ts|js)$/)){toast('Need a .ts or .js file');return;}
-  try{
-    const text=await file.text();
-    sourceFiles=[{name:file.name,text,patched:null,replaceCount:0,size:file.size}];
-    
-    // Extract old symbols from: api_name: () => Il2Cpp.module.findExportByName("SYMBOL")
-    oldMap={};
-    const fridaRegex=/(\w+):\s*\(\)\s*=>\s*Il2Cpp\.module\.findExportByName\("([^"]+)"\)/g;
-    let match;
-    while((match=fridaRegex.exec(text))!==null){
-      oldMap[match[1]]=match[2];
-    }
-    
-    const cnt=Object.keys(oldMap).length;
-    if(cnt===0){toast('No symbols found in file');return;}
-    document.getElementById('old-ok').textContent='✓ Loaded '+cnt+' symbols from '+file.name;
-    document.getElementById('old-ok').style.display='';
-    document.getElementById('dz-old').classList.add('done');
-    setStepDone(1);
-    toast('Source file loaded: '+cnt+' symbols');
-    tryBuildPatchMap();
-  }catch(e){toast('Parse error: '+e.message);}
-}
-
-// ── STEP 2: Load new libil2cpp.so ────────────────────────────────────────────
+// ── STEP 2: Load new Frida-Map.js ───────────────────────────────────────────
 async function loadNewSo(file){
   if(!file)return;
   if(!file.name.endsWith('.js')){toast('Need a .js file (Frida-Map)');return;}
