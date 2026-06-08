@@ -482,7 +482,6 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
   <nav class="hdr-nav">
     <a href="/" class="hnav-btn hnav-active">Sessions</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
-    <a href="/patcher" class="hnav-btn">Update Symbols</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -993,153 +992,73 @@ app.get("/patcher", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Symbol Patcher</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: #00000f;
-      font-family: 'JetBrains Mono', -apple-system, sans-serif;
-      color: #e8e0ff;
-      padding: 0;
-      min-height: 100vh;
-    }
-    .page { position: relative; z-index: 1; max-width: 1020px; margin: 0 auto; padding-bottom: 80px; }
-    .hdr {
-      display: flex; align-items: center; gap: 14px; padding: 18px 28px;
-      border-bottom: 1px solid rgba(255,255,255,0.07); background: rgba(0,0,10,0.55);
-      backdrop-filter: blur(20px); position: sticky; top: 0; z-index: 100;
-    }
-    .hdr-logo { width: 38px; height: 38px; background: linear-gradient(135deg,#a855f7,#ec4899,#f97316);
-      border-radius: 12px; display: flex; align-items: center; justify-content: center;
-      font-size: 20px; box-shadow: 0 0 24px rgba(168,85,247,0.5); flex-shrink: 0; }
-    .hdr-name { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: -0.5px; }
-    .hdr-name em { font-style: normal; background: linear-gradient(90deg,#a855f7,#ec4899);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .made-by { display: flex; align-items: center; gap: 7px;
-      background: linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.1));
-      border: 1px solid rgba(168,85,247,0.35); border-radius: 100px;
-      padding: 5px 14px 5px 10px; }
-    .made-by-dot { width: 6px; height: 6px; border-radius: 50%;
-      background: linear-gradient(135deg,#a855f7,#ec4899); flex-shrink: 0; }
-    .made-by-text { font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
-      background: linear-gradient(90deg,#c084fc,#f472b6,#fb923c);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap; }
-    .hdr-nav { display: flex; gap: 4px; background: rgba(0,0,0,0.3);
-      border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 4px; }
-    .hnav-btn { font-size: 11px; font-weight: 700; padding: 6px 14px; border-radius: 8px;
-      color: rgba(200,180,255,0.35); text-decoration: none; transition: all 0.15s; letter-spacing: 0.2px; }
-    .hnav-btn:hover { color: #e8e0ff; background: rgba(255,255,255,0.06); }
-    .hnav-active { background: linear-gradient(135deg,#a855f7,#ec4899) !important;
-      color: #fff !important; box-shadow: 0 2px 12px rgba(168,85,247,0.4); }
-    .hdr-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-    .hdr-clock { font-size: 12px; color: rgba(200,180,255,0.35); font-family: 'JetBrains Mono';
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 8px; padding: 6px 12px; }
-    .abtn { border: none; padding: 9px 16px; cursor: pointer; font-weight: 700; font-size: 12px;
-      border-radius: 10px; transition: all 0.15s; letter-spacing: 0.2px; }
-    .abtn-ghost { background: rgba(255,255,255,0.04); color: #a855f7;
-      border: 1px solid rgba(168,85,247,0.25); }
-    .abtn-ghost:hover { background: rgba(168,85,247,0.12); }
-    .wrap { padding: 32px 28px; }
-    .title { font-size: 26px; font-weight: 900; color: #fff; letter-spacing: -0.5px; margin-bottom: 6px; }
-    .sub { font-size: 13px; color: rgba(200,180,255,0.35); margin-bottom: 28px; }
-    .section { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-    .label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
-      color: rgba(200,180,255,0.35); margin-bottom: 14px; }
-    .dz { border: 2px dashed rgba(255,255,255,0.14); border-radius: 12px; padding: 28px;
-      text-align: center; cursor: pointer; transition: all 0.15s; background: rgba(255,255,255,0.04); }
-    .dz:hover, .dz.active { border-color: #a855f7; background: rgba(168,85,247,0.12); }
-    .dz-text { font-size: 14px; font-weight: 600; color: #e8e0ff; margin: 4px 0; }
-    .dz-hint { font-size: 12px; color: rgba(200,180,255,0.35); margin-top: 4px; }
-    input[type=file] { display: none; }
-    .status { margin-top: 8px; padding: 8px 12px; border-radius: 6px; font-size: 12px;
-      display: none; font-family: 'JetBrains Mono'; }
-    .status.show { display: block; }
-    .status.ok { background: rgba(80,250,123,0.1); color: #50fa7b; border: 1px solid rgba(80,250,123,0.3); }
-    .status.err { background: rgba(255,85,85,0.1); color: #ff5555; border: 1px solid rgba(255,85,85,0.3); }
-    button { width: 100%; background: linear-gradient(135deg,#a855f7,#ec4899);
-      color: #fff; border: none; padding: 12px; font-size: 12px; font-weight: 700;
-      cursor: pointer; border-radius: 8px; transition: all 0.15s; margin-top: 14px; }
-    button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(168,85,247,0.4); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    #result { margin-top: 14px; }
-    .download { display: block; background: #50fa7b; color: #000; padding: 12px;
-      text-align: center; font-weight: 700; font-size: 12px; border-radius: 8px;
-      text-decoration: none; cursor: pointer; }
-    .download:hover { filter: brightness(0.9); }
-    .toast { position: fixed; bottom: 28px; right: 28px; background: linear-gradient(135deg,#a855f7,#ec4899);
-      color: #fff; padding: 10px 20px; border-radius: 12px; font-size: 12px; font-weight: 700;
-      z-index: 999; opacity: 0; transform: translateY(10px); transition: all 0.25s; pointer-events: none;
-      box-shadow: 0 8px 32px rgba(168,85,247,0.4); }
-    .toast.show { opacity: 1; transform: translateY(0); }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<title>Symbol Patcher</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;color:#00ff88;font-family:'Courier New',monospace;font-size:13px;min-height:100vh;padding:20px}
+.header{color:#00ff88;font-size:20px;font-weight:500;margin-bottom:16px;border-left:3px solid #00ff88;padding-left:10px}
+.section{background:#111;border:1px solid #1a3a1a;border-left:3px solid #00ff88;padding:14px;margin-bottom:16px}
+.label{color:#00cc66;font-size:12px;margin-bottom:12px;text-transform:uppercase}
+.dz{border:2px dashed #00cc66;padding:20px;text-align:center;cursor:pointer;background:rgba(0,255,136,0.05);border-radius:4px;margin-bottom:8px}
+.dz:hover{border-color:#00ff88;background:rgba(0,255,136,0.1)}
+.dz-text{color:#00ff88;margin:8px 0;font-size:14px}
+.dz-hint{color:#00cc66;font-size:11px}
+.status{margin-top:8px;padding:8px;font-size:11px;border-radius:2px;display:none}
+.status.show{display:block}
+.status.ok{background:rgba(0,255,136,0.1);color:#86efac;border:1px solid #00cc66}
+.status.err{background:rgba(255,100,100,0.1);color:#ff6b6b;border:1px solid #ff3333}
+button{width:100%;background:#00ff88;color:#000;border:none;padding:10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:12px;border-radius:2px}
+button:hover:not(:disabled){background:#00cc66}
+button:disabled{opacity:0.5}
+input[type=file]{display:none}
+.download{display:block;background:#00ff88;color:#000;padding:10px;text-align:center;font-weight:700;font-size:12px;border-radius:2px;text-decoration:none;margin-top:12px}
+.toast{position:fixed;bottom:20px;right:20px;background:#00ff88;color:#000;padding:10px 16px;font-family:'Courier New',monospace;font-size:12px;font-weight:700;display:none}
+nav{display:flex;gap:12px;margin-bottom:20px}
+nav a{color:#00ff88;text-decoration:none;font-weight:700}
+nav a:hover{color:#00cc66}
+nav a.active{color:#ffaa00}
+</style>
 </head>
 <body>
-<div class="page">
-<div class="hdr">
-  <div class="hdr-logo">⚡</div>
-  <div class="hdr-name">AC Auth <em>Backend</em></div>
-  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
-  <nav class="hdr-nav">
-    <a href="/" class="hnav-btn">Sessions</a>
-    <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
-    <a href="/patcher" class="hnav-btn">Update Symbols</a>
-    <a href="/patcher" class="hnav-btn hnav-active">Update Symbols</a>
-  </nav>
-  <div class="hdr-r">
-    <div class="hdr-clock" id="clock"></div>
-    <form method="POST" action="/logout" style="display:inline">
-      <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
-    </form>
+<nav>
+  <a href="/">Sessions</a>
+  <a href="/symbol-getter">Symbol Getter</a>
+  <a href="/patcher" class="active">Update Symbols</a>
+  <a href="/logout" style="margin-left:auto">Sign Out</a>
+</nav>
+<div class="header">Update Symbols</div>
+<div class="section">
+  <div class="label">1. Frida-Map.js (new symbols)</div>
+  <div class="dz" id="dz1" onclick="document.getElementById('f1').click()">
+    <div class="dz-text">Drop Frida-Map.js</div>
+    <div class="dz-hint">or click to browse</div>
   </div>
+  <div id="s1" class="status"></div>
+  <input type="file" id="f1" accept=".js">
 </div>
-
-<div class="wrap">
-  <div class="title">Update Symbols</div>
-  <div class="sub">Patch old symbols with new Frida-Map</div>
-
-  <div class="section">
-    <div class="label">1. Frida-Map.js (new symbols)</div>
-    <div class="dz" id="dz1" onclick="document.getElementById('f1').click()">
-      <div style="font-size:24px;margin:0 0 8px">📄</div>
-      <div class="dz-text">Drop Frida-Map.js</div>
-      <div class="dz-hint">or click to browse</div>
-    </div>
-    <div id="s1" class="status"></div>
-    <input type="file" id="f1" accept=".js">
+<div class="section">
+  <div class="label">2. Source file (old symbols)</div>
+  <div class="dz" id="dz2" onclick="document.getElementById('f2').click()">
+    <div class="dz-text">Drop your file</div>
+    <div class="dz-hint">.ts, .js, .cpp, .h, .cs</div>
   </div>
-
-  <div class="section">
-    <div class="label">2. Source file (old symbols)</div>
-    <div class="dz" id="dz2" onclick="document.getElementById('f2').click()">
-      <div style="font-size:24px;margin:0 0 8px">📄</div>
-      <div class="dz-text">Drop your file</div>
-      <div class="dz-hint">.ts, .js, .cpp, .h, .cs</div>
-    </div>
-    <div id="s2" class="status"></div>
-    <input type="file" id="f2">
-  </div>
-
-  <button id="btn" disabled>Update Symbols</button>
-  <div id="result"></div>
+  <div id="s2" class="status"></div>
+  <input type="file" id="f2">
 </div>
-</div>
-
+<button id="btn" disabled>Update Symbols</button>
+<div id="result"></div>
 <div class="toast" id="toast"></div>
-
 <script>
-const toast = (msg) => {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2500);
+const toast = msg => {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.style.display = 'none', 2500);
 };
-
 let fridaMap = null, sourceFile = null, sourceText = null;
-
 const setupDz = (dzId, inputId) => {
   const dz = document.getElementById(dzId), inp = document.getElementById(inputId);
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('active'); });
@@ -1155,24 +1074,22 @@ const setupDz = (dzId, inputId) => {
 };
 setupDz('dz1', 'f1');
 setupDz('dz2', 'f2');
-
-const handleFrida = async (file) => {
+const handleFrida = async file => {
   if (!file) return;
   try {
-    const text = await file.text();
-    const map = {};
-    for (const line of text.split('\n')) {
-      if (!line.includes('findExportByName')) continue;
+    const text = await file.text(), map = {};
+    text.split(/\n/).forEach(line => {
+      if (!line.includes('findExportByName')) return;
       const colonIdx = line.indexOf(':');
-      if (colonIdx === -1) continue;
+      if (colonIdx === -1) return;
       const api = line.substring(0, colonIdx).trim();
-      if (!/^\w+$/.test(api)) continue;
+      if (!/^\\w+$/.test(api)) return;
       const m = line.match(/"([^"]+)"/);
       if (m) map[api] = m[1];
-    }
+    });
     if (Object.keys(map).length === 0) {
       document.getElementById('s1').className = 'status err show';
-      document.getElementById('s1').textContent = 'No symbols found';
+      document.getElementById('s1').textContent = 'No symbols';
     } else {
       fridaMap = map;
       document.getElementById('s1').className = 'status ok show';
@@ -1185,77 +1102,60 @@ const handleFrida = async (file) => {
     document.getElementById('s1').textContent = 'Error: ' + e.message;
   }
 };
-
-const handleSource = async (file) => {
+const handleSource = async file => {
   if (!file) return;
   try {
     sourceFile = file;
     sourceText = await file.text();
     document.getElementById('s2').className = 'status ok show';
     document.getElementById('s2').textContent = '✓ ' + file.name;
-    toast('Source ready');
+    toast('Ready');
     checkReady();
   } catch (e) {
     document.getElementById('s2').className = 'status err show';
     document.getElementById('s2').textContent = 'Error: ' + e.message;
   }
 };
-
 const checkReady = () => {
   document.getElementById('btn').disabled = !(fridaMap && sourceFile && sourceText);
 };
-
 document.getElementById('btn').addEventListener('click', () => {
   if (!fridaMap || !sourceFile || !sourceText) return;
-
   const oldMap = {};
-  for (const line of sourceText.split('\n')) {
-    if (!line.includes('findExportByName')) continue;
+  sourceText.split(/\n/).forEach(line => {
+    if (!line.includes('findExportByName')) return;
     const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
+    if (colonIdx === -1) return;
     const api = line.substring(0, colonIdx).trim();
-    if (!/^\w+$/.test(api)) continue;
+    if (!/^\\w+$/.test(api)) return;
     const m = line.match(/"([^"]+)"/);
     if (m && !oldMap[api]) oldMap[api] = m[1];
-  }
-
+  });
   const patchMap = {};
   for (const api in oldMap) {
     const oldSym = oldMap[api], newSym = fridaMap[api];
     if (oldSym && newSym && oldSym !== newSym) patchMap[oldSym] = newSym;
   }
-
-  if (Object.keys(patchMap).length === 0) {
-    toast('No symbols to update');
-    return;
-  }
-
+  if (Object.keys(patchMap).length === 0) { toast('No symbols'); return; }
   let patched = sourceText;
-  for (const [oldSym, newSym] of Object.entries(patchMap))
-    patched = patched.replace(new RegExp(oldSym, 'g'), newSym);
-
+  Object.entries(patchMap).forEach(([old, nu]) => {
+    patched = patched.split(old).join(nu);
+  });
   const blob = new Blob([patched], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = sourceFile.name;
   link.className = 'download';
-  link.textContent = '⬇ Download ' + sourceFile.name + ' (' + Object.keys(patchMap).length + ' updated)';
-
+  link.textContent = 'Download ' + sourceFile.name;
   document.getElementById('result').innerHTML = '';
   document.getElementById('result').appendChild(link);
-  toast('✓ Done');
+  toast('Done');
 });
-
-(function tick() {
-  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
-  setTimeout(tick, 1000);
-})();
 </script>
 </body>
 </html>`);
 });
-
 
 app.all("*",(req,res)=>{
   console.log(`[Unhandled] ${req.method} ${req.path}`);
