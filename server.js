@@ -656,6 +656,16 @@ app.get("/v2/account",async(req,res)=>{
   try{const u=await fetch(`${NAKAMA_SERVER}/v2/account`,{headers:{"Authorization":`Bearer ${s.token}`,"User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)","x-unity-version":"6000.3.12f1"}});res.json(await u.json());}
   catch(e){console.log(`[/v2/account] Error: ${e.message}`);res.status(500).json({});}
 });
+app.post("/v2/account",async(req,res)=>{
+  const authHeader = req.headers.authorization || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  let s = bearerToken ? Object.values(sessions).find(s=>s.token===bearerToken) : null;
+  if(!s) s = Object.values(sessions).find(s=>!isExpired(s.token));
+  if(!s)return res.status(401).json({error:"No valid session"});
+  console.log(`[POST /v2/account] Serving account for ${s.name||s.id}`);
+  try{const u=await fetch(`${NAKAMA_SERVER}/v2/account`,{headers:{"Authorization":`Bearer ${s.token}`,"User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)","x-unity-version":"6000.3.12f1"}});res.json(await u.json());}
+  catch(e){console.log(`[POST /v2/account] Error: ${e.message}`);res.status(500).json({});}
+});
 app.post("/update-tokens",(req,res)=>{
   const{token,refresh_token,id}=req.body;
   if(!token||!refresh_token)return res.status(400).json({error:"token and refresh_token required"});
