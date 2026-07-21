@@ -55,25 +55,26 @@ const DISCORD_CHANNEL_ID = "1529062858967482510";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
-async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl }) {
+const GAME_MODE_COLOR = { 0: 0x3D9FDB, 1: 0xE85D5D, 2: 0x8B1E1E, 3: 0xC084FC };
+
+async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
   const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
+  const color = GAME_MODE_COLOR[gameMode] ?? 0x7FD6FF;
   const embed = {
-    author: { name: "Animal Company Player Tracker", icon_url: "https://i.imgur.com/4M34hi2.png" },
-    title: `${name} joined a room`,
-    description: "A tracked player has entered a new session.",
-    color: 0x5865F2,
+    author: { name: "AMBLOCK · Player Tracker", icon_url: "https://i.imgur.com/4M34hi2.png" },
+    title: `❄️ ${name} joined a room`,
+    color,
     thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
     fields: [
-      { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
-      { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
-      { name: "👁️ Appearing", value: appearingOffline ? "🟣 Hidden" : "🟢 Online", inline: true },
-      { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
-      { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
-      { name: "🤖 Detected By", value: "AMB", inline: true }
+      { name: "Room Code", value: `\`\`\`${roomCode}\`\`\``, inline: false },
+      { name: `${gmEmoji} Mode`, value: gm, inline: true },
+      { name: "Status", value: appearingOffline ? "🟣 Hidden" : "🟢 Online", inline: true },
+      { name: "Client", value: clientVersion || "Unknown", inline: true },
+      { name: "User ID", value: `\`${uid}\``, inline: false },
     ],
-    footer: { text: "Animal Company Player Tracker • AMB" },
+    footer: { text: `Tracked via ${detectedBy || "Amblock"}` },
     timestamp: new Date().toISOString()
   };
   try {
@@ -286,7 +287,7 @@ async function warmRoomCache() {
             sendRoomJoinWebhook({
               name, uid: p.user_id, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
               appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
-              avatarUrl: u && u.avatar_url
+              avatarUrl: u && u.avatar_url, detectedBy: s.name || s.id
             }).catch(() => {});
           }
         }
@@ -1062,7 +1063,7 @@ app.get("/session/:id/friends",async(req,res)=>{
           pendingWebhooks.push({
             name, uid, roomCode:liveRoomCode, gameMode:pres.gameMode,
             appearingOffline, clientVersion:pres.clientVersion,
-            avatarUrl:f.user&&f.user.avatar_url
+            avatarUrl:f.user&&f.user.avatar_url, detectedBy:s.name||s.id
           });
         }
       }
