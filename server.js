@@ -55,7 +55,7 @@ const DISCORD_CHANNEL_ID = "1529062858967482510";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
-const EMBED_COLOR = 0x3D9FDB; // fixed blue accent
+const EMBED_COLOR = 0xF1C40F; // fixed yellow accent
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
@@ -64,21 +64,16 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const color = EMBED_COLOR;
   const initials = (name || "??").slice(0, 2).toUpperCase();
   const fallbackAvatar = `https://placehold.co/128x128/0b1522/7fd6ff?text=${encodeURIComponent(initials)}&font=roboto`;
+  const statusLine = appearingOffline ? "🟣 Hidden" : "🟢 Online";
   const embed = {
     author: { name: "❄️ AMB PLAYER TRACKER" },
-    title: `${name} joined a room`,
-    description: "A tracked player has entered a new session.",
+    description:
+      `**${name}** just entered \`${roomCode}\`\n` +
+      `${gmEmoji} ${gm}  ·  ${statusLine}  ·  📱 ${clientVersion || "Unknown"}\n\n` +
+      `🆔 \`${uid}\``,
     color,
     thumbnail: { url: avatarUrl || fallbackAvatar },
-    fields: [
-      { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
-      { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
-      { name: "👁️ Appearing", value: appearingOffline ? "🟣 Hidden" : "🟢 Online", inline: true },
-      { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
-      { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
-      { name: "🤖 Detected By", value: detectedBy || "Amblock", inline: true }
-    ],
-    footer: { text: "Amblock Player Tracker" },
+    footer: { text: `Spotted by ${detectedBy || "Amblock"}` },
     timestamp: new Date().toISOString()
   };
   try {
