@@ -1,9 +1,18 @@
 const express = require("express");
 const fs = require("fs");
 const crypto = require("crypto");
+const path = require("path");
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
 const LOGIN_USER = "Lunar3HP";
 const LOGIN_PASS = "MrBlock12344";
@@ -22,6 +31,7 @@ app.use((req, res, next) => {
 function requireLogin(req, res, next) {
   if (req.path.startsWith("/v2/") || req.path === "/update-tokens" || req.path === "/try-refresh") return next();
   if (req.path === "/login" || req.path === "/do-login") return next();
+  if (req.path === "/session/create" || req.path === "/refresh-all" || req.path === "/clean-duplicates") return next();
   const token = req.cookies?.auth;
   if (token && authSessions.has(token)) return next();
   res.redirect("/login");
@@ -209,6 +219,11 @@ const BG_SCRIPT = `
   draw();
 })();
 <\/script>`;
+
+// ── AMBLOCK PAGE ──────────────────────────────────────────────────────────────
+app.get("/amblock", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
 
 // ── LOGIN ──────────────────────────────────────────────────────────────────────
 app.get("/login", (req, res) => {
@@ -590,7 +605,9 @@ app.post("/session/create",(req,res)=>{
   const id=crypto.randomBytes(8).toString("hex");
   const{name,token,refresh_token}=req.body;
   sessions[id]={id,name:name||id,token:token?.trim()||"",refresh_token:refresh_token?.trim()||"",connections:0};
-  saveSessions();res.redirect("/");
+  saveSessions();
+  if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true,id});
+  res.redirect("/");
 });
 app.post("/session/:id/update",(req,res)=>{
   const s=sessions[req.params.id];
@@ -615,6 +632,7 @@ app.post("/session/:id/delete",(req,res)=>{
 });
 app.post("/refresh-all",async(req,res)=>{
   for(const s of Object.values(sessions))await tryRefresh(s);
+  if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true});
   res.redirect("/");
 });
 app.post("/clean-duplicates",(req,res)=>{
@@ -628,6 +646,16 @@ app.post("/clean-duplicates",(req,res)=>{
 });
 
 // ── API ────────────────────────────────────────────────────────────────────────
+app.get("/v2/account/authenticate/custom/:client",(req,res)=>{
+  const clientId = req.params.client;
+  let s = sessions[clientId];
+  if(!s) s = Object.values(sessions).find(sess=>{
+    try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
+  });
+  if(!s) s = Object.values(sessions)[0];
+  if(s){console.log(`[Auth:GET] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
+  res.json({token:"",refresh_token:"",created:false});
+});
 app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
   const clientId = req.params.client;
   // First try direct key match
