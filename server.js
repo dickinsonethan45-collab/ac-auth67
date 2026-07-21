@@ -44,6 +44,15 @@ const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "6URuTSlDKKfYbuDW";
 const SESSIONS_FILE = "./sessions.json";
+const ROOMCACHE_FILE = "./roomcache.json";
+let roomCache = {}; // userId -> { roomCode, gameMode, lastSeenOnline, name }
+
+function saveRoomCache() {
+  try { fs.writeFileSync(ROOMCACHE_FILE, JSON.stringify(roomCache, null, 2), "utf8"); } catch (e) { console.log(`[RoomCache] Save failed: ${e.message}`); }
+}
+function loadRoomCache() {
+  try { const raw = fs.readFileSync(ROOMCACHE_FILE, "utf8"); roomCache = JSON.parse(raw); console.log(`[RoomCache] Loaded ${Object.keys(roomCache).length} entr(y/ies).`); } catch { console.log("[RoomCache] No roomcache.json, starting fresh."); }
+}
 let sessions = {};
 
 function saveSessions() {
@@ -176,6 +185,7 @@ function fetchPresences(token, userIds) {
 
 (async () => {
   loadSessions();
+  loadRoomCache();
   for (const s of Object.values(sessions)) {
     if (s.refresh_token && isExpired(s.token)) await tryRefresh(s);
   }
@@ -589,7 +599,12 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .fpresence{display:flex;align-items:center;gap:6px;flex:none;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:100px}
 .fpresence-on{color:#4ade80;background:rgba(74,222,128,0.1)}
 .fpresence-off{color:#9ca3af;background:rgba(156,163,175,0.08)}
-.froom{font-size:9px;color:var(--muted);font-family:var(--mono);white-space:nowrap;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:100px;padding:2px 8px;flex:none}
+.froom{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;font-family:var(--mono);white-space:nowrap;border-radius:9px;padding:5px 11px;flex:none;letter-spacing:.3px}
+.froom-live{color:#c084fc;background:rgba(192,132,252,0.14);border:1px solid rgba(192,132,252,0.35);box-shadow:0 0 10px rgba(192,132,252,0.15)}
+.froom-stale{color:#9ca3af;background:rgba(156,163,175,0.08);border:1px solid var(--border)}
+.froom-code{font-size:12px;letter-spacing:.5px}
+.froom-tag{font-size:8px;letter-spacing:1px;text-transform:uppercase;opacity:.75}
+.fnoroom{font-size:10px;color:var(--muted);font-family:var(--mono);flex:none;opacity:.5}
 .fnote{font-size:10px;color:var(--muted);font-family:var(--mono);text-align:center;padding:6px 0 10px}
 .fstate{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
 .fs-friend{color:#4ade80;background:rgba(74,222,128,0.12)}
@@ -683,6 +698,15 @@ function toggleCreate(){
   const p=document.getElementById('create-panel');
   p.style.display=p.style.display==='block'?'none':'block';
 }
+function timeAgo(ms){
+  const s=Math.floor(ms/1000);
+  if(s<60)return s+'s';
+  const m=Math.floor(s/60);
+  if(m<60)return m+'m';
+  const h=Math.floor(m/60);
+  if(h<24)return h+'h';
+  return Math.floor(h/24)+'d';
+}
 const FSTATE_LBL={0:'Friend',1:'Outgoing',2:'Incoming',3:'Blocked'};
 const FSTATE_CLS={0:'fs-friend',1:'fs-out',2:'fs-in',3:'fs-blocked'};
 async function trackFriends(id,force){
@@ -716,7 +740,17 @@ async function trackFriends(id,force){
       const lbl=FSTATE_LBL[f.state]||'Unknown';
       const cls=FSTATE_CLS[f.state]||'fs-friend';
       const dot='<span class="fpresence '+(f.online?'fpresence-on':'fpresence-off')+'"><span class="fdot '+(f.online?'fdot-on':'fdot-off')+'"></span>'+(f.online?'Online':'Offline')+'</span>';
-      const room=(f.online&&f.roomCode)?'<span class="froom">🎮 '+f.roomCode+'</span>':'';
+      let room='';
+      if(f.roomCode){
+        if(f.roomIsLive){
+          room='<span class="froom froom-live" title="Currently in this room">🎮 <span class="froom-code">'+f.roomCode+'</span></span>';
+        }else{
+          const ago=f.roomLastSeen?timeAgo(Date.now()-f.roomLastSeen):'';
+          room='<span class="froom froom-stale" title="Last known room code, not confirmed live">🕓 <span class="froom-code">'+f.roomCode+'</span><span class="froom-tag">'+(ago?('· '+ago+' ago'):'last known')+'</span></span>';
+        }
+      } else {
+        room='<span class="fnoroom">no code</span>';
+      }
       return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+room+'<span class="fstate '+cls+'">'+lbl+'</span></div>';
     }).join('');
   }catch(e){
@@ -899,18 +933,37 @@ app.get("/session/:id/friends",async(req,res)=>{
       console.log(`[Presence:${s.name||s.id}] ${presenceResult.error}`);
     }
 
+    let cacheDirty=false;
     const enriched=friends.map(f=>{
       const uid=f.user&&f.user.id;
       const pres=uid?presenceMap[uid]:null;
       const restOnline=!!(f.user&&f.user.online);
       const wsOnline=!!pres&&!pres.appearOffline;
+      const online=restOnline||wsOnline;
+      const name=(f.user&&(f.user.display_name||f.user.username))||uid;
+
+      // Fresh room code from this lookup (only available while actually online & not appearing offline)
+      const liveRoomCode=(pres&&!pres.appearOffline)?(pres.roomCode||null):null;
+
+      if(uid&&liveRoomCode){
+        roomCache[uid]={roomCode:liveRoomCode,gameMode:pres.gameMode,lastSeenOnline:Date.now(),name};
+        cacheDirty=true;
+      }
+
+      const cached=uid?roomCache[uid]:null;
+      const roomCode=liveRoomCode||(cached?cached.roomCode:null);
+      const roomIsLive=!!liveRoomCode;
+
       return{
         ...f,
-        online:restOnline||wsOnline,
-        roomCode:(pres&&!pres.appearOffline)?pres.roomCode:null,
-        gameMode:pres?pres.gameMode:null
+        online,
+        roomCode,
+        roomIsLive,
+        roomLastSeen:(!roomIsLive&&cached)?cached.lastSeenOnline:null,
+        gameMode:pres?pres.gameMode:(cached?cached.gameMode:null)
       };
     });
+    if(cacheDirty)saveRoomCache();
 
     res.json({friends:enriched,presenceError:presenceResult.error||null});
   }catch(e){
