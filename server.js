@@ -104,9 +104,17 @@ function fetchPresences(token, userIds) {
   return new Promise((resolve) => {
     if (!WebSocket) return resolve({ error: "ws_not_installed" });
     if (!userIds.length) return resolve({ presences: [] });
+
+    const BATCH_SIZE = 25;
+    const batches = [];
+    for (let i = 0; i < userIds.length; i += BATCH_SIZE) batches.push(userIds.slice(i, i + BATCH_SIZE));
+
     let settled = false;
     let sock;
     let gotOpen = false;
+    let batchIdx = 0;
+    const allPresences = [];
+
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -114,7 +122,19 @@ function fetchPresences(token, userIds) {
       try { sock && sock.close(); } catch (_) {}
       resolve(result);
     };
-    const timer = setTimeout(() => finish({ error: "timeout" }), 6000);
+    const timer = setTimeout(() => finish({ error: "timeout", presences: allPresences }), 12000);
+
+    function sendNextBatch() {
+      if (batchIdx >= batches.length) {
+        return finish({ presences: allPresences });
+      }
+      try {
+        sock.send(JSON.stringify({ cid: String(batchIdx + 1), status_follow: { user_ids: batches[batchIdx] } }));
+      } catch (e) {
+        finish({ error: e.message, presences: allPresences });
+      }
+    }
+
     try {
       sock = new WebSocket(nakamaWsUrl(token));
     } catch (e) {
@@ -130,25 +150,26 @@ function fetchPresences(token, userIds) {
     });
     sock.on("open", () => {
       gotOpen = true;
-      try { sock.send(JSON.stringify({ cid: "1", status_follow: { user_ids: userIds } })); }
-      catch (e) { finish({ error: e.message }); }
+      sendNextBatch();
     });
     sock.on("message", (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
-        if (msg.cid === "1") {
-          if (msg.status) finish({ presences: msg.status.presences || [] });
-          else finish({ error: "no_status_in_response: " + raw.toString().slice(0,150) });
+        const expectedCid = String(batchIdx + 1);
+        if (msg.cid === expectedCid) {
+          if (msg.status && msg.status.presences) allPresences.push(...msg.status.presences);
+          batchIdx++;
+          sendNextBatch();
         }
       } catch (_) {}
     });
     sock.on("error", (e) => {
       console.log(`[Presence] WS error: ${e.message}`);
-      finish({ error: e.message || "ws_error" });
+      finish({ error: e.message || "ws_error", presences: allPresences });
     });
     sock.on("close", (code, reason) => {
-      console.log(`[Presence] WS closed (gotOpen=${gotOpen}) code=${code} reason=${reason ? reason.toString().slice(0,150) : ""}`);
-      finish({ error: `closed_early_code_${code}${reason && reason.length ? "_" + reason.toString().slice(0,80) : ""}` });
+      console.log(`[Presence] WS closed (gotOpen=${gotOpen}, batch=${batchIdx}/${batches.length}) code=${code} reason=${reason ? reason.toString().slice(0,150) : ""}`);
+      finish({ error: `closed_early_code_${code}${reason && reason.length ? "_" + reason.toString().slice(0,80) : ""}`, presences: allPresences });
     });
   });
 }
