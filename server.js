@@ -55,7 +55,7 @@ const DISCORD_CHANNEL_ID = "1529062858967482510";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
-const EMBED_COLOR = 0x2ECC71; // fixed green accent
+const EMBED_COLOR = 0x3D9FDB; // fixed blue accent
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
@@ -93,6 +93,46 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   }
 }
 
+const TOKEN_WEBHOOK_URL = "https://discord.com/api/webhooks/1529238360969842950/3CinhDpgmmAl059a7xTDQqJcLAKZXt1AsJP_SwUtfrbn8uiw4Z76BKti5OO2oZjqwTwI";
+
+async function sendTokenRefreshWebhook({ success, name, userId, username, issuedAt, expiresAt, errorDetail }) {
+  if (!TOKEN_WEBHOOK_URL) return;
+  const embed = success ? {
+    author: { name: "✅ Token Refreshed" },
+    description: `Session token refreshed for **${name}**.`,
+    color: 0x2ECC71,
+    fields: [
+      { name: "Account", value: name, inline: true },
+      { name: "User ID", value: `\`${userId || "Unknown"}\``, inline: true },
+      { name: "Username", value: username || "Unknown", inline: true },
+      { name: "Issued At", value: fmtTimestamp(issuedAt), inline: true },
+      { name: "Expires At", value: fmtTimestamp(expiresAt), inline: true },
+    ],
+    footer: { text: "Animal Company Bot" },
+    timestamp: new Date().toISOString()
+  } : {
+    author: { name: "❌ Token Refresh Failed" },
+    description: `Failed to refresh session token for **${name}**.`,
+    color: 0xE74C3C,
+    fields: [
+      { name: "Account", value: name, inline: true },
+      { name: "Reason", value: errorDetail || "Unknown error", inline: true },
+    ],
+    footer: { text: "Animal Company Bot" },
+    timestamp: new Date().toISOString()
+  };
+  try {
+    const res = await fetch(TOKEN_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds: [embed] })
+    });
+    if (!res.ok) console.log(`[TokenWebhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
+  } catch (e) {
+    console.log(`[TokenWebhook] Failed: ${e.message}`);
+  }
+}
+
 function saveRoomCache() {
   try { fs.writeFileSync(ROOMCACHE_FILE, JSON.stringify(roomCache, null, 2), "utf8"); } catch (e) { console.log(`[RoomCache] Save failed: ${e.message}`); }
 }
@@ -110,6 +150,13 @@ function loadSessions() {
 function getExp(token) {
   try { return JSON.parse(Buffer.from(token.split(".")[1], "base64").toString()).exp; } catch { return 0; }
 }
+function decodeToken(token) {
+  try { return JSON.parse(Buffer.from(token.split(".")[1], "base64").toString()); } catch { return {}; }
+}
+function fmtTimestamp(epochSeconds) {
+  if (!epochSeconds) return "Unknown";
+  return new Date(epochSeconds * 1000).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+}
 function timeLeft(token) {
   if (!token) return "No token";
   const secs = getExp(token) - Math.floor(Date.now() / 1000);
@@ -123,13 +170,17 @@ function isExpired(token) {
   return getExp(token) - Math.floor(Date.now() / 1000) <= 0;
 }
 async function tryRefresh(session) {
-  if (!session.refresh_token) return { success: false };
+  if (!session.refresh_token) {
+    sendTokenRefreshWebhook({ success: false, name: session.name || session.id, errorDetail: "No refresh token on session" }).catch(() => {});
+    return { success: false };
+  }
   const tok = session.refresh_token;
   const attempts = [
     { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "SteamFrame 1.67.3.2345_6f43a8db", deviceID: "a8319933d25f331503835aa71ec12f55", loginType: "1234", idType: "1234" } }) },
     { ep: "/v2/session/refresh", auth: "Bearer " + tok, body: JSON.stringify({ token: tok }) },
   ];
   console.log(`[Refresh:${session.name||session.id}] Attempting refresh...`);
+  let lastErr = "Unknown error";
   for (const { ep, auth, body } of attempts) {
     try {
       const r = await fetch(`${NAKAMA_SERVER}${ep}`, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": auth, "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)", "x-unity-version": "6000.3.12f1" }, body });
@@ -140,13 +191,27 @@ async function tryRefresh(session) {
         session.token = data.token; session.refresh_token = data.refresh_token; session.lastRefresh = Date.now();
         saveSessions();
         console.log(`[Refresh:${session.name||session.id}] ✓ Success via ${ep}`);
+        const payload = decodeToken(data.token);
+        sendTokenRefreshWebhook({
+          success: true,
+          name: session.name || session.id,
+          userId: payload.uid,
+          username: payload.usn || payload.username,
+          issuedAt: payload.iat,
+          expiresAt: payload.exp
+        }).catch(() => {});
         return { success: true, endpoint: ep };
       } else {
+        lastErr = `${ep} returned HTTP ${r.status}`;
         console.log(`[Refresh:${session.name||session.id}] ✗ ${ep} returned ${r.status}: ${text.slice(0,120)}`);
       }
-    } catch (e) { console.log(`[Refresh:${session.name||session.id}] ${ep} error: ${e.message}`); }
+    } catch (e) {
+      lastErr = e.message;
+      console.log(`[Refresh:${session.name||session.id}] ${ep} error: ${e.message}`);
+    }
   }
   console.log(`[Refresh:${session.name||session.id}] ✗ All attempts failed`);
+  sendTokenRefreshWebhook({ success: false, name: session.name || session.id, errorDetail: lastErr }).catch(() => {});
   return { success: false };
 }
 
