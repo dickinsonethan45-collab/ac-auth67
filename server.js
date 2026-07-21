@@ -55,13 +55,13 @@ const DISCORD_CHANNEL_ID = "1529062858967482510";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
-const GAME_MODE_COLOR = { 0: 0xC084FC, 1: 0xE85D5D, 2: 0x8B1E1E, 3: 0xFFB020 };
+const EMBED_COLOR = 0x2ECC71; // fixed green accent
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
   const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
-  const color = GAME_MODE_COLOR[gameMode] ?? 0xC084FC;
+  const color = EMBED_COLOR;
   const initials = (name || "??").slice(0, 2).toUpperCase();
   const fallbackAvatar = `https://placehold.co/128x128/0b1522/7fd6ff?text=${encodeURIComponent(initials)}&font=roboto`;
   const embed = {
