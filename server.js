@@ -16,7 +16,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const LOGIN_USER = "Lunar3HP";
+const LOGIN_USER = "Amblock";
 const LOGIN_PASS = "MrBlock12344";
 const authSessions = new Set();
 
@@ -508,7 +508,7 @@ h1 span{background:linear-gradient(90deg,#a855f7,#ec4899);-webkit-background-cli
 <div class="center"><div class="box">
   <div class="icon">⚡</div>
   <h1>AC Auth <span>Backend</span></h1>
-  <div class="sub">by Lunar3HP</div>
+  <div class="sub">Created By Amblock</div>
   ${req.query.err ? '<div class="err">Wrong credentials. Try again.</div>' : ''}
   <form method="POST" action="/do-login">
     <div class="field"><input name="username" placeholder="Username" autocomplete="off" required></div>
@@ -788,7 +788,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 <div class="hdr">
   <div class="hdr-logo">⚡</div>
   <div class="hdr-name">AC Auth <em>Backend</em></div>
-  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Created By Amblock</div></div>
   <nav class="hdr-nav">
     <a href="/" class="hnav-btn hnav-active">Sessions</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
@@ -1246,7 +1246,7 @@ pre{padding:18px;font-size:11px;color:rgba(200,180,255,0.5);font-family:var(--mo
 <div class="hdr">
   <div class="hdr-logo">⚡</div>
   <div class="hdr-name">AC Auth <em>Backend</em></div>
-  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Made by Lunar3HP</div></div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Created By Amblock</div></div>
   <nav class="hdr-nav">
     <a href="/" class="hnav-btn">Sessions</a>
     <a href="/symbol-getter" class="hnav-btn hnav-active">Symbol Getter</a>
