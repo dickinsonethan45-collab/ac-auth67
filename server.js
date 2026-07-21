@@ -549,6 +549,9 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .fdot{width:8px;height:8px;border-radius:50%;flex:none}
 .fdot-on{background:#4ade80;box-shadow:0 0 6px #4ade80}
 .fdot-off{background:#52525b}
+.fpresence{display:flex;align-items:center;gap:6px;flex:none;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:100px}
+.fpresence-on{color:#4ade80;background:rgba(74,222,128,0.1)}
+.fpresence-off{color:#9ca3af;background:rgba(156,163,175,0.08)}
 .froom{font-size:9px;color:var(--muted);font-family:var(--mono);white-space:nowrap;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:100px;padding:2px 8px;flex:none}
 .fnote{font-size:10px;color:var(--muted);font-family:var(--mono);text-align:center;padding:6px 0 10px}
 .fstate{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
@@ -669,7 +672,7 @@ async function trackFriends(id,force){
       const name=(u.display_name||u.username||u.id||'unknown').replace(/</g,'&lt;');
       const lbl=FSTATE_LBL[f.state]||'Unknown';
       const cls=FSTATE_CLS[f.state]||'fs-friend';
-      const dot='<span class="fdot '+(f.online?'fdot-on':'fdot-off')+'" title="'+(f.online?'Online':'Offline')+'"></span>';
+      const dot='<span class="fpresence '+(f.online?'fpresence-on':'fpresence-off')+'"><span class="fdot '+(f.online?'fdot-on':'fdot-off')+'"></span>'+(f.online?'Online':'Offline')+'</span>';
       const room=(f.online&&f.roomCode)?'<span class="froom">🎮 '+f.roomCode+'</span>':'';
       return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+room+'<span class="fstate '+cls+'">'+lbl+'</span></div>';
     }).join('');
