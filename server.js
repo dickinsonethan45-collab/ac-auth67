@@ -62,19 +62,20 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
   const color = GAME_MODE_COLOR[gameMode] ?? 0x7FD6FF;
+  const initials = (name || "??").slice(0, 2).toUpperCase();
+  const fallbackAvatar = `https://placehold.co/128x128/0b1522/7fd6ff?text=${encodeURIComponent(initials)}&font=roboto`;
   const embed = {
-    author: { name: "AMBLOCK · Player Tracker", icon_url: "https://i.imgur.com/4M34hi2.png" },
-    title: `❄️ ${name} joined a room`,
+    author: { name: "AMBLOCK PLAYER TRACKER" },
+    title: `❄️  ${name} entered a room`,
+    description: `**ROOM CODE**\n# \`${roomCode}\``,
     color,
-    thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
+    thumbnail: { url: avatarUrl || fallbackAvatar },
     fields: [
-      { name: "Room Code", value: `\`\`\`${roomCode}\`\`\``, inline: false },
       { name: `${gmEmoji} Mode`, value: gm, inline: true },
-      { name: "Status", value: appearingOffline ? "🟣 Hidden" : "🟢 Online", inline: true },
-      { name: "Client", value: clientVersion || "Unknown", inline: true },
-      { name: "User ID", value: `\`${uid}\``, inline: false },
+      { name: appearingOffline ? "🟣 Status" : "🟢 Status", value: appearingOffline ? "Hidden" : "Online", inline: true },
+      { name: "📱 Client", value: clientVersion || "Unknown", inline: true },
     ],
-    footer: { text: `Tracked via ${detectedBy || "Amblock"}` },
+    footer: { text: `${uid}  ·  via ${detectedBy || "Amblock"}` },
     timestamp: new Date().toISOString()
   };
   try {
