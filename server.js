@@ -43,8 +43,11 @@ app.use(requireLogin);
 const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "6URuTSlDKKfYbuDW";
-const SESSIONS_FILE = "./sessions.json";
-const ROOMCACHE_FILE = "./roomcache.json";
+const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || ".";
+if (process.env.RAILWAY_VOLUME_MOUNT_PATH) console.log(`[Storage] Using persistent volume at ${DATA_DIR}`);
+else console.log(`[Storage] No RAILWAY_VOLUME_MOUNT_PATH set — data will NOT survive redeploys. Attach a volume in Railway settings to fix this.`);
+const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
+const ROOMCACHE_FILE = path.join(DATA_DIR, "roomcache.json");
 let roomCache = {}; // userId -> { roomCode, gameMode, lastSeenOnline, name }
 
 function saveRoomCache() {
@@ -205,6 +208,51 @@ setInterval(async () => {
     refreshing = false;
   }
 }, 30 * 1000);
+
+// Keep the room-code cache warm in the background so codes are captured even
+// when nobody has the dashboard open, and survive across dashboard visits.
+let warmingCache = false;
+async function warmRoomCache() {
+  if (warmingCache || !WebSocket) return;
+  const usableSessions = Object.values(sessions).filter(s => s.token);
+  if (!usableSessions.length) return;
+  warmingCache = true;
+  try {
+    for (const s of usableSessions) {
+      try {
+        const friends = await fetchAllFriends(s.token);
+        const userIds = friends.map(f => f.user && f.user.id).filter(Boolean);
+        if (!userIds.length) continue;
+        const presenceResult = await fetchPresences(s.token, userIds);
+        if (!presenceResult.presences || !presenceResult.presences.length) continue;
+        let dirty = false;
+        const byId = {};
+        friends.forEach(f => { if (f.user && f.user.id) byId[f.user.id] = f.user; });
+        for (const p of presenceResult.presences) {
+          let parsed = {};
+          try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
+          if (parsed.appearOffline || !parsed.roomCode) continue;
+          const u = byId[p.user_id];
+          roomCache[p.user_id] = {
+            roomCode: parsed.roomCode,
+            gameMode: parsed.gameMode,
+            lastSeenOnline: Date.now(),
+            name: (u && (u.display_name || u.username)) || p.user_id
+          };
+          dirty = true;
+        }
+        if (dirty) saveRoomCache();
+      } catch (e) {
+        console.log(`[RoomCache:warm] ${s.name || s.id} failed: ${e.message}`);
+      }
+    }
+  } finally {
+    warmingCache = false;
+  }
+}
+setInterval(warmRoomCache, 90 * 1000);
+// Kick off an initial warm pass shortly after boot (after sessions/tokens are loaded/refreshed).
+setTimeout(warmRoomCache, 15 * 1000);
 
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 
