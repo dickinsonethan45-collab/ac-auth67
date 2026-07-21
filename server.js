@@ -311,6 +311,7 @@ app.get("/", (req, res) => {
       <div class="card-btns">
         <button class="cbtn" onclick="copy('${s.id}','ID copied')">ID</button>
         <button class="cbtn" onclick="copy('${connUrl}','URL copied')">URL</button>
+        <button class="cbtn" onclick="trackFriends('${s.id}')">👥 Friends</button>
       </div>
     </div>
 
@@ -359,6 +360,15 @@ app.get("/", (req, res) => {
           <button type="submit" class="abtn abtn-red">✕</button>
         </form>
       </div>
+    </div>
+
+    <div class="fpanel" id="fpanel-${s.id}">
+      <div class="fpanel-hdr">
+        <span class="ftitle">Player Tracker · Friends</span>
+        <span class="fcount" id="fcount-${s.id}"></span>
+        <button class="cbtn" onclick="trackFriends('${s.id}',true)">⟳</button>
+      </div>
+      <div class="flist" id="flist-${s.id}"></div>
     </div>
   </div>
 </div>`;
@@ -483,6 +493,23 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .rinput{background:rgba(255,255,255,0.04);color:#fff;border:1px solid var(--border);padding:8px 12px;border-radius:9px;font-family:'Inter',sans-serif;font-size:11px;outline:none;width:120px;transition:border-color .2s}
 .rinput:focus{border-color:rgba(168,85,247,.35)}
 
+/* Friends / Player Tracker panel */
+.fpanel{display:none;margin-top:12px;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:12px;padding:13px}
+.fpanel.show{display:block}
+.fpanel-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ftitle{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--pp)}
+.fcount{margin-left:auto;font-size:10px;color:var(--muted);font-family:var(--mono)}
+.flist{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto}
+.frow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:11.5px}
+.fname{color:var(--text);font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fstate{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
+.fs-friend{color:#4ade80;background:rgba(74,222,128,0.12)}
+.fs-out{color:#fbbf24;background:rgba(251,191,36,0.12)}
+.fs-in{color:#7dd3fc;background:rgba(125,211,252,0.12)}
+.fs-blocked{color:#f87171;background:rgba(248,113,113,0.12)}
+.fempty,.floading{color:var(--muted);font-size:11px;text-align:center;padding:16px;font-family:var(--mono)}
+.ferr{color:#f87171;font-size:11px;text-align:center;padding:10px;font-family:var(--mono)}
+
 /* Toast */
 .toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(168,85,247,0.4)}
 .toast.show{opacity:1;transform:translateY(0) scale(1)}
@@ -566,6 +593,35 @@ function filterCards(q){
 function toggleCreate(){
   const p=document.getElementById('create-panel');
   p.style.display=p.style.display==='block'?'none':'block';
+}
+const FSTATE_LBL={0:'Friend',1:'Outgoing',2:'Incoming',3:'Blocked'};
+const FSTATE_CLS={0:'fs-friend',1:'fs-out',2:'fs-in',3:'fs-blocked'};
+async function trackFriends(id,force){
+  const panel=document.getElementById('fpanel-'+id);
+  if(!panel)return;
+  if(panel.classList.contains('show')&&!force){panel.classList.remove('show');return;}
+  panel.classList.add('show');
+  const list=document.getElementById('flist-'+id);
+  const count=document.getElementById('fcount-'+id);
+  list.innerHTML='<div class="floading">loading friends…</div>';
+  try{
+    const r=await fetch('/session/'+id+'/friends');
+    if(r.status===401){list.innerHTML='<div class="ferr">Unauthorized — refresh this session\\'s token and try again.</div>';return;}
+    if(!r.ok){list.innerHTML='<div class="ferr">Request failed ('+r.status+').</div>';return;}
+    const data=await r.json();
+    const friends=data.friends||[];
+    count.textContent=friends.length+' friend'+(friends.length===1?'':'s');
+    if(!friends.length){list.innerHTML='<div class="fempty">No friends on this account.</div>';return;}
+    list.innerHTML=friends.map(f=>{
+      const u=f.user||{};
+      const name=(u.display_name||u.username||u.id||'unknown').replace(/</g,'&lt;');
+      const lbl=FSTATE_LBL[f.state]||'Unknown';
+      const cls=FSTATE_CLS[f.state]||'fs-friend';
+      return '<div class="frow" title="'+(u.id||'')+'"><span class="fname">'+name+'</span><span class="fstate '+cls+'">'+lbl+'</span></div>';
+    }).join('');
+  }catch(e){
+    list.innerHTML='<div class="ferr">Network error fetching friends.</div>';
+  }
 }
 function fmt(s){
   if(s<=0)return'EXPIRED';
@@ -693,6 +749,30 @@ app.post("/v2/account",async(req,res)=>{
   console.log(`[POST /v2/account] Serving account for ${s.name||s.id}`);
   try{const u=await fetch(`${NAKAMA_SERVER}/v2/account`,{headers:{"Authorization":`Bearer ${s.token}`,"User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)","x-unity-version":"6000.3.12f1"}});res.json(await u.json());}
   catch(e){console.log(`[POST /v2/account] Error: ${e.message}`);res.status(500).json({});}
+});
+app.get("/session/:id/friends",async(req,res)=>{
+  const s=sessions[req.params.id];
+  if(!s)return res.status(404).json({error:"Not found"});
+  if(!s.token)return res.status(400).json({error:"No token on session"});
+  try{
+    const limit=req.query.limit||100;
+    const u=await fetch(`${NAKAMA_SERVER}/v2/friend?limit=${limit}`,{
+      headers:{
+        "Authorization":`Bearer ${s.token}`,
+        "User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
+        "x-unity-version":"6000.3.12f1"
+      }
+    });
+    const text=await u.text();
+    if(!u.ok){
+      console.log(`[Friends:${s.name||s.id}] Nakama returned ${u.status}: ${text.slice(0,150)}`);
+      return res.status(u.status).json({error:"Nakama error",status:u.status});
+    }
+    res.json(JSON.parse(text));
+  }catch(e){
+    console.log(`[Friends:${s.name||s.id}] Error: ${e.message}`);
+    res.status(500).json({error:e.message});
+  }
 });
 app.post("/update-tokens",(req,res)=>{
   const{token,refresh_token,id}=req.body;
