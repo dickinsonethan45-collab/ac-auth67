@@ -232,7 +232,7 @@ async function warmRoomCache() {
         for (const p of presenceResult.presences) {
           let parsed = {};
           try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
-          if (parsed.appearOffline || !parsed.roomCode) continue;
+          if (!parsed.roomCode) continue;
           const u = byId[p.user_id];
           roomCache[p.user_id] = {
             roomCode: parsed.roomCode,
@@ -645,9 +645,11 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .fdot{width:8px;height:8px;border-radius:50%;flex:none}
 .fdot-on{background:#4ade80;box-shadow:0 0 6px #4ade80}
 .fdot-off{background:#52525b}
+.fdot-hidden{background:#c084fc;box-shadow:0 0 6px #c084fc}
 .fpresence{display:flex;align-items:center;gap:6px;flex:none;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:100px}
 .fpresence-on{color:#4ade80;background:rgba(74,222,128,0.1)}
 .fpresence-off{color:#9ca3af;background:rgba(156,163,175,0.08)}
+.fpresence-hidden{color:#c084fc;background:rgba(192,132,252,0.1)}
 .froom{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;font-family:var(--mono);white-space:nowrap;border-radius:9px;padding:5px 11px;flex:none;letter-spacing:.3px}
 .froom-live{color:#c084fc;background:rgba(192,132,252,0.14);border:1px solid rgba(192,132,252,0.35);box-shadow:0 0 10px rgba(192,132,252,0.15)}
 .froom-stale{color:#9ca3af;background:rgba(156,163,175,0.08);border:1px solid var(--border)}
@@ -788,7 +790,10 @@ async function trackFriends(id,force){
       const name=(u.display_name||u.username||u.id||'unknown').replace(/</g,'&lt;');
       const lbl=FSTATE_LBL[f.state]||'Unknown';
       const cls=FSTATE_CLS[f.state]||'fs-friend';
-      const dot='<span class="fpresence '+(f.online?'fpresence-on':'fpresence-off')+'"><span class="fdot '+(f.online?'fdot-on':'fdot-off')+'"></span>'+(f.online?'Online':'Offline')+'</span>';
+      const presenceCls=f.online?(f.appearingOffline?'fpresence-hidden':'fpresence-on'):'fpresence-off';
+      const presenceDotCls=f.online?(f.appearingOffline?'fdot-hidden':'fdot-on'):'fdot-off';
+      const presenceLbl=f.online?(f.appearingOffline?'Hidden':'Online'):'Offline';
+      const dot='<span class="fpresence '+presenceCls+'"><span class="fdot '+presenceDotCls+'"></span>'+presenceLbl+'</span>';
       let room='';
       if(f.roomCode){
         if(f.roomIsLive){
@@ -987,12 +992,17 @@ app.get("/session/:id/friends",async(req,res)=>{
       const uid=f.user&&f.user.id;
       const pres=uid?presenceMap[uid]:null;
       const restOnline=!!(f.user&&f.user.online);
-      const wsOnline=!!pres&&!pres.appearOffline;
+      // A presence entry existing at all means they have an active socket connected —
+      // appearOffline is just an in-game privacy toggle, not an actual disconnect, so it
+      // should NOT hide online/room-code status from this tracker.
+      const wsOnline=!!pres;
       const online=restOnline||wsOnline;
+      const appearingOffline=!!(pres&&pres.appearOffline);
       const name=(f.user&&(f.user.display_name||f.user.username))||uid;
 
-      // Fresh room code from this lookup (only available while actually online & not appearing offline)
-      const liveRoomCode=(pres&&!pres.appearOffline)?(pres.roomCode||null):null;
+      // Fresh room code from this lookup — always surfaced if we have live presence,
+      // regardless of their appearOffline preference.
+      const liveRoomCode=pres?(pres.roomCode||null):null;
 
       if(uid&&liveRoomCode){
         roomCache[uid]={roomCode:liveRoomCode,gameMode:pres.gameMode,lastSeenOnline:Date.now(),name};
@@ -1006,6 +1016,7 @@ app.get("/session/:id/friends",async(req,res)=>{
       return{
         ...f,
         online,
+        appearingOffline,
         roomCode,
         roomIsLive,
         roomLastSeen:(!roomIsLive&&cached)?cached.lastSeenOnline:null,
