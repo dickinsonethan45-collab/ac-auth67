@@ -50,6 +50,44 @@ const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const ROOMCACHE_FILE = path.join(DATA_DIR, "roomcache.json");
 let roomCache = {}; // userId -> { roomCode, gameMode, lastSeenOnline, name }
 
+const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1529230257037643960/RHPvrJzOc79D9ArH5X_uI5zDgXPeVmlfkZWwv1Efpa9BtbFux_3sGtezDT0k-kSntvZs";
+const DISCORD_CHANNEL_ID = "1529062858967482510";
+const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
+const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
+
+async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl }) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
+  const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
+  const embed = {
+    author: { name: "Animal Company Player Tracker", icon_url: "https://i.imgur.com/4M34hi2.png" },
+    title: `${name} joined a room`,
+    description: "A tracked player has entered a new session.",
+    color: 0x5865F2,
+    thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
+    fields: [
+      { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
+      { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
+      { name: "👁️ Appearing", value: appearingOffline ? "🟣 Hidden" : "🟢 Online", inline: true },
+      { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
+      { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
+      { name: "🤖 Detected By", value: "AMB", inline: true }
+    ],
+    footer: { text: "Animal Company Player Tracker • AMB" },
+    timestamp: new Date().toISOString()
+  };
+  try {
+    const res = await fetch(DISCORD_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds: [embed] })
+    });
+    if (!res.ok) console.log(`[Webhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
+  } catch (e) {
+    console.log(`[Webhook] Failed: ${e.message}`);
+  }
+}
+
 function saveRoomCache() {
   try { fs.writeFileSync(ROOMCACHE_FILE, JSON.stringify(roomCache, null, 2), "utf8"); } catch (e) { console.log(`[RoomCache] Save failed: ${e.message}`); }
 }
@@ -234,13 +272,23 @@ async function warmRoomCache() {
           try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
           if (!parsed.roomCode) continue;
           const u = byId[p.user_id];
+          const name = (u && (u.display_name || u.username)) || p.user_id;
+          const prev = roomCache[p.user_id];
+          const isNewJoin = !!prev && prev.roomCode !== parsed.roomCode;
           roomCache[p.user_id] = {
             roomCode: parsed.roomCode,
             gameMode: parsed.gameMode,
             lastSeenOnline: Date.now(),
-            name: (u && (u.display_name || u.username)) || p.user_id
+            name
           };
           dirty = true;
+          if (isNewJoin) {
+            sendRoomJoinWebhook({
+              name, uid: p.user_id, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
+              appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
+              avatarUrl: u && u.avatar_url
+            }).catch(() => {});
+          }
         }
         if (dirty) saveRoomCache();
       } catch (e) {
@@ -981,13 +1029,14 @@ app.get("/session/:id/friends",async(req,res)=>{
       for(const p of presenceResult.presences){
         let parsed={};
         try{parsed=JSON.parse(p.status||"{}");}catch(_){}
-        presenceMap[p.user_id]={roomCode:parsed.roomCode||null,gameMode:parsed.gameMode,appearOffline:!!parsed.appearOffline};
+        presenceMap[p.user_id]={roomCode:parsed.roomCode||null,gameMode:parsed.gameMode,appearOffline:!!parsed.appearOffline,clientVersion:parsed.clientVersion||null};
       }
     } else if(presenceResult.error){
       console.log(`[Presence:${s.name||s.id}] ${presenceResult.error}`);
     }
 
     let cacheDirty=false;
+    const pendingWebhooks=[];
     const enriched=friends.map(f=>{
       const uid=f.user&&f.user.id;
       const pres=uid?presenceMap[uid]:null;
@@ -1005,8 +1054,17 @@ app.get("/session/:id/friends",async(req,res)=>{
       const liveRoomCode=pres?(pres.roomCode||null):null;
 
       if(uid&&liveRoomCode){
+        const prev=roomCache[uid];
+        const isNewJoin=!!prev&&prev.roomCode!==liveRoomCode;
         roomCache[uid]={roomCode:liveRoomCode,gameMode:pres.gameMode,lastSeenOnline:Date.now(),name};
         cacheDirty=true;
+        if(isNewJoin){
+          pendingWebhooks.push({
+            name, uid, roomCode:liveRoomCode, gameMode:pres.gameMode,
+            appearingOffline, clientVersion:pres.clientVersion,
+            avatarUrl:f.user&&f.user.avatar_url
+          });
+        }
       }
 
       const cached=uid?roomCache[uid]:null;
@@ -1024,6 +1082,7 @@ app.get("/session/:id/friends",async(req,res)=>{
       };
     });
     if(cacheDirty)saveRoomCache();
+    pendingWebhooks.forEach(ev=>sendRoomJoinWebhook(ev).catch(()=>{}));
 
     res.json({friends:enriched,presenceError:presenceResult.error||null});
   }catch(e){
