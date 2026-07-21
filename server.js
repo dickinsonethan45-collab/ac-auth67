@@ -662,12 +662,18 @@ async function trackFriends(id,force){
     if(!r.ok){list.innerHTML='<div class="ferr">Request failed ('+r.status+').</div>';return;}
     const data=await r.json();
     const friends=data.friends||[];
-    count.textContent=friends.length+' friend'+(friends.length===1?'':'s');
+    const byState={0:0,1:0,2:0,3:0};
+    friends.forEach(f=>{ if(byState[f.state]!==undefined) byState[f.state]++; else byState[f.state]=1; });
+    count.textContent=byState[0]+' friend'+(byState[0]===1?'':'s')
+      +(byState[1]?' · '+byState[1]+' outgoing':'')
+      +(byState[2]?' · '+byState[2]+' incoming':'')
+      +(byState[3]?' · '+byState[3]+' blocked':'');
     if(!friends.length){list.innerHTML='<div class="fempty">No friends on this account.</div>';return;}
+    const sorted=[...friends].sort((a,b)=>a.state-b.state);
     let note='';
     if(data.presenceError==='ws_not_installed')note='<div class="fnote">⚠ room-code tracking needs the "ws" package on the server (online/offline still works)</div>';
     else if(data.presenceError)note='<div class="fnote">⚠ presence lookup failed ('+data.presenceError+')</div>';
-    list.innerHTML=note+friends.map(f=>{
+    list.innerHTML=note+sorted.map(f=>{
       const u=f.user||{};
       const name=(u.display_name||u.username||u.id||'unknown').replace(/</g,'&lt;');
       const lbl=FSTATE_LBL[f.state]||'Unknown';
