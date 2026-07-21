@@ -106,6 +106,7 @@ function fetchPresences(token, userIds) {
     if (!userIds.length) return resolve({ presences: [] });
     let settled = false;
     let sock;
+    let gotOpen = false;
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -119,7 +120,16 @@ function fetchPresences(token, userIds) {
     } catch (e) {
       return finish({ error: e.message });
     }
+    sock.on("unexpected-response", (req, res) => {
+      let body = "";
+      res.on("data", (c) => { body += c; });
+      res.on("end", () => {
+        console.log(`[Presence] Nakama refused WS upgrade: HTTP ${res.statusCode} ${body.slice(0,200)}`);
+        finish({ error: `ws_rejected_http_${res.statusCode}` });
+      });
+    });
     sock.on("open", () => {
+      gotOpen = true;
       try { sock.send(JSON.stringify({ cid: "1", status_follow: { user_ids: userIds } })); }
       catch (e) { finish({ error: e.message }); }
     });
@@ -128,12 +138,18 @@ function fetchPresences(token, userIds) {
         const msg = JSON.parse(raw.toString());
         if (msg.cid === "1") {
           if (msg.status) finish({ presences: msg.status.presences || [] });
-          else finish({ error: "no_status_in_response" });
+          else finish({ error: "no_status_in_response: " + raw.toString().slice(0,150) });
         }
       } catch (_) {}
     });
-    sock.on("error", (e) => finish({ error: e.message || "ws_error" }));
-    sock.on("close", () => finish({ error: "closed_early" }));
+    sock.on("error", (e) => {
+      console.log(`[Presence] WS error: ${e.message}`);
+      finish({ error: e.message || "ws_error" });
+    });
+    sock.on("close", (code, reason) => {
+      console.log(`[Presence] WS closed (gotOpen=${gotOpen}) code=${code} reason=${reason ? reason.toString().slice(0,150) : ""}`);
+      finish({ error: `closed_early_code_${code}${reason && reason.length ? "_" + reason.toString().slice(0,80) : ""}` });
+    });
   });
 }
 
