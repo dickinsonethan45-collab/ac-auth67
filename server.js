@@ -65,17 +65,20 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const initials = (name || "??").slice(0, 2).toUpperCase();
   const fallbackAvatar = `https://placehold.co/128x128/0b1522/7fd6ff?text=${encodeURIComponent(initials)}&font=roboto`;
   const embed = {
-    author: { name: "AMBLOCK PLAYER TRACKER" },
-    title: `❄️  ${name} entered a room`,
-    description: `**ROOM CODE**\n# \`${roomCode}\``,
+    author: { name: "❄️ AMBLOCK PLAYER TRACKER" },
+    title: `${name} joined a room`,
+    description: "A tracked player has entered a new session.",
     color,
     thumbnail: { url: avatarUrl || fallbackAvatar },
     fields: [
-      { name: `${gmEmoji} Mode`, value: gm, inline: true },
-      { name: appearingOffline ? "🟣 Status" : "🟢 Status", value: appearingOffline ? "Hidden" : "Online", inline: true },
-      { name: "📱 Client", value: clientVersion || "Unknown", inline: true },
+      { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
+      { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
+      { name: "👁️ Appearing", value: appearingOffline ? "🟣 Hidden" : "🟢 Online", inline: true },
+      { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
+      { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
+      { name: "🤖 Detected By", value: detectedBy || "Amblock", inline: true }
     ],
-    footer: { text: `${uid}  ·  via ${detectedBy || "Amblock"}` },
+    footer: { text: "Amblock Player Tracker" },
     timestamp: new Date().toISOString()
   };
   try {
