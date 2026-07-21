@@ -180,7 +180,8 @@ function fetchPresences(token, userIds) {
       finish({ error: e.message || "ws_error", presences: allPresences });
     });
     sock.on("close", (code, reason) => {
-      console.log(`[Presence] WS closed (gotOpen=${gotOpen}, batch=${batchIdx}/${batches.length}) code=${code} reason=${reason ? reason.toString().slice(0,150) : ""}`);
+      if (settled) return; // we closed it ourselves after a successful finish — not an error
+      console.log(`[Presence] WS closed early (gotOpen=${gotOpen}, batch=${batchIdx}/${batches.length}) code=${code} reason=${reason ? reason.toString().slice(0,150) : ""}`);
       finish({ error: `closed_early_code_${code}${reason && reason.length ? "_" + reason.toString().slice(0,80) : ""}`, presences: allPresences });
     });
   });
