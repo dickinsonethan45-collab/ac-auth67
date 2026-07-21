@@ -2,6 +2,8 @@ const express = require("express");
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
+let WebSocket;
+try { WebSocket = require("ws"); } catch (e) { WebSocket = null; console.log("[Presence] 'ws' package not installed — run `npm install ws` to enable online/room-code tracking."); }
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -91,6 +93,48 @@ async function tryRefresh(session) {
   }
   console.log(`[Refresh:${session.name||session.id}] ✗ All attempts failed`);
   return { success: false };
+}
+
+function nakamaWsUrl(token) {
+  const wsHost = NAKAMA_SERVER.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://");
+  return `${wsHost}/ws?lang=en&status=true&token=${encodeURIComponent(token)}`;
+}
+
+function fetchPresences(token, userIds) {
+  return new Promise((resolve) => {
+    if (!WebSocket) return resolve({ error: "ws_not_installed" });
+    if (!userIds.length) return resolve({ presences: [] });
+    let settled = false;
+    let sock;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { sock && sock.close(); } catch (_) {}
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ error: "timeout" }), 6000);
+    try {
+      sock = new WebSocket(nakamaWsUrl(token));
+    } catch (e) {
+      return finish({ error: e.message });
+    }
+    sock.on("open", () => {
+      try { sock.send(JSON.stringify({ cid: "1", status_follow: { user_ids: userIds } })); }
+      catch (e) { finish({ error: e.message }); }
+    });
+    sock.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.cid === "1") {
+          if (msg.status) finish({ presences: msg.status.presences || [] });
+          else finish({ error: "no_status_in_response" });
+        }
+      } catch (_) {}
+    });
+    sock.on("error", (e) => finish({ error: e.message || "ws_error" }));
+    sock.on("close", () => finish({ error: "closed_early" }));
+  });
 }
 
 (async () => {
@@ -502,6 +546,11 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .flist{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto}
 .frow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:11.5px}
 .fname{color:var(--text);font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fdot{width:8px;height:8px;border-radius:50%;flex:none}
+.fdot-on{background:#4ade80;box-shadow:0 0 6px #4ade80}
+.fdot-off{background:#52525b}
+.froom{font-size:9px;color:var(--muted);font-family:var(--mono);white-space:nowrap;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:100px;padding:2px 8px;flex:none}
+.fnote{font-size:10px;color:var(--muted);font-family:var(--mono);text-align:center;padding:6px 0 10px}
 .fstate{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
 .fs-friend{color:#4ade80;background:rgba(74,222,128,0.12)}
 .fs-out{color:#fbbf24;background:rgba(251,191,36,0.12)}
@@ -612,12 +661,17 @@ async function trackFriends(id,force){
     const friends=data.friends||[];
     count.textContent=friends.length+' friend'+(friends.length===1?'':'s');
     if(!friends.length){list.innerHTML='<div class="fempty">No friends on this account.</div>';return;}
-    list.innerHTML=friends.map(f=>{
+    let note='';
+    if(data.presenceError==='ws_not_installed')note='<div class="fnote">⚠ online/room tracking needs the "ws" package on the server</div>';
+    else if(data.presenceError)note='<div class="fnote">⚠ presence lookup failed ('+data.presenceError+')</div>';
+    list.innerHTML=note+friends.map(f=>{
       const u=f.user||{};
       const name=(u.display_name||u.username||u.id||'unknown').replace(/</g,'&lt;');
       const lbl=FSTATE_LBL[f.state]||'Unknown';
       const cls=FSTATE_CLS[f.state]||'fs-friend';
-      return '<div class="frow" title="'+(u.id||'')+'"><span class="fname">'+name+'</span><span class="fstate '+cls+'">'+lbl+'</span></div>';
+      const dot='<span class="fdot '+(f.online?'fdot-on':'fdot-off')+'" title="'+(f.online?'Online':'Offline')+'"></span>';
+      const room=(f.online&&f.roomCode)?'<span class="froom">🎮 '+f.roomCode+'</span>':'';
+      return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+room+'<span class="fstate '+cls+'">'+lbl+'</span></div>';
     }).join('');
   }catch(e){
     list.innerHTML='<div class="ferr">Network error fetching friends.</div>';
@@ -768,7 +822,34 @@ app.get("/session/:id/friends",async(req,res)=>{
       console.log(`[Friends:${s.name||s.id}] Nakama returned ${u.status}: ${text.slice(0,150)}`);
       return res.status(u.status).json({error:"Nakama error",status:u.status});
     }
-    res.json(JSON.parse(text));
+    const data=JSON.parse(text);
+    const friends=data.friends||[];
+    const userIds=friends.map(f=>f.user&&f.user.id).filter(Boolean);
+
+    const presenceResult=await fetchPresences(s.token,userIds);
+    const presenceMap={};
+    if(presenceResult.presences){
+      for(const p of presenceResult.presences){
+        let parsed={};
+        try{parsed=JSON.parse(p.status||"{}");}catch(_){}
+        presenceMap[p.user_id]={roomCode:parsed.roomCode||null,gameMode:parsed.gameMode,appearOffline:!!parsed.appearOffline};
+      }
+    } else if(presenceResult.error){
+      console.log(`[Presence:${s.name||s.id}] ${presenceResult.error}`);
+    }
+
+    const enriched=friends.map(f=>{
+      const uid=f.user&&f.user.id;
+      const pres=uid?presenceMap[uid]:null;
+      return{
+        ...f,
+        online:!!pres&&!pres.appearOffline,
+        roomCode:pres&&!pres.appearOffline?pres.roomCode:null,
+        gameMode:pres?pres.gameMode:null
+      };
+    });
+
+    res.json({friends:enriched,presenceError:presenceResult.error||null});
   }catch(e){
     console.log(`[Friends:${s.name||s.id}] Error: ${e.message}`);
     res.status(500).json({error:e.message});
