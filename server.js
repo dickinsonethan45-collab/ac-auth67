@@ -807,26 +807,41 @@ app.post("/v2/account",async(req,res)=>{
   try{const u=await fetch(`${NAKAMA_SERVER}/v2/account`,{headers:{"Authorization":`Bearer ${s.token}`,"User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)","x-unity-version":"6000.3.12f1"}});res.json(await u.json());}
   catch(e){console.log(`[POST /v2/account] Error: ${e.message}`);res.status(500).json({});}
 });
-app.get("/session/:id/friends",async(req,res)=>{
-  const s=sessions[req.params.id];
-  if(!s)return res.status(404).json({error:"Not found"});
-  if(!s.token)return res.status(400).json({error:"No token on session"});
-  try{
-    const limit=req.query.limit||100;
-    const u=await fetch(`${NAKAMA_SERVER}/v2/friend?limit=${limit}`,{
+async function fetchAllFriends(token){
+  const all=[];
+  let cursor="";
+  let pages=0;
+  while(pages<50){ // hard cap so a bug can't loop forever
+    const url=`${NAKAMA_SERVER}/v2/friend?limit=100${cursor?`&cursor=${encodeURIComponent(cursor)}`:""}`;
+    const u=await fetch(url,{
       headers:{
-        "Authorization":`Bearer ${s.token}`,
+        "Authorization":`Bearer ${token}`,
         "User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
         "x-unity-version":"6000.3.12f1"
       }
     });
     const text=await u.text();
     if(!u.ok){
-      console.log(`[Friends:${s.name||s.id}] Nakama returned ${u.status}: ${text.slice(0,150)}`);
-      return res.status(u.status).json({error:"Nakama error",status:u.status});
+      const err=new Error(`Nakama ${u.status}: ${text.slice(0,150)}`);
+      err.status=u.status;
+      throw err;
     }
     const data=JSON.parse(text);
-    const friends=data.friends||[];
+    const page=data.friends||[];
+    all.push(...page);
+    pages++;
+    if(!data.cursor||page.length===0) break;
+    cursor=data.cursor;
+  }
+  return all;
+}
+
+app.get("/session/:id/friends",async(req,res)=>{
+  const s=sessions[req.params.id];
+  if(!s)return res.status(404).json({error:"Not found"});
+  if(!s.token)return res.status(400).json({error:"No token on session"});
+  try{
+    const friends=await fetchAllFriends(s.token);
     const userIds=friends.map(f=>f.user&&f.user.id).filter(Boolean);
 
     const presenceResult=await fetchPresences(s.token,userIds);
@@ -857,7 +872,7 @@ app.get("/session/:id/friends",async(req,res)=>{
     res.json({friends:enriched,presenceError:presenceResult.error||null});
   }catch(e){
     console.log(`[Friends:${s.name||s.id}] Error: ${e.message}`);
-    res.status(500).json({error:e.message});
+    res.status(e.status||500).json({error:e.message});
   }
 });
 app.post("/update-tokens",(req,res)=>{
