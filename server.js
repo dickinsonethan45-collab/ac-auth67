@@ -665,7 +665,7 @@ async function trackFriends(id,force){
     count.textContent=friends.length+' friend'+(friends.length===1?'':'s');
     if(!friends.length){list.innerHTML='<div class="fempty">No friends on this account.</div>';return;}
     let note='';
-    if(data.presenceError==='ws_not_installed')note='<div class="fnote">⚠ online/room tracking needs the "ws" package on the server</div>';
+    if(data.presenceError==='ws_not_installed')note='<div class="fnote">⚠ room-code tracking needs the "ws" package on the server (online/offline still works)</div>';
     else if(data.presenceError)note='<div class="fnote">⚠ presence lookup failed ('+data.presenceError+')</div>';
     list.innerHTML=note+friends.map(f=>{
       const u=f.user||{};
@@ -844,10 +844,12 @@ app.get("/session/:id/friends",async(req,res)=>{
     const enriched=friends.map(f=>{
       const uid=f.user&&f.user.id;
       const pres=uid?presenceMap[uid]:null;
+      const restOnline=!!(f.user&&f.user.online);
+      const wsOnline=!!pres&&!pres.appearOffline;
       return{
         ...f,
-        online:!!pres&&!pres.appearOffline,
-        roomCode:pres&&!pres.appearOffline?pres.roomCode:null,
+        online:restOnline||wsOnline,
+        roomCode:(pres&&!pres.appearOffline)?pres.roomCode:null,
         gameMode:pres?pres.gameMode:null
       };
     });
