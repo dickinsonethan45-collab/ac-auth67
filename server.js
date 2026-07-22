@@ -97,10 +97,22 @@ async function fetchGameIconUrl() {
       doc_id: OCULUS_DOC_ID
     });
     const res = await fetch("https://graph.oculus.com/graphql", { method: "POST", body });
-    if (!res.ok) { console.log(`[GameIcon] HTTP ${res.status}`); return null; }
-    const data = await res.json();
+    const text = await res.text();
+    if (!res.ok) {
+      console.log(`[GameIcon] HTTP ${res.status}: ${text.slice(0, 400)}`);
+      return null;
+    }
+    let data;
+    try { data = JSON.parse(text); } catch (e) {
+      console.log(`[GameIcon] Response wasn't valid JSON: ${text.slice(0, 400)}`);
+      return null;
+    }
+    if (data.error) {
+      console.log(`[GameIcon] GraphQL error: ${JSON.stringify(data.error).slice(0, 400)}`);
+      return null;
+    }
     const icon = extractImage(data, ICON_PRIORITIES);
-    if (!icon) console.log("[GameIcon] No image found in GraphQL response.");
+    if (!icon) console.log(`[GameIcon] No image found in response. Raw (first 600 chars): ${text.slice(0, 600)}`);
     return icon;
   } catch (e) {
     console.log(`[GameIcon] Fetch failed: ${e.message}`);
