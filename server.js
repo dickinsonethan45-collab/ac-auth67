@@ -58,7 +58,7 @@ const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 const EMBED_COLOR = 0xF1C40F; // fixed yellow accent
 
 const BOT_NAME = "AMB Player Tracker";
-const BOT_AVATAR = "https://placehold.co/128x128/1a1a2e/f1c40f?text=AMB&font=roboto";
+const BOT_AVATAR = "https://ui-avatars.com/api/?name=AMB&background=1a1a2e&color=f1c40f&size=128&bold=true";
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
@@ -66,14 +66,14 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
   const color = EMBED_COLOR;
   const initials = (name || "??").slice(0, 2).toUpperCase();
-  const fallbackAvatar = `https://placehold.co/128x128/0b1522/7fd6ff?text=${encodeURIComponent(initials)}&font=roboto`;
+  const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=0b1522&color=7fd6ff&size=128&bold=true`;
   const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
   const embed = {
     author: { name: BOT_NAME, icon_url: BOT_AVATAR },
     title: `${name} joined a room`,
     description: "A tracked player has entered a new session.",
     color,
-    thumbnail: { url: avatarUrl || fallbackAvatar },
+    thumbnail: { url: (avatarUrl && /^https?:\/\//.test(avatarUrl)) ? avatarUrl : fallbackAvatar },
     fields: [
       { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
       { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
@@ -85,6 +85,7 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
     footer: { text: BOT_NAME },
     timestamp: new Date().toISOString()
   };
+  console.log(`[Webhook] thumbnail url: ${embed.thumbnail.url}`);
   try {
     const res = await fetch(DISCORD_WEBHOOK_URL, {
       method: "POST",
