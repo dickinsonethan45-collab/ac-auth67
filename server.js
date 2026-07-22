@@ -64,15 +64,17 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const color = EMBED_COLOR;
   const initials = (name || "??").slice(0, 2).toUpperCase();
   const fallbackAvatar = `https://placehold.co/128x128/0b1522/7fd6ff?text=${encodeURIComponent(initials)}&font=roboto`;
-  const statusLine = appearingOffline ? "🟣 Hidden" : "🟢 Online";
   const embed = {
-    author: { name: "❄️ AMB PLAYER TRACKER" },
-    description:
-      `### ${name} entered a room\n` +
-      `Code: \`${roomCode}\`\n` +
-      `${gmEmoji} ${gm}   ${statusLine}   📱 ${clientVersion || "Unknown"}`,
+    author: { name: "❄️ AMBLOCK · PLAYER TRACKER" },
+    title: `${name} entered a room`,
+    description: `\`\`\`\n${roomCode}\n\`\`\``,
     color,
     thumbnail: { url: avatarUrl || fallbackAvatar },
+    fields: [
+      { name: `${gmEmoji} Mode`, value: gm, inline: true },
+      { name: appearingOffline ? "🟣 Status" : "🟢 Status", value: appearingOffline ? "Hidden" : "Online", inline: true },
+      { name: "📱 Client", value: clientVersion || "Unknown", inline: true },
+    ],
     footer: { text: `${uid}  ·  Spotted by ${detectedBy || "Amblock"}` },
     timestamp: new Date().toISOString()
   };
