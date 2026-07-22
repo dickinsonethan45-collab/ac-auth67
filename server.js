@@ -55,7 +55,10 @@ const DISCORD_CHANNEL_ID = "1529062858967482510";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
-const EMBED_COLOR = 0xFFFFFF; // fixed white accent
+const EMBED_COLOR = 0xF1C40F; // fixed yellow accent
+
+const BOT_NAME = "AMB Player Tracker";
+const BOT_AVATAR = "https://placehold.co/128x128/1a1a2e/f1c40f?text=AMB&font=roboto";
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
@@ -64,25 +67,29 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const color = EMBED_COLOR;
   const initials = (name || "??").slice(0, 2).toUpperCase();
   const fallbackAvatar = `https://placehold.co/128x128/0b1522/7fd6ff?text=${encodeURIComponent(initials)}&font=roboto`;
+  const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
   const embed = {
-    author: { name: "❄️ AMBLOCK · PLAYER TRACKER" },
-    title: `${name} entered a room`,
-    description: `\`\`\`\n${roomCode}\n\`\`\``,
+    author: { name: BOT_NAME, icon_url: BOT_AVATAR },
+    title: `${name} joined a room`,
+    description: "A tracked player has entered a new session.",
     color,
     thumbnail: { url: avatarUrl || fallbackAvatar },
     fields: [
-      { name: `${gmEmoji} Mode & Status`, value: `${gm}  ·  ${appearingOffline ? "🟣 Hidden" : "🟢 Online"}`, inline: true },
-      { name: "📱 Client", value: clientVersion || "Unknown", inline: true },
+      { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
+      { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
+      { name: "👁️ Appearing", value: appearingLabel, inline: true },
+      { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
+      { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
       { name: "🤖 Detected By", value: detectedBy || "Amblock", inline: true },
     ],
-    footer: { text: uid },
+    footer: { text: BOT_NAME },
     timestamp: new Date().toISOString()
   };
   try {
     const res = await fetch(DISCORD_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ embeds: [embed] })
+      body: JSON.stringify({ username: BOT_NAME, avatar_url: BOT_AVATAR, embeds: [embed] })
     });
     if (!res.ok) console.log(`[Webhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
   } catch (e) {
