@@ -71,8 +71,7 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
     color,
     thumbnail: { url: avatarUrl || fallbackAvatar },
     fields: [
-      { name: `${gmEmoji} Mode`, value: gm, inline: true },
-      { name: appearingOffline ? "🟣 Status" : "🟢 Status", value: appearingOffline ? "Hidden" : "Online", inline: true },
+      { name: `${gmEmoji} Mode & Status`, value: `${gm}  ·  ${appearingOffline ? "🟣 Hidden" : "🟢 Online"}`, inline: true },
       { name: "📱 Client", value: clientVersion || "Unknown", inline: true },
       { name: "🤖 Detected By", value: detectedBy || "Amblock", inline: true },
     ],
@@ -198,6 +197,10 @@ async function tryRefresh(session) {
           issuedAt: payload.iat,
           expiresAt: payload.exp
         }).catch(() => {});
+        const existingSock = liveSockets[session.id];
+        if (existingSock && existingSock.sock) { try { existingSock.sock.removeAllListeners(); existingSock.sock.close(); } catch (_) {} }
+        delete liveSockets[session.id];
+        connectLiveSocket(session);
         return { success: true, endpoint: ep };
       } else {
         lastErr = `${ep} returned HTTP ${r.status}`;
@@ -218,6 +221,7 @@ function nakamaWsUrl(token) {
   return `${wsHost}/ws?lang=en&status=true&token=${encodeURIComponent(token)}`;
 }
 
+// One-shot presence fetch, still used by the on-demand /session/:id/friends dashboard route.
 function fetchPresences(token, userIds) {
   return new Promise((resolve) => {
     if (!WebSocket) return resolve({ error: "ws_not_installed" });
@@ -293,11 +297,116 @@ function fetchPresences(token, userIds) {
   });
 }
 
+// ── Persistent presence listener ────────────────────────────────────────────
+// Instead of polling for changes, we keep one Nakama realtime socket open per
+// session and status_follow every friend once. Nakama then PUSHES an
+// unsolicited status_presence_event the instant a followed friend's status
+// (including roomCode) changes — this is what gives near-instant detection,
+// the same mechanism any other live tracker bot relies on.
+const liveSockets = {}; // sessionId -> { sock, byId, warm, followedIds }
+
+function scheduleReconnect(session, delayMs) {
+  setTimeout(() => connectLiveSocket(session), delayMs);
+}
+
+function handlePresenceBatch(session, state, presences, isLive) {
+  let dirty = false;
+  for (const p of presences) {
+    const uid = p.user_id;
+    if (!uid) continue;
+    let parsed = {};
+    try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
+    if (!parsed.roomCode) continue; // left / no room — nothing to cache or notify
+    const u = state.byId[uid];
+    const name = (u && (u.display_name || u.username)) || uid;
+    const prev = roomCache[uid];
+    const changed = !prev || prev.roomCode !== parsed.roomCode;
+    roomCache[uid] = { roomCode: parsed.roomCode, gameMode: parsed.gameMode, lastSeenOnline: Date.now(), name };
+    dirty = true;
+    if (isLive && state.warm && changed) {
+      sendRoomJoinWebhook({
+        name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
+        appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
+        avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id
+      }).catch(() => {});
+    }
+  }
+  if (dirty) saveRoomCache();
+}
+
+async function connectLiveSocket(session) {
+  if (!WebSocket) { console.log("[Live] 'ws' package not installed — realtime tracking disabled."); return; }
+  if (!session.token) return;
+  const existing = liveSockets[session.id];
+  if (existing && existing.sock && (existing.sock.readyState === 0 || existing.sock.readyState === 1)) return; // already connecting/open
+
+  let friends, userIds, byId;
+  try {
+    friends = await fetchAllFriends(session.token);
+    userIds = friends.map(f => f.user && f.user.id).filter(Boolean);
+    byId = {};
+    friends.forEach(f => { if (f.user && f.user.id) byId[f.user.id] = f.user; });
+  } catch (e) {
+    console.log(`[Live:${session.name||session.id}] Failed to fetch friends: ${e.message} — retrying in 15s`);
+    scheduleReconnect(session, 15000);
+    return;
+  }
+  if (!userIds.length) { scheduleReconnect(session, 5 * 60 * 1000); return; }
+
+  let sock;
+  try { sock = new WebSocket(nakamaWsUrl(session.token)); }
+  catch (e) { console.log(`[Live:${session.name||session.id}] WS create failed: ${e.message}`); scheduleReconnect(session, 15000); return; }
+
+  const state = { sock, byId, warm: false };
+  liveSockets[session.id] = state;
+
+  sock.on("open", () => {
+    console.log(`[Live:${session.name||session.id}] Connected — following ${userIds.length} friend(s) in realtime`);
+    const BATCH = 25;
+    for (let i = 0; i < userIds.length; i += BATCH) {
+      try { sock.send(JSON.stringify({ status_follow: { user_ids: userIds.slice(i, i + BATCH) } })); } catch (_) {}
+    }
+    // Small grace period so the initial snapshot (everyone already in a room) doesn't spam webhooks.
+    setTimeout(() => { state.warm = true; }, 3000);
+  });
+  sock.on("message", (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch (_) { return; }
+    if (msg.status && Array.isArray(msg.status.presences)) {
+      handlePresenceBatch(session, state, msg.status.presences, false); // initial snapshot from status_follow ack
+    } else if (msg.status_presence_event && Array.isArray(msg.status_presence_event.joins)) {
+      handlePresenceBatch(session, state, msg.status_presence_event.joins, true); // live push
+    }
+  });
+  sock.on("unexpected-response", (req, res) => {
+    console.log(`[Live:${session.name||session.id}] WS upgrade rejected HTTP ${res.statusCode}`);
+    scheduleReconnect(session, 15000);
+  });
+  sock.on("error", (e) => console.log(`[Live:${session.name||session.id}] WS error: ${e.message}`));
+  sock.on("close", (code) => {
+    console.log(`[Live:${session.name||session.id}] Disconnected (code=${code}) — reconnecting in 8s`);
+    scheduleReconnect(session, 8000);
+  });
+}
+
+// Periodically resync the friend list on each live connection (new friends added, etc.)
+// by fully reconnecting — cheap, and simpler than trying to diff follow lists.
+setInterval(() => {
+  for (const s of Object.values(sessions)) {
+    if (!s.token) continue;
+    const st = liveSockets[s.id];
+    if (st && st.sock) { try { st.sock.close(); } catch (_) {} }
+  }
+}, 10 * 60 * 1000);
+
 (async () => {
   loadSessions();
   loadRoomCache();
   for (const s of Object.values(sessions)) {
     if (s.refresh_token && isExpired(s.token)) await tryRefresh(s);
+  }
+  for (const s of Object.values(sessions)) {
+    if (s.token) connectLiveSocket(s);
   }
 })();
 
@@ -315,61 +424,6 @@ setInterval(async () => {
     refreshing = false;
   }
 }, 30 * 1000);
-
-// Keep the room-code cache warm in the background so codes are captured even
-// when nobody has the dashboard open, and survive across dashboard visits.
-let warmingCache = false;
-async function warmRoomCache() {
-  if (warmingCache || !WebSocket) return;
-  const usableSessions = Object.values(sessions).filter(s => s.token);
-  if (!usableSessions.length) return;
-  warmingCache = true;
-  try {
-    for (const s of usableSessions) {
-      try {
-        const friends = await fetchAllFriends(s.token);
-        const userIds = friends.map(f => f.user && f.user.id).filter(Boolean);
-        if (!userIds.length) continue;
-        const presenceResult = await fetchPresences(s.token, userIds);
-        if (!presenceResult.presences || !presenceResult.presences.length) continue;
-        let dirty = false;
-        const byId = {};
-        friends.forEach(f => { if (f.user && f.user.id) byId[f.user.id] = f.user; });
-        for (const p of presenceResult.presences) {
-          let parsed = {};
-          try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
-          if (!parsed.roomCode) continue;
-          const u = byId[p.user_id];
-          const name = (u && (u.display_name || u.username)) || p.user_id;
-          const prev = roomCache[p.user_id];
-          const isNewJoin = !!prev && prev.roomCode !== parsed.roomCode;
-          roomCache[p.user_id] = {
-            roomCode: parsed.roomCode,
-            gameMode: parsed.gameMode,
-            lastSeenOnline: Date.now(),
-            name
-          };
-          dirty = true;
-          if (isNewJoin) {
-            sendRoomJoinWebhook({
-              name, uid: p.user_id, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
-              appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
-              avatarUrl: u && u.avatar_url, detectedBy: s.name || s.id
-            }).catch(() => {});
-          }
-        }
-        if (dirty) saveRoomCache();
-      } catch (e) {
-        console.log(`[RoomCache:warm] ${s.name || s.id} failed: ${e.message}`);
-      }
-    }
-  } finally {
-    warmingCache = false;
-  }
-}
-setInterval(warmRoomCache, 20 * 1000);
-// Kick off an initial warm pass shortly after boot (after sessions/tokens are loaded/refreshed).
-setTimeout(warmRoomCache, 5 * 1000);
 
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 
@@ -1011,6 +1065,7 @@ app.post("/session/create",(req,res)=>{
   const{name,token,refresh_token}=req.body;
   sessions[id]={id,name:name||id,token:token?.trim()||"",refresh_token:refresh_token?.trim()||"",connections:0};
   saveSessions();
+  if (sessions[id].token) connectLiveSocket(sessions[id]);
   if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true,id});
   res.redirect("/");
 });
@@ -1020,6 +1075,12 @@ app.post("/session/:id/update",(req,res)=>{
   if(req.body.token)s.token=req.body.token.trim();
   if(req.body.refresh_token)s.refresh_token=req.body.refresh_token.trim();
   saveSessions();
+  if(req.body.token){
+    const ex=liveSockets[s.id];
+    if(ex&&ex.sock){try{ex.sock.removeAllListeners();ex.sock.close();}catch(_){}}
+    delete liveSockets[s.id];
+    connectLiveSocket(s);
+  }
   req.body._from==="ui"?res.redirect("/"):res.json({ok:true});
 });
 app.post("/session/:id/rename",(req,res)=>{
@@ -1033,6 +1094,9 @@ app.post("/session/:id/refresh",async(req,res)=>{
   await tryRefresh(s);res.redirect("/");
 });
 app.post("/session/:id/delete",(req,res)=>{
+  const ex=liveSockets[req.params.id];
+  if(ex&&ex.sock){try{ex.sock.removeAllListeners();ex.sock.close();}catch(_){}}
+  delete liveSockets[req.params.id];
   delete sessions[req.params.id];saveSessions();res.redirect("/");
 });
 app.post("/refresh-all",async(req,res)=>{
