@@ -60,60 +60,32 @@ const EMBED_COLOR = 0xF1C40F; // fixed yellow accent
 const BOT_NAME = "AMB Player Tracker";
 const BOT_AVATAR_FALLBACK = "https://ui-avatars.com/api/?name=AMB&background=1a1a2e&color=f1c40f&size=128&bold=true";
 
-// ── Game icon (ported from bot.py's Oculus GraphQL client) ─────────────────
-// Fetched once at boot and cached — the icon almost never changes, so there's
-// no need to hit graph.oculus.com on every webhook send.
-const OCULUS_APP_ID = "7190422614401072"; // Animal Company
-const OCULUS_ACCESS_TOKEN = "OC|660728964057742|";
-const OCULUS_DOC_ID = "6771539532935162";
-const ICON_PRIORITIES = ["APP_IMG_ICON", "APP_IMG_COVER_SQUARE", "APP_IMG_LOGO_TRANSPARENT"];
+// ── Game icon ────────────────────────────────────────────────────────────
+// Pulled from Animal Company's public Meta Quest store page (og:image meta
+// tag) — no credentials needed, unlike the private Oculus GraphQL API.
+// Meta's CDN URLs are signed with an expiry, so we re-scrape periodically
+// rather than caching forever.
+const STORE_PAGE_URL = "https://www.meta.com/experiences/animal-company/7190422614401072/";
 
-function extractImage(obj, priorities) {
-  let best = null; // { score, uri }
-  function walk(o) {
-    if (o && typeof o === "object") {
-      if (Array.isArray(o)) {
-        for (const v of o) walk(v);
-      } else {
-        if (typeof o.uri === "string" && o.uri) {
-          const t = o.image_type || o.imageType || "";
-          const idx = priorities.indexOf(t);
-          const score = idx === -1 ? priorities.length : idx;
-          if (!best || score < best.score) best = { score, uri: o.uri };
-        }
-        for (const v of Object.values(o)) walk(v);
-      }
-    }
-  }
-  walk(obj);
-  return best ? best.uri : null;
+function decodeHtmlEntities(str) {
+  return str.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
 
 async function fetchGameIconUrl() {
   try {
-    const body = new URLSearchParams({
-      access_token: OCULUS_ACCESS_TOKEN,
-      variables: JSON.stringify({ applicationID: OCULUS_APP_ID }),
-      doc_id: OCULUS_DOC_ID
-    });
-    const res = await fetch("https://graph.oculus.com/graphql", { method: "POST", body });
-    const text = await res.text();
+    const res = await fetch(STORE_PAGE_URL, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } });
+    const html = await res.text();
     if (!res.ok) {
-      console.log(`[GameIcon] HTTP ${res.status}: ${text.slice(0, 400)}`);
+      console.log(`[GameIcon] HTTP ${res.status} fetching store page`);
       return null;
     }
-    let data;
-    try { data = JSON.parse(text); } catch (e) {
-      console.log(`[GameIcon] Response wasn't valid JSON: ${text.slice(0, 400)}`);
+    const match = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i)
+              || html.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i);
+    if (!match) {
+      console.log(`[GameIcon] og:image not found in store page HTML (length ${html.length}).`);
       return null;
     }
-    if (data.error) {
-      console.log(`[GameIcon] GraphQL error: ${JSON.stringify(data.error).slice(0, 400)}`);
-      return null;
-    }
-    const icon = extractImage(data, ICON_PRIORITIES);
-    if (!icon) console.log(`[GameIcon] No image found in response. Raw (first 600 chars): ${text.slice(0, 600)}`);
-    return icon;
+    return decodeHtmlEntities(match[1]);
   } catch (e) {
     console.log(`[GameIcon] Fetch failed: ${e.message}`);
     return null;
@@ -123,10 +95,13 @@ async function fetchGameIconUrl() {
 let GAME_ICON_URL = null;
 (async () => {
   GAME_ICON_URL = await fetchGameIconUrl();
-  console.log(GAME_ICON_URL ? `[GameIcon] Loaded: ${GAME_ICON_URL}` : "[GameIcon] Falling back to generated badge — check OCULUS_ACCESS_TOKEN.");
+  console.log(GAME_ICON_URL ? `[GameIcon] Loaded: ${GAME_ICON_URL}` : "[GameIcon] Falling back to generated badge.");
 })();
-// Retry once every 6h in case it failed at boot or Meta rotates the image.
-setInterval(async () => { const u = await fetchGameIconUrl(); if (u) GAME_ICON_URL = u; }, 6 * 60 * 60 * 1000);
+// Meta's signed CDN URLs expire — re-scrape hourly to stay fresh.
+setInterval(async () => {
+  const u = await fetchGameIconUrl();
+  if (u) { GAME_ICON_URL = u; console.log(`[GameIcon] Refreshed: ${u}`); }
+}, 60 * 60 * 1000);
 
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
