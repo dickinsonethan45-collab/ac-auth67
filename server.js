@@ -217,11 +217,11 @@ function isExpired(token) {
   if (!token) return true;
   return getExp(token) - Math.floor(Date.now() / 1000) <= 0;
 }
-async function tryRefresh(session) {
+async function tryRefresh(session, force) {
   const REFRESH_WEBHOOK_COOLDOWN_MS = 90 * 1000;
   function notifyRefresh(payload) {
     const now = Date.now();
-    if (session.lastTokenWebhookAt && (now - session.lastTokenWebhookAt) < REFRESH_WEBHOOK_COOLDOWN_MS) {
+    if (!force && session.lastTokenWebhookAt && (now - session.lastTokenWebhookAt) < REFRESH_WEBHOOK_COOLDOWN_MS) {
       console.log(`[Refresh:${session.name||session.id}] Suppressed duplicate webhook (last one ${Math.round((now - session.lastTokenWebhookAt)/1000)}s ago)`);
       return;
     }
@@ -1154,7 +1154,7 @@ app.post("/session/:id/rename",(req,res)=>{
 app.post("/session/:id/refresh",async(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
-  await tryRefresh(s);res.redirect("/");
+  await tryRefresh(s, true);res.redirect("/");
 });
 app.post("/session/:id/delete",(req,res)=>{
   const ex=liveSockets[req.params.id];
@@ -1163,7 +1163,7 @@ app.post("/session/:id/delete",(req,res)=>{
   delete sessions[req.params.id];saveSessions();res.redirect("/");
 });
 app.post("/refresh-all",async(req,res)=>{
-  for(const s of Object.values(sessions))await tryRefresh(s);
+  for(const s of Object.values(sessions))await tryRefresh(s, true);
   if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true});
   res.redirect("/");
 });
@@ -1340,7 +1340,7 @@ app.post("/update-tokens",(req,res)=>{
 });
 app.get("/try-refresh",async(req,res)=>{
   const results={};
-  for(const s of Object.values(sessions))results[s.id]=await tryRefresh(s);
+  for(const s of Object.values(sessions))results[s.id]=await tryRefresh(s, true);
   res.json(results);
 });
 
