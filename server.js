@@ -74,8 +74,9 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
       { name: `${gmEmoji} Mode`, value: gm, inline: true },
       { name: appearingOffline ? "🟣 Status" : "🟢 Status", value: appearingOffline ? "Hidden" : "Online", inline: true },
       { name: "📱 Client", value: clientVersion || "Unknown", inline: true },
+      { name: "🤖 Detected By", value: detectedBy || "Amblock", inline: true },
     ],
-    footer: { text: `${uid}  ·  Spotted by ${detectedBy || "Amblock"}` },
+    footer: { text: uid },
     timestamp: new Date().toISOString()
   };
   try {
@@ -366,9 +367,9 @@ async function warmRoomCache() {
     warmingCache = false;
   }
 }
-setInterval(warmRoomCache, 90 * 1000);
+setInterval(warmRoomCache, 20 * 1000);
 // Kick off an initial warm pass shortly after boot (after sessions/tokens are loaded/refreshed).
-setTimeout(warmRoomCache, 15 * 1000);
+setTimeout(warmRoomCache, 5 * 1000);
 
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 
