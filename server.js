@@ -1261,70 +1261,32 @@ app.get("/session/:id/friends",async(req,res)=>{
   if(!s.token)return res.status(400).json({error:"No token on session"});
   try{
     const friends=await fetchAllFriends(s.token);
-    const userIds=friends.map(f=>f.user&&f.user.id).filter(Boolean);
+    // No second WebSocket here — the persistent Live Tracker socket (connectLiveSocket)
+    // already keeps roomCache updated in real time for every followed friend. Opening a
+    // second one-shot socket on the same account token was conflicting with that live
+    // connection and silently returning no presence data. Just read the live cache.
+    const LIVE_WINDOW_MS = 90 * 1000;
+    const now = Date.now();
 
-    const presenceResult=await fetchPresences(s.token,userIds);
-    const presenceMap={};
-    if(presenceResult.presences){
-      for(const p of presenceResult.presences){
-        let parsed={};
-        try{parsed=JSON.parse(p.status||"{}");}catch(_){}
-        presenceMap[p.user_id]={roomCode:parsed.roomCode||null,gameMode:parsed.gameMode,appearOffline:!!parsed.appearOffline,clientVersion:parsed.clientVersion||null};
-      }
-    } else if(presenceResult.error){
-      console.log(`[Presence:${s.name||s.id}] ${presenceResult.error}`);
-    }
-
-    let cacheDirty=false;
-    const pendingWebhooks=[];
     const enriched=friends.map(f=>{
       const uid=f.user&&f.user.id;
-      const pres=uid?presenceMap[uid]:null;
       const restOnline=!!(f.user&&f.user.online);
-      // A presence entry existing at all means they have an active socket connected —
-      // appearOffline is just an in-game privacy toggle, not an actual disconnect, so it
-      // should NOT hide online/room-code status from this tracker.
-      const wsOnline=!!pres;
-      const online=restOnline||wsOnline;
-      const appearingOffline=!!(pres&&pres.appearOffline);
-      const name=(f.user&&(f.user.display_name||f.user.username))||uid;
-
-      // Fresh room code from this lookup — always surfaced if we have live presence,
-      // regardless of their appearOffline preference.
-      const liveRoomCode=pres?(pres.roomCode||null):null;
-
-      if(uid&&liveRoomCode){
-        const prev=roomCache[uid];
-        const isNewJoin=!!prev&&prev.roomCode!==liveRoomCode;
-        roomCache[uid]={roomCode:liveRoomCode,gameMode:pres.gameMode,lastSeenOnline:Date.now(),name};
-        cacheDirty=true;
-        if(isNewJoin){
-          pendingWebhooks.push({
-            name, uid, roomCode:liveRoomCode, gameMode:pres.gameMode,
-            appearingOffline, clientVersion:pres.clientVersion,
-            avatarUrl:f.user&&f.user.avatar_url, detectedBy:s.name||s.id
-          });
-        }
-      }
-
       const cached=uid?roomCache[uid]:null;
-      const roomCode=liveRoomCode||(cached?cached.roomCode:null);
-      const roomIsLive=!!liveRoomCode;
+      const roomIsLive=!!(cached && (now - cached.lastSeenOnline) < LIVE_WINDOW_MS);
+      const online=restOnline||roomIsLive;
 
       return{
         ...f,
         online,
-        appearingOffline,
-        roomCode,
+        appearingOffline:false,
+        roomCode: cached ? cached.roomCode : null,
         roomIsLive,
-        roomLastSeen:(!roomIsLive&&cached)?cached.lastSeenOnline:null,
-        gameMode:pres?pres.gameMode:(cached?cached.gameMode:null)
+        roomLastSeen: (!roomIsLive && cached) ? cached.lastSeenOnline : null,
+        gameMode: cached ? cached.gameMode : null
       };
     });
-    if(cacheDirty)saveRoomCache();
-    pendingWebhooks.forEach(ev=>sendRoomJoinWebhook(ev).catch(()=>{}));
 
-    res.json({friends:enriched,presenceError:presenceResult.error||null});
+    res.json({friends:enriched,presenceError:null});
   }catch(e){
     console.log(`[Friends:${s.name||s.id}] Error: ${e.message}`);
     res.status(e.status||500).json({error:e.message});
