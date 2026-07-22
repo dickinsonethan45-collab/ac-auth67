@@ -218,8 +218,19 @@ function isExpired(token) {
   return getExp(token) - Math.floor(Date.now() / 1000) <= 0;
 }
 async function tryRefresh(session) {
+  const REFRESH_WEBHOOK_COOLDOWN_MS = 90 * 1000;
+  function notifyRefresh(payload) {
+    const now = Date.now();
+    if (session.lastTokenWebhookAt && (now - session.lastTokenWebhookAt) < REFRESH_WEBHOOK_COOLDOWN_MS) {
+      console.log(`[Refresh:${session.name||session.id}] Suppressed duplicate webhook (last one ${Math.round((now - session.lastTokenWebhookAt)/1000)}s ago)`);
+      return;
+    }
+    session.lastTokenWebhookAt = now;
+    saveSessions();
+    sendTokenRefreshWebhook(payload).catch(() => {});
+  }
   if (!session.refresh_token) {
-    sendTokenRefreshWebhook({ success: false, name: session.name || session.id, errorDetail: "No refresh token on session" }).catch(() => {});
+    notifyRefresh({ success: false, name: session.name || session.id, errorDetail: "No refresh token on session" });
     return { success: false };
   }
   const tok = session.refresh_token;
@@ -240,14 +251,14 @@ async function tryRefresh(session) {
         saveSessions();
         console.log(`[Refresh:${session.name||session.id}] ✓ Success via ${ep}`);
         const payload = decodeToken(data.token);
-        sendTokenRefreshWebhook({
+        notifyRefresh({
           success: true,
           name: session.name || session.id,
           userId: payload.uid,
           username: payload.usn || payload.username,
           issuedAt: payload.iat,
           expiresAt: payload.exp
-        }).catch(() => {});
+        });
         const existingSock = liveSockets[session.id];
         if (existingSock && existingSock.sock) { try { existingSock.sock.removeAllListeners(); existingSock.sock.close(); } catch (_) {} }
         delete liveSockets[session.id];
@@ -263,7 +274,7 @@ async function tryRefresh(session) {
     }
   }
   console.log(`[Refresh:${session.name||session.id}] ✗ All attempts failed`);
-  sendTokenRefreshWebhook({ success: false, name: session.name || session.id, errorDetail: lastErr }).catch(() => {});
+  notifyRefresh({ success: false, name: session.name || session.id, errorDetail: lastErr });
   return { success: false };
 }
 
