@@ -55,7 +55,7 @@ const DISCORD_CHANNEL_ID = "1529062858967482510";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
-const EMBED_COLOR = 0xF1C40F; // fixed yellow accent
+const EMBED_COLOR = 0xFFFFFF; // fixed white accent
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
@@ -68,12 +68,12 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const embed = {
     author: { name: "❄️ AMB PLAYER TRACKER" },
     description:
-      `**${name}** just entered \`${roomCode}\`\n` +
-      `${gmEmoji} ${gm}  ·  ${statusLine}  ·  📱 ${clientVersion || "Unknown"}\n\n` +
-      `🆔 \`${uid}\``,
+      `### ${name} entered a room\n` +
+      `Code: \`${roomCode}\`\n` +
+      `${gmEmoji} ${gm}   ${statusLine}   📱 ${clientVersion || "Unknown"}`,
     color,
     thumbnail: { url: avatarUrl || fallbackAvatar },
-    footer: { text: `Spotted by ${detectedBy || "Amblock"}` },
+    footer: { text: `${uid}  ·  Spotted by ${detectedBy || "Amblock"}` },
     timestamp: new Date().toISOString()
   };
   try {
