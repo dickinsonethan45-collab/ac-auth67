@@ -58,22 +58,78 @@ const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 const EMBED_COLOR = 0xF1C40F; // fixed yellow accent
 
 const BOT_NAME = "AMB Player Tracker";
-const BOT_AVATAR = "https://ui-avatars.com/api/?name=AMB&background=1a1a2e&color=f1c40f&size=128&bold=true";
+const BOT_AVATAR_FALLBACK = "https://ui-avatars.com/api/?name=AMB&background=1a1a2e&color=f1c40f&size=128&bold=true";
+
+// ── Game icon (ported from bot.py's Oculus GraphQL client) ─────────────────
+// Fetched once at boot and cached — the icon almost never changes, so there's
+// no need to hit graph.oculus.com on every webhook send.
+const OCULUS_APP_ID = "7190422614401072"; // Animal Company
+const OCULUS_ACCESS_TOKEN = "OC|660728964057742|";
+const OCULUS_DOC_ID = "6771539532935162";
+const ICON_PRIORITIES = ["APP_IMG_ICON", "APP_IMG_COVER_SQUARE", "APP_IMG_LOGO_TRANSPARENT"];
+
+function extractImage(obj, priorities) {
+  let best = null; // { score, uri }
+  function walk(o) {
+    if (o && typeof o === "object") {
+      if (Array.isArray(o)) {
+        for (const v of o) walk(v);
+      } else {
+        if (typeof o.uri === "string" && o.uri) {
+          const t = o.image_type || o.imageType || "";
+          const idx = priorities.indexOf(t);
+          const score = idx === -1 ? priorities.length : idx;
+          if (!best || score < best.score) best = { score, uri: o.uri };
+        }
+        for (const v of Object.values(o)) walk(v);
+      }
+    }
+  }
+  walk(obj);
+  return best ? best.uri : null;
+}
+
+async function fetchGameIconUrl() {
+  try {
+    const body = new URLSearchParams({
+      access_token: OCULUS_ACCESS_TOKEN,
+      variables: JSON.stringify({ applicationID: OCULUS_APP_ID }),
+      doc_id: OCULUS_DOC_ID
+    });
+    const res = await fetch("https://graph.oculus.com/graphql", { method: "POST", body });
+    if (!res.ok) { console.log(`[GameIcon] HTTP ${res.status}`); return null; }
+    const data = await res.json();
+    const icon = extractImage(data, ICON_PRIORITIES);
+    if (!icon) console.log("[GameIcon] No image found in GraphQL response.");
+    return icon;
+  } catch (e) {
+    console.log(`[GameIcon] Fetch failed: ${e.message}`);
+    return null;
+  }
+}
+
+let GAME_ICON_URL = null;
+(async () => {
+  GAME_ICON_URL = await fetchGameIconUrl();
+  console.log(GAME_ICON_URL ? `[GameIcon] Loaded: ${GAME_ICON_URL}` : "[GameIcon] Falling back to generated badge — check OCULUS_ACCESS_TOKEN.");
+})();
+// Retry once every 6h in case it failed at boot or Meta rotates the image.
+setInterval(async () => { const u = await fetchGameIconUrl(); if (u) GAME_ICON_URL = u; }, 6 * 60 * 60 * 1000);
+
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
   if (!DISCORD_WEBHOOK_URL) return;
   const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
   const color = EMBED_COLOR;
-  const initials = (name || "??").slice(0, 2).toUpperCase();
-  const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=0b1522&color=7fd6ff&size=128&bold=true`;
+  const iconUrl = GAME_ICON_URL || BOT_AVATAR_FALLBACK;
   const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
   const embed = {
-    author: { name: BOT_NAME, icon_url: BOT_AVATAR },
+    author: { name: BOT_NAME, icon_url: iconUrl },
     title: `${name} joined a room`,
     description: "A tracked player has entered a new session.",
     color,
-    thumbnail: { url: (avatarUrl && /^https?:\/\//.test(avatarUrl)) ? avatarUrl : fallbackAvatar },
+    thumbnail: { url: iconUrl },
     fields: [
       { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
       { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
@@ -85,12 +141,11 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
     footer: { text: BOT_NAME },
     timestamp: new Date().toISOString()
   };
-  console.log(`[Webhook] thumbnail url: ${embed.thumbnail.url}`);
   try {
     const res = await fetch(DISCORD_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: BOT_NAME, avatar_url: BOT_AVATAR, embeds: [embed] })
+      body: JSON.stringify({ username: BOT_NAME, avatar_url: iconUrl, embeds: [embed] })
     });
     if (!res.ok) console.log(`[Webhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
   } catch (e) {
