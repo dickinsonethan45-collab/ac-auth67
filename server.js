@@ -122,7 +122,7 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
   const embed = {
     author: { name: BOT_NAME, icon_url: imageRef },
-    title: `${name} joined a room`,
+    title: `📡 ${name} joined a room`,
     description: "A tracked player has entered a new session.",
     color,
     thumbnail: { url: imageRef },
@@ -132,7 +132,7 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
       { name: "👁️ Appearing", value: appearingLabel, inline: true },
       { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
       { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
-      { name: "🤖 Detected By", value: detectedBy || "Amblock", inline: true },
+      { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: true },
     ],
     footer: { text: BOT_NAME },
     timestamp: new Date().toISOString()
