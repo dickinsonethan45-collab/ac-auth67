@@ -645,89 +645,196 @@ app.get("/amblock", (req, res) => {
 });
 
 // ── LOGIN ──────────────────────────────────────────────────────────────────────
+// ── RADAR BACKGROUND (login page signature element) ────────────────────────
+// Grounded in what this dashboard actually does: tracks live game sessions.
+// Blip count reflects real active-session data, not decoration.
+function radarBgScript(activeCount) {
+  const blipCount = Math.max(3, Math.min(activeCount, 24));
+  return `
+<script>
+(function(){
+  const c = document.getElementById('bg');
+  const x = c.getContext('2d');
+  let W,H,cx,cy,t=0;
+  function resize(){W=c.width=innerWidth;H=c.height=innerHeight;cx=W*0.34;cy=H*0.5;}
+  addEventListener('resize',resize); resize();
+
+  const RINGS=4;
+  const blips=[];
+  const BLIP_COUNT=${blipCount};
+  for(let i=0;i<BLIP_COUNT;i++){
+    blips.push({
+      angle: Math.random()*Math.PI*2,
+      radius: 60+Math.random()*520,
+      seed: Math.random()*1000,
+      speed: 0.15+Math.random()*0.25
+    });
+  }
+
+  function draw(){
+    x.clearRect(0,0,W,H);
+    const bg=x.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.75);
+    bg.addColorStop(0,'#0d0f0a');
+    bg.addColorStop(0.55,'#08090b');
+    bg.addColorStop(1,'#050506');
+    x.fillStyle=bg; x.fillRect(0,0,W,H);
+
+    const maxR=Math.min(W,H)*0.62;
+
+    // range rings
+    x.strokeStyle='rgba(255,176,32,0.10)';
+    x.lineWidth=1;
+    for(let i=1;i<=RINGS;i++){
+      x.beginPath();
+      x.arc(cx,cy,maxR*(i/RINGS),0,Math.PI*2);
+      x.stroke();
+    }
+    // crosshair
+    x.strokeStyle='rgba(255,176,32,0.06)';
+    x.beginPath(); x.moveTo(cx-maxR,cy); x.lineTo(cx+maxR,cy); x.stroke();
+    x.beginPath(); x.moveTo(cx,cy-maxR); x.lineTo(cx,cy+maxR); x.stroke();
+
+    // sweep beam
+    const sweepAngle = t*0.012;
+    const grad = x.createConicGradient ? x.createConicGradient(sweepAngle-Math.PI/2, cx, cy) : null;
+    x.save();
+    x.beginPath();
+    x.moveTo(cx,cy);
+    x.arc(cx,cy,maxR, sweepAngle-0.55, sweepAngle, false);
+    x.closePath();
+    const sweepGrad = x.createRadialGradient(cx,cy,0,cx,cy,maxR);
+    sweepGrad.addColorStop(0,'rgba(255,176,32,0.22)');
+    sweepGrad.addColorStop(1,'rgba(255,176,32,0)');
+    x.fillStyle=sweepGrad;
+    x.fill();
+    x.restore();
+
+    x.strokeStyle='rgba(255,196,90,0.55)';
+    x.lineWidth=1.4;
+    x.beginPath();
+    x.moveTo(cx,cy);
+    x.lineTo(cx+Math.cos(sweepAngle)*maxR, cy+Math.sin(sweepAngle)*maxR);
+    x.stroke();
+
+    // blips — light up when the sweep passes near them
+    blips.forEach(b=>{
+      const bx=cx+Math.cos(b.angle)*b.radius*(maxR/580);
+      const by=cy+Math.sin(b.angle)*b.radius*(maxR/580);
+      let diff=Math.abs(((sweepAngle - b.angle) % (Math.PI*2) + Math.PI*3) % (Math.PI*2) - Math.PI);
+      const closeness=Math.max(0,1-diff/0.5);
+      const pulse=0.15+closeness*0.85;
+      x.beginPath();
+      x.arc(bx,by,2+closeness*1.8,0,Math.PI*2);
+      x.fillStyle=\`rgba(255,\${176+Math.round(closeness*60)},\${32+Math.round(closeness*120)},\${pulse})\`;
+      x.fill();
+      if(closeness>0.3){
+        x.beginPath();
+        x.arc(bx,by,6+closeness*10,0,Math.PI*2);
+        x.strokeStyle=\`rgba(255,196,90,\${closeness*0.35})\`;
+        x.lineWidth=1;
+        x.stroke();
+      }
+    });
+
+    t++; requestAnimationFrame(draw);
+  }
+  draw();
+})();
+<\/script>`;
+}
+
 app.get("/login", (req, res) => {
+  const activeCount = Object.values(sessions).filter(s => !isExpired(s.token)).length;
   res.send(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>AC Auth</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;900&family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<html><head><meta charset="utf-8"><title>AMB Tracker Console</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;900&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{min-height:100%;overflow-x:hidden;font-family:'Inter',sans-serif;background:#03050a}
+html,body{min-height:100%;overflow-x:hidden;font-family:'Inter',sans-serif;background:#08090b}
 #bg{position:fixed;inset:0;z-index:0}
+#bg::after{content:''}
+.scanlines{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.035;background:repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 3px);mix-blend-mode:overlay}
 .split{position:relative;z-index:2;min-height:100vh;display:flex}
 
-/* ── Left: branding ── */
+/* ── Left: console readout ── */
 .left{flex:1.15;display:flex;align-items:center;padding:0 6vw;position:relative;overflow:hidden}
-.left::before{content:'';position:absolute;top:50%;left:8%;width:640px;height:640px;max-width:80vw;max-height:80vw;background:radial-gradient(circle,rgba(127,214,255,0.14) 0%,transparent 65%);transform:translateY(-50%);pointer-events:none}
 .left-content{position:relative;max-width:600px;opacity:0;transform:translateY(14px);animation:rise .8s cubic-bezier(.16,1,.3,1) .1s forwards}
 @keyframes rise{to{opacity:1;transform:translateY(0)}}
-.eyebrow{display:flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#7fd6ff;margin-bottom:26px}
-.eyebrow .pip{width:6px;height:6px;border-radius:50%;background:#7fd6ff;box-shadow:0 0 10px #7fd6ff;animation:pulse 2.4s ease-in-out infinite;flex-shrink:0}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.brand{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:clamp(38px,4.6vw,62px);line-height:1.06;letter-spacing:-1.5px;color:#fff;margin-bottom:22px}
-.brand .grad{display:inline-block;background:linear-gradient(100deg,#eef6ff 20%,#7fd6ff 45%,#eef6ff 60%,#3d9fdb 85%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 6s linear infinite}
+.eyebrow{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:#ffb020;margin-bottom:28px}
+.eyebrow .pip{width:6px;height:6px;border-radius:50%;background:#ffb020;box-shadow:0 0 10px #ffb020;animation:pulse 2.4s ease-in-out infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.brand{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:clamp(38px,4.6vw,64px);line-height:1.04;letter-spacing:-1.5px;color:#f5f2ea;margin-bottom:22px}
+.brand .grad{display:inline-block;background:linear-gradient(100deg,#fff2d9 20%,#ffb020 45%,#fff2d9 60%,#e08a10 85%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 6s linear infinite}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-50% 0}}
-.tagline{font-size:15px;color:rgba(238,246,255,.5);line-height:1.75;max-width:420px;margin-bottom:30px}
-.stats-row{display:flex;gap:28px;flex-wrap:wrap}
-.stat-mini b{display:block;font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:#7fd6ff}
-.stat-mini span{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(147,167,191,0.6)}
+.tagline{font-size:15px;color:rgba(245,242,234,.5);line-height:1.75;max-width:430px;margin-bottom:34px}
+.stats-row{display:flex;gap:0;border:1px solid rgba(255,176,32,0.18);border-radius:14px;overflow:hidden;width:fit-content}
+.stat-mini{padding:16px 26px;border-right:1px solid rgba(255,176,32,0.18)}
+.stat-mini:last-child{border-right:none}
+.stat-mini b{display:block;font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:#ffb020;line-height:1}
+.stat-mini span{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(245,242,234,0.4);display:block;margin-top:6px}
 
-/* ── Right: login card ── */
-.right{width:440px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.015);border-left:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(28px);position:relative}
+/* ── Right: access panel ── */
+.right{width:440px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.015);border-left:1px solid rgba(255,176,32,0.12);backdrop-filter:blur(28px);position:relative}
 .box{width:320px;opacity:0;transform:translateY(14px);animation:rise .8s cubic-bezier(.16,1,.3,1) .25s forwards}
-.icon{width:56px;height:56px;margin:0 0 22px;background:linear-gradient(135deg,#7fd6ff,#3d9fdb,#184d78);border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 0 40px rgba(127,214,255,0.4),0 8px 32px rgba(0,0,0,0.5);animation:glow 3s ease-in-out infinite}
-@keyframes glow{0%,100%{box-shadow:0 0 40px rgba(127,214,255,0.4),0 8px 32px rgba(0,0,0,0.5)}50%{box-shadow:0 0 60px rgba(127,214,255,0.7),0 0 80px rgba(61,159,219,0.3),0 8px 32px rgba(0,0,0,0.5)}}
-h1{font-size:21px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;letter-spacing:-.5px;margin-bottom:4px}
-.sub{font-size:11px;color:rgba(255,255,255,0.25);letter-spacing:3px;text-transform:uppercase;margin-bottom:32px}
+.icon{width:52px;height:52px;margin:0 0 22px;background:linear-gradient(135deg,#ffcf7f,#ffb020,#a86408);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 0 40px rgba(255,176,32,0.35),0 8px 32px rgba(0,0,0,0.5)}
+.panel-label{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,176,32,0.7);margin-bottom:10px}
+h1{font-size:22px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#f5f2ea;letter-spacing:-.5px;margin-bottom:4px}
+.sub{font-size:10.5px;color:rgba(245,242,234,0.3);font-family:'JetBrains Mono',monospace;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:32px}
 .field{margin-bottom:12px}
-.field input{width:100%;background:rgba(255,255,255,0.05);color:#fff;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:15px 18px;font-family:'Inter',sans-serif;font-size:14px;outline:none;transition:all .2s}
-.field input::placeholder{color:rgba(255,255,255,0.2)}
-.field input:focus{border-color:rgba(127,214,255,0.5);background:rgba(127,214,255,0.08);box-shadow:0 0 0 3px rgba(127,214,255,0.12)}
-.btn{width:100%;margin-top:6px;padding:16px;background:linear-gradient(135deg,#7fd6ff,#3d9fdb);border:none;border-radius:14px;color:#04101f;font-family:'Inter',sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:all .2s;box-shadow:0 4px 24px rgba(127,214,255,0.4)}
-.btn:hover{transform:translateY(-2px);box-shadow:0 8px 40px rgba(127,214,255,0.6)}
+.field label{display:block;font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(245,242,234,0.35);margin-bottom:7px}
+.field input{width:100%;background:rgba(255,255,255,0.04);color:#f5f2ea;border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:14px 16px;font-family:'JetBrains Mono',monospace;font-size:13.5px;outline:none;transition:all .2s}
+.field input::placeholder{color:rgba(255,255,255,0.18);font-family:'Inter',sans-serif}
+.field input:focus{border-color:rgba(255,176,32,0.5);background:rgba(255,176,32,0.06);box-shadow:0 0 0 3px rgba(255,176,32,0.1)}
+.btn{width:100%;margin-top:10px;padding:15px;background:linear-gradient(135deg,#ffcf7f,#ffb020);border:none;border-radius:12px;color:#1a1206;font-family:'Inter',sans-serif;font-size:14.5px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:all .2s;box-shadow:0 4px 24px rgba(255,176,32,0.35)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 40px rgba(255,176,32,0.5)}
 .btn:active{transform:none}
-.err{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#f87171;font-size:12px;padding:11px 14px;border-radius:12px;margin-bottom:14px;text-align:center;animation:shake .35s}
+.err{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#f87171;font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:11px 14px;border-radius:10px;margin-bottom:14px;text-align:center;animation:shake .35s}
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
 
 @media(max-width:900px){
   .split{flex-direction:column}
   .left{padding:64px 28px 32px;justify-content:center;text-align:center}
-  .left::before{left:50%;transform:translate(-50%,-50%)}
   .left-content{max-width:100%}
   .eyebrow{justify-content:center}
-  .stats-row{justify-content:center}
-  .right{width:100%;border-left:none;border-top:1px solid rgba(255,255,255,0.07);padding:48px 24px}
+  .stats-row{margin:0 auto}
+  .right{width:100%;border-left:none;border-top:1px solid rgba(255,176,32,0.12);padding:48px 24px}
   .box{width:100%;max-width:340px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important}
 }
 </style></head><body>
 <canvas id="bg"></canvas>
+<div class="scanlines"></div>
 <div class="split">
   <div class="left">
     <div class="left-content">
-      <div class="eyebrow"><span class="pip"></span>Session Management</div>
-      <h1 class="brand">Amblock's<br><span class="grad">Auth Token</span><br>Backend</h1>
-      <p class="tagline">Manage Nakama sessions, track friend presence, and keep tokens refreshed automatically — all from one dashboard.</p>
+      <div class="eyebrow"><span class="pip"></span>Live Tracking Console</div>
+      <h1 class="brand">Amblock<br><span class="grad">Session Radar</span></h1>
+      <p class="tagline">Every tracked account, every room join, every refresh — watched in real time and logged the moment it happens.</p>
       <div class="stats-row">
         <div class="stat-mini"><b>${Object.keys(sessions).length}</b><span>Sessions</span></div>
-        <div class="stat-mini"><b>${Object.values(sessions).filter(s => !isExpired(s.token)).length}</b><span>Active</span></div>
+        <div class="stat-mini"><b>${activeCount}</b><span>Active</span></div>
         <div class="stat-mini"><b>${Object.values(sessions).reduce((a,s)=>a+(s.connections||0),0)}</b><span>Connections</span></div>
       </div>
     </div>
   </div>
   <div class="right">
     <div class="box">
-      <div class="icon">⚡</div>
-      <h1>AC Auth Backend</h1>
-      <div class="sub">Created By Amblock</div>
-      ${req.query.err ? '<div class="err">Wrong credentials. Try again.</div>' : ''}
+      <div class="icon">📡</div>
+      <div class="panel-label">Access Panel</div>
+      <h1>AMB Auth Console</h1>
+      <div class="sub">Created by Amblock</div>
+      ${req.query.err ? '<div class="err">ACCESS DENIED — wrong credentials.</div>' : ''}
       <form method="POST" action="/do-login">
-        <div class="field"><input name="username" placeholder="Username" autocomplete="off" required></div>
-        <div class="field"><input type="password" name="password" placeholder="Password" required></div>
-        <button class="btn" type="submit">Sign In</button>
+        <div class="field"><label>Username</label><input name="username" placeholder="your username" autocomplete="off" required></div>
+        <div class="field"><label>Password</label><input type="password" name="password" placeholder="••••••••" required></div>
+        <button class="btn" type="submit">Sign In →</button>
       </form>
     </div>
   </div>
 </div>
-${BG_SCRIPT}
+${radarBgScript(Math.max(activeCount, Object.keys(sessions).length))}
 </body></html>`);
 });
 
