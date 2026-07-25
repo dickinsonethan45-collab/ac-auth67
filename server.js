@@ -49,6 +49,8 @@ if (process.env.RAILWAY_VOLUME_MOUNT_PATH) console.log(`[Storage] Using persiste
 else console.log(`[Storage] No RAILWAY_VOLUME_MOUNT_PATH set — data will NOT survive redeploys. Attach a volume in Railway settings to fix this.`);
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const ROOMCACHE_FILE = path.join(DATA_DIR, "roomcache.json");
+const AUTH_IDS_FILE = path.join(DATA_DIR, "auth-ids.json");
+const AUTH_PATCHER_WEBHOOK = "https://discord.com/api/webhooks/1530131591936872591/rhnVINQv_7sxIvkAKZdnHeSma5dHUie-WpqpjeB2XOrw0NyTRirUhif9f_4DuyLnmIFq";
 let roomCache = {}; // userId -> { roomCode, gameMode, lastSeenOnline, name }
 
 const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1529230257037643960/RHPvrJzOc79D9ArH5X_uI5zDgXPeVmlfkZWwv1Efpa9BtbFux_3sGtezDT0k-kSntvZs";
@@ -1119,6 +1121,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     <a href="/" class="hnav-btn hnav-active">Sessions</a>
     <a href="/session-logout" class="hnav-btn">Session Logout</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -1634,6 +1637,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     <a href="/" class="hnav-btn">Sessions</a>
     <a href="/session-logout" class="hnav-btn hnav-active">Session Logout</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -1775,6 +1779,7 @@ pre{padding:18px;font-size:11px;color:rgba(180,175,160,0.5);font-family:var(--mo
     <a href="/" class="hnav-btn">Sessions</a>
     <a href="/session-logout" class="hnav-btn">Session Logout</a>
     <a href="/symbol-getter" class="hnav-btn hnav-active">Symbol Getter</a>
+    <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -1993,6 +1998,528 @@ async function processFile(file){
 }
 
 function dl(filename,key){if(!outputs[key])return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([outputs[key]],{type:'text/plain'}));a.download=filename;a.click();}
+
+(function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
+</script>
+${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length || Object.keys(sessions).length)}
+</body></html>`);
+});
+
+// ── Auth ID Patcher — persistence & Discord send APIs ──────────────────────
+app.get("/api/auth-id-entries", (req, res) => {
+  try {
+    if (fs.existsSync(AUTH_IDS_FILE)) {
+      return res.json(JSON.parse(fs.readFileSync(AUTH_IDS_FILE, "utf8")));
+    }
+    res.json([]);
+  } catch (e) { res.json([]); }
+});
+
+app.post("/api/auth-id-entries", (req, res) => {
+  try {
+    fs.writeFileSync(AUTH_IDS_FILE, JSON.stringify(req.body, null, 2));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.post("/api/auth-id-patcher/send", async (req, res) => {
+  try {
+    const { content, filename, label } = req.body;
+    if (!content || !filename) return res.status(400).json({ ok: false, error: "missing content or filename" });
+    const displayName = label && label.trim() ? label.trim() : filename;
+    const buf = Buffer.from(content, "utf8");
+    const boundary = "----AMBPatcherBoundary" + Date.now().toString(16);
+    const nl = "\r\n";
+    const msgJson = JSON.stringify({
+      content: `New Updated Symbols.ts for **${displayName}**`,
+      embeds: [{
+        color: 0x57F287,
+        author: { name: "Auth ID Patcher", icon_url: "https://ui-avatars.com/api/?name=AMB&background=57F287&color=000&size=64&bold=true" },
+        title: `✅  New Updated Symbols.ts for ${displayName}`,
+        footer: { text: "Amblock · Auth ID Patcher" },
+        timestamp: new Date().toISOString()
+      }]
+    });
+    let body = "";
+    body += "--" + boundary + nl;
+    body += 'Content-Disposition: form-data; name="payload_json"' + nl;
+    body += "Content-Type: application/json" + nl + nl;
+    body += msgJson + nl;
+    body += "--" + boundary + nl;
+    body += 'Content-Disposition: form-data; name="files[0]"; filename="' + filename + '"' + nl;
+    body += "Content-Type: text/plain" + nl + nl;
+    const prefix = Buffer.from(body, "utf8");
+    const suffix = Buffer.from(nl + "--" + boundary + "--" + nl, "utf8");
+    const full = Buffer.concat([prefix, buf, suffix]);
+    const url = new URL(AUTH_PATCHER_WEBHOOK);
+    const opts = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "multipart/form-data; boundary=" + boundary,
+        "Content-Length": full.length
+      }
+    };
+    const https = require("https");
+    await new Promise((resolve, reject) => {
+      const r = https.request(opts, resp => {
+        resp.resume();
+        resp.on("end", resolve);
+      });
+      r.on("error", reject);
+      r.write(full);
+      r.end();
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[AuthPatcher] Discord send error:", e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get("/auth-id-patcher", (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Auth ID Patcher — AC Auth</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;900&family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --pp:#ffb020;--pk:#e08a10;--or:#7a4a08;
+  --pp-dim:rgba(255,176,32,0.12);
+  --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.14);
+  --bg0:#08090b;--bg1:rgba(255,255,255,0.025);--bg2:rgba(255,255,255,0.04);
+  --text:#f5f2ea;--muted:rgba(180,175,160,0.35);--mono:'JetBrains Mono',monospace;
+  --success:#50fa7b;--danger:#ff5555;
+}
+html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.page{position:relative;z-index:1;max-width:1020px;margin:0 auto;padding-bottom:80px}
+.hdr{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--border);background:rgba(0,0,10,0.55);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100}
+.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(255,176,32,0.5);animation:logopulse 4s ease-in-out infinite;flex-shrink:0}
+@keyframes logopulse{0%,100%{box-shadow:0 0 24px rgba(255,176,32,0.5)}50%{box-shadow:0 0 40px rgba(255,176,32,0.8),0 0 60px rgba(224,138,16,0.3)}}
+.hdr-name{font-size:18px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;letter-spacing:-.5px}
+.hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(255,176,32,0.15),rgba(224,138,16,0.1));border:1px solid rgba(255,176,32,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden}
+.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,176,32,0.08),transparent);animation:shimmer 2.5s linear infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(255,176,32,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}
+@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+.made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}
+.hdr-nav{display:flex;gap:4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:4px}
+.hnav-btn{font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;color:var(--muted);text-decoration:none;transition:all .15s;letter-spacing:.2px}
+.hnav-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}
+.hnav-active{background:linear-gradient(135deg,var(--pp),var(--pk))!important;color:#fff!important;box-shadow:0 2px 12px rgba(255,176,32,0.4)}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
+.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
+.abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
+.abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(255,176,32,0.25)}
+.abtn-ghost:hover{background:var(--pp-dim)}
+.sg-wrap{padding:32px 28px}
+.sg-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px}
+.sg-sub{font-size:13px;color:var(--muted);margin-bottom:6px}
+.sg-by{font-size:11px;color:rgba(180,175,160,0.2);letter-spacing:.5px;margin-bottom:28px}
+.drop-zone{border:1.5px dashed var(--border-hi);border-radius:18px;padding:3.5rem 2rem;text-align:center;cursor:pointer;transition:background .15s,border-color .15s;margin-bottom:1.5rem;user-select:none;background:var(--bg1)}
+.drop-zone:hover,.drop-zone.drag{background:rgba(255,176,32,0.06);border-color:rgba(255,176,32,0.4)}
+.drop-zone.loaded{border-style:solid;border-color:rgba(255,176,32,0.5)}
+.drop-zone svg{width:36px;height:36px;color:var(--muted);display:block;margin:0 auto 14px}
+.dz-title{font-size:15px;font-weight:600;color:var(--text)}
+.dz-hint{font-size:13px;color:var(--muted);margin-top:5px}
+#file-input{display:none}
+.section-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-label{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);text-transform:uppercase}
+.save-indicator{font-size:11px;color:var(--muted);font-family:var(--mono);display:flex;align-items:center;gap:5px;transition:all .3s}
+.save-indicator.saving{color:var(--pp)}
+.save-indicator.saved{color:var(--success)}
+.save-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0}
+.id-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.id-row{display:flex;gap:8px;align-items:center}
+.id-row input{background:var(--bg1);border:1px solid var(--border-hi);border-radius:9px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;transition:border-color .15s,box-shadow .15s}
+.id-row input:focus{border-color:var(--pp);box-shadow:0 0 0 3px rgba(255,176,32,0.12)}
+.id-row input::placeholder{color:rgba(180,175,160,0.3)}
+.id-row .name-inp{width:150px;flex-shrink:0;font-weight:600}
+.id-row .value-inp{flex:1;font-family:var(--mono);color:var(--pp)}
+.id-row .rm-btn{background:transparent;border:1px solid var(--border-hi);color:var(--muted);width:36px;height:36px;border-radius:9px;cursor:pointer;font-size:16px;flex-shrink:0;line-height:1;transition:all .15s}
+.id-row .rm-btn:hover{border-color:var(--danger);color:var(--danger)}
+.add-id-btn{background:transparent;border:1.5px dashed var(--border-hi);color:var(--muted);border-radius:10px;padding:10px 14px;font-family:'Inter',sans-serif;font-weight:600;font-size:12px;cursor:pointer;width:100%;margin-bottom:10px;transition:all .15s}
+.add-id-btn:hover{border-color:var(--pp);color:var(--pp);background:var(--pp-dim)}
+.col-hint{display:flex;gap:8px;margin-bottom:28px;font-size:11px;color:rgba(180,175,160,0.3);font-family:var(--mono)}
+.col-hint span{width:150px;flex-shrink:0}
+.outputs-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.outputs-section-label{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);text-transform:uppercase}
+.dl-all-btn{display:flex;align-items:center;gap:7px;font-size:12px;font-family:'Inter',sans-serif;padding:8px 18px;border-radius:10px;border:1px solid rgba(255,176,32,0.3);background:var(--pp-dim);color:var(--pp);cursor:pointer;font-weight:700;transition:all .15s}
+.dl-all-btn:hover:not(:disabled){background:rgba(255,176,32,0.22);border-color:rgba(255,176,32,0.55)}
+.dl-all-btn:disabled{opacity:.35;cursor:not-allowed}
+.dl-all-btn svg{width:13px;height:13px}
+.outputs{display:flex;flex-direction:column;gap:14px}
+.out-card{background:var(--bg1);border:1px solid var(--border);border-radius:18px;overflow:hidden}
+.out-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.02)}
+.out-header-left{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:700;color:#fff}
+.out-name{font-family:var(--mono)}
+.out-label-tag{font-size:11px;padding:2px 10px;border-radius:99px;background:rgba(255,176,32,0.08);color:rgba(255,176,32,0.7);border:1px solid rgba(255,176,32,0.18);font-family:'Inter',sans-serif;font-weight:600;letter-spacing:.2px}
+.unlabeled{color:var(--muted);font-weight:400;font-size:12px;font-family:'Inter',sans-serif}
+.badge{font-size:11px;padding:2px 10px;border-radius:99px;background:var(--pp-dim);color:var(--pp);border:1px solid rgba(255,176,32,0.25);font-family:'Inter',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.badge.warn{background:rgba(255,85,85,0.1);color:var(--danger);border-color:rgba(255,85,85,0.25)}
+.card-actions{display:flex;gap:8px;padding:6px 18px 16px}
+.dl-btn{display:flex;align-items:center;gap:6px;font-size:12px;font-family:'Inter',sans-serif;padding:6px 14px;border-radius:9px;border:1px solid var(--border-hi);background:transparent;color:var(--text);cursor:pointer;transition:background .12s;font-weight:600}
+.dl-btn:hover:not(:disabled){background:var(--pp-dim);border-color:rgba(255,176,32,0.35);color:var(--pp)}
+.dl-btn.discord{border-color:rgba(88,101,242,0.4);color:#7289da}
+.dl-btn.discord:hover:not(:disabled){background:rgba(88,101,242,0.12);border-color:rgba(88,101,242,0.6);color:#a0b0ff}
+.dl-btn:disabled{opacity:.35;cursor:not-allowed}
+.dl-btn svg{width:13px;height:13px}
+.diff{font-family:var(--mono);font-size:12px;line-height:2;padding:10px 0}
+.diffline{padding:0 18px;white-space:pre;overflow-x:auto}
+.diffline.rm{background:rgba(255,85,85,0.08);color:var(--danger)}
+.diffline.add{background:rgba(80,250,123,0.08);color:var(--success)}
+.no-match{padding:16px 18px;font-size:13px;color:var(--danger);font-family:var(--mono)}
+.empty-note{color:rgba(180,175,160,0.25);font-size:12px;text-align:center;padding:8px 0 0}
+.toast{position:fixed;bottom:28px;right:28px;min-width:220px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:11px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(255,176,32,0.4)}
+.toast.err{background:linear-gradient(135deg,#ff5555,#cc2222)}
+.toast.show{opacity:1;transform:translateY(0) scale(1)}
+</style></head><body>
+<canvas id="bg"></canvas>
+<div class="page">
+
+<div class="hdr">
+  <div class="hdr-logo">🔑</div>
+  <div class="hdr-name">AC Auth <em>Backend</em></div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Created By Amblock</div></div>
+  <nav class="hdr-nav">
+    <a href="/" class="hnav-btn">Sessions</a>
+    <a href="/session-logout" class="hnav-btn">Session Logout</a>
+    <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/auth-id-patcher" class="hnav-btn hnav-active">Auth ID Patcher</a>
+  </nav>
+  <div class="hdr-r">
+    <div class="hdr-clock" id="clock"></div>
+    <form method="POST" action="/logout" style="display:inline">
+      <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
+    </form>
+  </div>
+</div>
+
+<div class="sg-wrap">
+  <div class="sg-title">Auth ID Patcher</div>
+  <div class="sg-sub">Upload one symbols.ts, list every AUTH_ID your bots use, get back one patched file per ID — sent straight to Discord</div>
+  <div class="sg-by">BY AMBLOCK</div>
+
+  <div class="drop-zone" id="dz">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <div class="dz-title" id="dz-title">Drop your symbols.ts here</div>
+    <div class="dz-hint">or click to browse — processed entirely in your browser</div>
+  </div>
+  <input type="file" id="file-input" accept=".ts,.js,.txt">
+
+  <div class="section-row">
+    <div class="section-label">AUTH IDs</div>
+    <div class="save-indicator" id="save-ind"><div class="save-dot"></div><span id="save-txt">saved</span></div>
+  </div>
+  <div class="col-hint"><span>name / label</span><span>AUTH_ID value</span></div>
+  <div class="id-list" id="id-list"></div>
+  <button class="add-id-btn" id="add-id-btn">+ add another AUTH_ID</button>
+
+  <div class="outputs-header">
+    <div class="outputs-section-label">Output Files</div>
+    <button class="dl-all-btn" id="dl-all-btn" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Send All to Discord
+    </button>
+  </div>
+  <div class="outputs" id="outputs"></div>
+  <div class="empty-note" id="empty-note">Upload a file to get started.</div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const AUTH_ID_RE = /(const\\s+AUTH_ID\\s*=\\s*["'])([^"']*)(["']\\s*;)/;
+
+const dz = document.getElementById('dz');
+const dzTitle = document.getElementById('dz-title');
+const fi = document.getElementById('file-input');
+const idListEl = document.getElementById('id-list');
+const addIdBtn = document.getElementById('add-id-btn');
+const outputsEl = document.getElementById('outputs');
+const emptyNote = document.getElementById('empty-note');
+const dlAllBtn = document.getElementById('dl-all-btn');
+const saveInd = document.getElementById('save-ind');
+const saveTxt = document.getElementById('save-txt');
+
+let sourceFile = null;
+let entries = [];
+let idCounter = 0;
+let saveTimer = null;
+
+function newEntry(name, value) {
+  idCounter += 1;
+  return { key: idCounter, name: name || '', value: value || '' };
+}
+
+// Load saved entries from server on init
+(async () => {
+  try {
+    const r = await fetch('/api/auth-id-entries');
+    const data = await r.json();
+    if (Array.isArray(data) && data.length) {
+      entries = data.map(e => newEntry(e.name, e.value));
+    }
+  } catch (e) {}
+  if (!entries.length) entries = [newEntry('', '')];
+  renderEntries();
+})();
+
+function scheduleSave() {
+  setSaveState('saving');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 800);
+}
+
+async function doSave() {
+  try {
+    const payload = entries.map(e => ({ name: e.name, value: e.value }));
+    const r = await fetch('/api/auth-id-entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    setSaveState(d.ok ? 'saved' : 'err');
+  } catch (e) { setSaveState('err'); }
+}
+
+function setSaveState(state) {
+  saveInd.className = 'save-indicator ' + (state === 'saving' ? 'saving' : state === 'saved' ? 'saved' : '');
+  saveTxt.textContent = state === 'saving' ? 'saving…' : state === 'saved' ? 'saved' : 'save failed';
+}
+
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
+fi.addEventListener('change', () => { if (fi.files.length) loadFile(fi.files[0]); });
+
+function loadFile(f) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    sourceFile = { name: f.name, original: reader.result };
+    dz.classList.add('loaded');
+    dzTitle.textContent = f.name + ' loaded — click to replace';
+    renderOutputs();
+  };
+  reader.readAsText(f);
+}
+
+addIdBtn.addEventListener('click', () => {
+  entries.push(newEntry('', ''));
+  renderEntries();
+  scheduleSave();
+});
+
+dlAllBtn.addEventListener('click', async () => {
+  const match = sourceFile && sourceFile.original.match(AUTH_ID_RE);
+  if (!match) return;
+  const ready = entries.filter(e => e.value.trim());
+  dlAllBtn.disabled = true;
+  dlAllBtn.textContent = 'Sending…';
+  for (let i = 0; i < ready.length; i++) {
+    const e = ready[i];
+    const name = outputName(e, entries.indexOf(e));
+    const patched = patchFile(sourceFile.original, e.value.trim(), e.name);
+    await sendToDiscord(patched, name, e.name);
+    await new Promise(r => setTimeout(r, 400));
+  }
+  dlAllBtn.disabled = false;
+  dlAllBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Send All to Discord';
+  showToast('✓ Sent ' + ready.length + ' file' + (ready.length !== 1 ? 's' : '') + ' to Discord');
+});
+
+function renderEntries() {
+  idListEl.innerHTML = '';
+  entries.forEach(e => {
+    const row = document.createElement('div');
+    row.className = 'id-row';
+
+    const nameInp = document.createElement('input');
+    nameInp.className = 'name-inp';
+    nameInp.placeholder = 'bot name / label';
+    nameInp.value = e.name;
+    nameInp.autocomplete = 'off';
+    nameInp.addEventListener('input', () => { e.name = nameInp.value; renderOutputs(); scheduleSave(); });
+
+    const valueInp = document.createElement('input');
+    valueInp.className = 'value-inp';
+    valueInp.placeholder = 'AUTH_ID value';
+    valueInp.value = e.value;
+    valueInp.autocomplete = 'off';
+    valueInp.spellcheck = false;
+    valueInp.addEventListener('input', () => { e.value = valueInp.value; renderOutputs(); scheduleSave(); });
+
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'rm-btn';
+    rmBtn.textContent = '×';
+    rmBtn.disabled = entries.length === 1;
+    rmBtn.addEventListener('click', () => {
+      entries = entries.filter(x => x.key !== e.key);
+      if (!entries.length) entries = [newEntry('', '')];
+      renderEntries();
+      renderOutputs();
+      scheduleSave();
+    });
+
+    row.appendChild(nameInp);
+    row.appendChild(valueInp);
+    row.appendChild(rmBtn);
+    idListEl.appendChild(row);
+  });
+  renderOutputs();
+}
+
+function outputName(entry, index) {
+  if (!sourceFile) return 'symbols.ts';
+  return sourceFile.name;
+}
+
+function patchFile(original, newId, botName) {
+  let result = original.replace(AUTH_ID_RE, '$1' + newId + '$3');
+  if (botName && botName.trim()) {
+    result = result.replace(
+      /(declare\\s+const\\s+Il2Cpp\\s*:\\s*any\\s*;)/,
+      '$1\\n// ' + botName.trim()
+    );
+  }
+  return result;
+}
+
+function renderOutputs() {
+  const hasFile = !!sourceFile;
+  emptyNote.style.display = hasFile ? 'none' : 'block';
+  outputsEl.innerHTML = '';
+  const anyReady = hasFile && entries.some(e => e.value.trim());
+  dlAllBtn.disabled = !anyReady;
+  if (!hasFile) return;
+
+  const match = sourceFile.original.match(AUTH_ID_RE);
+  if (!match) {
+    const card = document.createElement('div');
+    card.className = 'out-card';
+    card.innerHTML = '<div class="no-match">No <code>const AUTH_ID = "...";</code> line found in ' + escapeHtml(sourceFile.name) + '.</div>';
+    outputsEl.appendChild(card);
+    return;
+  }
+  const oldId = match[2];
+
+  entries.forEach((entry, i) => {
+    const newId = entry.value.trim();
+    const name = outputName(entry, i);
+    const hasNew = !!newId;
+    const displayName = entry.name.trim() || null;
+
+    const card = document.createElement('div');
+    card.className = 'out-card';
+
+    const head = document.createElement('div');
+    head.className = 'out-header';
+    let leftHtml = '<div class="out-header-left"><span class="out-name">' + escapeHtml(name) + '</span>';
+    if (displayName) leftHtml += ' <span class="out-label-tag">' + escapeHtml(displayName) + '</span>';
+    else leftHtml += ' <span class="unlabeled">(no name set)</span>';
+    leftHtml += '</div><span class="badge ' + (hasNew ? '' : 'warn') + '">' + (hasNew ? 'ready' : 'enter id') + '</span>';
+    head.innerHTML = leftHtml;
+
+    const diff = document.createElement('div');
+    diff.className = 'diff';
+    diff.innerHTML = '<div class="diffline rm" style="' + (hasNew ? '' : 'opacity:.5') + '">- const AUTH_ID = "' + escapeHtml(oldId) + '";</div>' +
+      (hasNew ? '<div class="diffline add">+ const AUTH_ID = "' + escapeHtml(newId) + '";</div>' : '');
+
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'dl-btn';
+    dlBtn.disabled = !hasNew;
+    dlBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download';
+    dlBtn.addEventListener('click', () => {
+      const patched = patchFile(sourceFile.original, newId, entry.name);
+      triggerDownload(patched, name);
+    });
+
+    const dcBtn = document.createElement('button');
+    dcBtn.className = 'dl-btn discord';
+    dcBtn.disabled = !hasNew;
+    dcBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Send to Discord';
+    dcBtn.addEventListener('click', async () => {
+      dcBtn.disabled = true;
+      dcBtn.textContent = 'Sending…';
+      const patched = patchFile(sourceFile.original, newId, entry.name);
+      const ok = await sendToDiscord(patched, name, entry.name);
+      dcBtn.disabled = false;
+      dcBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Send to Discord';
+      if (ok) showToast('✓ Sent ' + (displayName || name) + ' to Discord');
+      else showToast('✗ Discord send failed', true);
+    });
+
+    const dlDcBtn = document.createElement('button');
+    dlDcBtn.className = 'dl-btn';
+    dlDcBtn.disabled = !hasNew;
+    dlDcBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download + Send';
+    dlDcBtn.addEventListener('click', async () => {
+      const patched = patchFile(sourceFile.original, newId, entry.name);
+      triggerDownload(patched, name);
+      dlDcBtn.disabled = true;
+      dlDcBtn.textContent = 'Sending…';
+      const ok = await sendToDiscord(patched, name, entry.name);
+      dlDcBtn.disabled = false;
+      dlDcBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download + Send';
+      if (ok) showToast('✓ Downloaded + sent ' + (displayName || name));
+      else showToast('✗ Downloaded, but Discord send failed', true);
+    });
+
+    actions.appendChild(dlBtn);
+    actions.appendChild(dcBtn);
+    actions.appendChild(dlDcBtn);
+
+    card.appendChild(head);
+    card.appendChild(diff);
+    card.appendChild(actions);
+    outputsEl.appendChild(card);
+  });
+}
+
+function triggerDownload(content, filename) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function sendToDiscord(content, filename, label) {
+  try {
+    const r = await fetch('/api/auth-id-patcher/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, filename, label })
+    });
+    const d = await r.json();
+    return d.ok !== false;
+  } catch (e) { return false; }
+}
+
+function showToast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (isErr ? ' err' : '') + ' show';
+  setTimeout(() => t.className = 'toast' + (isErr ? ' err' : ''), 2500);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
 </script>
