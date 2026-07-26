@@ -375,6 +375,7 @@ function fetchPresences(token, userIds) {
 // (including roomCode) changes — this is what gives near-instant detection,
 // the same mechanism any other live tracker bot relies on.
 const liveSockets = {}; // sessionId -> { sock, byId, warm, followedIds }
+const pendingConnect = new Set(); // sessionIds currently in the middle of connectLiveSocket
 
 function scheduleReconnect(session, delayMs) {
   setTimeout(() => connectLiveSocket(session), delayMs);
@@ -450,6 +451,8 @@ async function connectLiveSocket(session) {
   if (!session.token) return;
   const existing = liveSockets[session.id];
   if (existing && existing.sock && (existing.sock.readyState === 0 || existing.sock.readyState === 1)) return; // already connecting/open
+  if (pendingConnect.has(session.id)) return; // already mid-connect (awaiting friends fetch)
+  pendingConnect.add(session.id);
 
   let friends, userIds, byId;
   try {
@@ -458,16 +461,18 @@ async function connectLiveSocket(session) {
     byId = {};
     friends.forEach(f => { if (f.user && f.user.id) byId[f.user.id] = f.user; });
   } catch (e) {
+    pendingConnect.delete(session.id);
     console.log(`[Live:${session.name||session.id}] Failed to fetch friends: ${e.message} — retrying in 15s`);
     scheduleReconnect(session, 15000);
     return;
   }
-  if (!userIds.length) { scheduleReconnect(session, 5 * 60 * 1000); return; }
+  if (!userIds.length) { pendingConnect.delete(session.id); scheduleReconnect(session, 5 * 60 * 1000); return; }
 
   let sock;
   try { sock = new WebSocket(nakamaWsUrl(session.token)); }
-  catch (e) { console.log(`[Live:${session.name||session.id}] WS create failed: ${e.message}`); scheduleReconnect(session, 15000); return; }
+  catch (e) { pendingConnect.delete(session.id); console.log(`[Live:${session.name||session.id}] WS create failed: ${e.message}`); scheduleReconnect(session, 15000); return; }
 
+  pendingConnect.delete(session.id); // socket exists now — readyState guard takes over
   const state = { sock, byId, warm: false };
   liveSockets[session.id] = state;
 
