@@ -210,6 +210,39 @@ function getExp(token) {
 function decodeToken(token) {
   try { return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()); } catch { return {}; }
 }
+function getUid(token) {
+  try { return decodeToken(token).uid || null; } catch { return null; }
+}
+// Dedupe sessions that point at the same underlying account (same JWT uid).
+// This is what stops the same account's token-refresh embed from firing twice —
+// duplicate rows used to only get caught by refresh_token, which rotates on
+// every refresh and stops matching after the first one.
+function dedupeSessionsByUid() {
+  const seenByUid = new Map();
+  let removed = 0;
+  for (const [id, s] of Object.entries(sessions)) {
+    const uid = getUid(s.token) || getUid(s.refresh_token);
+    const key = uid || s.refresh_token || id; // fall back if we can't decode a uid yet
+    const existing = seenByUid.get(key);
+    if (!existing) { seenByUid.set(key, s); continue; }
+    // Keep whichever entry has the most recently issued/refreshed token.
+    const existingIat = decodeToken(existing.token).iat || 0;
+    const currentIat = decodeToken(s.token).iat || 0;
+    const keep = currentIat >= existingIat ? s : existing;
+    const drop = keep === s ? existing : s;
+    seenByUid.set(key, keep);
+    const dropId = drop.id;
+    if (sessions[dropId]) {
+      const sock = liveSockets[dropId];
+      if (sock && sock.sock) { try { sock.sock.removeAllListeners(); sock.sock.close(); } catch (_) {} }
+      delete liveSockets[dropId];
+      delete sessions[dropId];
+      removed++;
+    }
+  }
+  if (removed > 0) { saveSessions(); console.log(`[Dedupe] Removed ${removed} duplicate session(s) pointing at accounts already tracked.`); }
+  return removed;
+}
 function fmtTimestamp(epochSeconds) {
   if (!epochSeconds) return "Unknown";
   return new Date(epochSeconds * 1000).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
@@ -226,16 +259,18 @@ function isExpired(token) {
   if (!token) return true;
   return getExp(token) - Math.floor(Date.now() / 1000) <= 0;
 }
+const lastTokenWebhookByUid = {}; // uid -> timestamp, shared across ALL session objects for that account
 async function tryRefresh(session, force) {
-  const REFRESH_WEBHOOK_COOLDOWN_MS = 90 * 1000;
+  const REFRESH_WEBHOOK_COOLDOWN_MS = 5 * 60 * 1000;
   function notifyRefresh(payload) {
     const now = Date.now();
-    if (!force && session.lastTokenWebhookAt && (now - session.lastTokenWebhookAt) < REFRESH_WEBHOOK_COOLDOWN_MS) {
-      console.log(`[Refresh:${session.name||session.id}] Suppressed duplicate webhook (last one ${Math.round((now - session.lastTokenWebhookAt)/1000)}s ago)`);
+    const uidKey = payload.userId || getUid(session.token) || session.id;
+    const last = lastTokenWebhookByUid[uidKey];
+    if (!force && last && (now - last) < REFRESH_WEBHOOK_COOLDOWN_MS) {
+      console.log(`[Refresh:${session.name||session.id}] Suppressed duplicate webhook for account ${uidKey} (last one ${Math.round((now - last)/1000)}s ago)`);
       return;
     }
-    session.lastTokenWebhookAt = now;
-    saveSessions();
+    lastTokenWebhookByUid[uidKey] = now;
     sendTokenRefreshWebhook(payload).catch(() => {});
   }
   if (!session.refresh_token) {
@@ -517,6 +552,7 @@ setInterval(() => {
 
 (async () => {
   loadSessions();
+  dedupeSessionsByUid();
   loadRoomCache();
   for (const s of Object.values(sessions)) {
     if (s.refresh_token && isExpired(s.token)) await tryRefresh(s);
@@ -1298,7 +1334,8 @@ app.post("/session/create",(req,res)=>{
   const{name,token,refresh_token}=req.body;
   sessions[id]={id,name:name||id,token:token?.trim()||"",refresh_token:refresh_token?.trim()||"",connections:0};
   saveSessions();
-  if (sessions[id].token) connectLiveSocket(sessions[id]);
+  dedupeSessionsByUid();
+  if (sessions[id] && sessions[id].token) connectLiveSocket(sessions[id]);
   if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true,id});
   res.redirect("/");
 });
