@@ -152,8 +152,37 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
 
 const TOKEN_WEBHOOK_URL = "https://discord.com/api/webhooks/1529238360969842950/3CinhDpgmmAl059a7xTDQqJcLAKZXt1AsJP_SwUtfrbn8uiw4Z76BKti5OO2oZjqwTwI";
 
-async function sendTokenRefreshWebhook({ success, name, userId, username, issuedAt, expiresAt, errorDetail }) {
-  if (!TOKEN_WEBHOOK_URL) return;
+const tokenWebhookQueue = [];
+let tokenWebhookRunning = false;
+const TOKEN_WEBHOOK_MIN_GAP_MS = 500; // stay well under Discord's ~5 req/2s per-webhook limit
+
+function queueTokenRefreshWebhook(payload) {
+  tokenWebhookQueue.push({ payload, attempt: 0 });
+  runTokenWebhookQueue();
+}
+
+async function runTokenWebhookQueue() {
+  if (tokenWebhookRunning) return;
+  tokenWebhookRunning = true;
+  try {
+    while (tokenWebhookQueue.length) {
+      const item = tokenWebhookQueue.shift();
+      const ok = await sendTokenRefreshWebhookOnce(item.payload);
+      if (ok === "retry" && item.attempt < 4) {
+        item.attempt++;
+        tokenWebhookQueue.unshift(item); // retry this one before moving on
+        continue;
+      }
+      await new Promise(r => setTimeout(r, TOKEN_WEBHOOK_MIN_GAP_MS));
+    }
+  } finally {
+    tokenWebhookRunning = false;
+  }
+}
+
+// Returns true on success, "retry" if we should try again (429 / transient network error), false to give up.
+async function sendTokenRefreshWebhookOnce({ success, name, userId, username, issuedAt, expiresAt, errorDetail }) {
+  if (!TOKEN_WEBHOOK_URL) return true;
   const embed = success ? {
     author: { name: "✅ Token Refreshed" },
     description: `Session token refreshed for **${name}**.`,
@@ -184,11 +213,24 @@ async function sendTokenRefreshWebhook({ success, name, userId, username, issued
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ embeds: [embed] })
     });
-    if (!res.ok) console.log(`[TokenWebhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
+    if (res.status === 429) {
+      let retryAfterMs = 1000;
+      try { retryAfterMs = Math.ceil((JSON.parse(await res.text()).retry_after || 1) * 1000); } catch (_) {}
+      console.log(`[TokenWebhook] Rate limited for ${name}, retrying in ${retryAfterMs}ms`);
+      await new Promise(r => setTimeout(r, retryAfterMs));
+      return "retry";
+    }
+    if (!res.ok) {
+      console.log(`[TokenWebhook] Discord returned ${res.status} for ${name}: ${(await res.text()).slice(0,200)}`);
+      return "retry";
+    }
+    return true;
   } catch (e) {
-    console.log(`[TokenWebhook] Failed: ${e.message}`);
+    console.log(`[TokenWebhook] Failed for ${name}: ${e.message} — will retry`);
+    return "retry";
   }
 }
+
 
 function saveRoomCache() {
   try { fs.writeFileSync(ROOMCACHE_FILE, JSON.stringify(roomCache, null, 2), "utf8"); } catch (e) { console.log(`[RoomCache] Save failed: ${e.message}`); }
@@ -260,9 +302,13 @@ function isExpired(token) {
   return getExp(token) - Math.floor(Date.now() / 1000) <= 0;
 }
 const lastTokenWebhookByUid = {}; // uid -> timestamp, shared across ALL session objects for that account
-async function tryRefresh(session, force) {
+async function tryRefresh(session, force, silent) {
   const REFRESH_WEBHOOK_COOLDOWN_MS = 5 * 60 * 1000;
   function notifyRefresh(payload) {
+    if (silent) {
+      console.log(`[Refresh:${session.name||session.id}] Silent background refresh (no webhook) — ${payload.success ? "success" : "failed: " + payload.errorDetail}`);
+      return;
+    }
     const now = Date.now();
     const uidKey = payload.userId || getUid(session.token) || session.id;
     const last = lastTokenWebhookByUid[uidKey];
@@ -271,7 +317,7 @@ async function tryRefresh(session, force) {
       return;
     }
     lastTokenWebhookByUid[uidKey] = now;
-    sendTokenRefreshWebhook(payload).catch(() => {});
+    queueTokenRefreshWebhook(payload);
   }
   if (!session.refresh_token) {
     notifyRefresh({ success: false, name: session.name || session.id, errorDetail: "No refresh token on session" });
@@ -555,7 +601,7 @@ setInterval(() => {
   dedupeSessionsByUid();
   loadRoomCache();
   for (const s of Object.values(sessions)) {
-    if (s.refresh_token && isExpired(s.token)) await tryRefresh(s);
+    if (s.refresh_token && isExpired(s.token)) await tryRefresh(s, false, true);
   }
   for (const s of Object.values(sessions)) {
     if (s.token) connectLiveSocket(s);
@@ -570,7 +616,7 @@ setInterval(async () => {
     const threshold = Math.floor(Date.now() / 1000) + 60;
     for (const s of Object.values(sessions)) {
       if (!s.refresh_token) continue;
-      if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
+      if (!s.token || getExp(s.token) < threshold) await tryRefresh(s, false, true);
     }
   } finally {
     refreshing = false;
