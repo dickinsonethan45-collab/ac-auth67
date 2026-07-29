@@ -167,10 +167,10 @@ async function runTokenWebhookQueue() {
   try {
     while (tokenWebhookQueue.length) {
       const item = tokenWebhookQueue.shift();
-      const ok = await sendTokenRefreshWebhookOnce(item.payload);
+      const ok = await sendTokenRefreshWebhook(item.payload);
       if (ok === "retry" && item.attempt < 4) {
         item.attempt++;
-        tokenWebhookQueue.unshift(item); // retry this one before moving on
+        tokenWebhookQueue.unshift(item); // retry this one before moving on to the next
         continue;
       }
       await new Promise(r => setTimeout(r, TOKEN_WEBHOOK_MIN_GAP_MS));
@@ -180,8 +180,8 @@ async function runTokenWebhookQueue() {
   }
 }
 
-// Returns true on success, "retry" if we should try again (429 / transient network error), false to give up.
-async function sendTokenRefreshWebhookOnce({ success, name, userId, username, issuedAt, expiresAt, errorDetail }) {
+// Returns true on success, "retry" if we should try again (429 / transient network error).
+async function sendTokenRefreshWebhook({ success, name, userId, username, issuedAt, expiresAt, errorDetail }) {
   if (!TOKEN_WEBHOOK_URL) return true;
   const embed = success ? {
     author: { name: "✅ Token Refreshed" },
@@ -230,7 +230,6 @@ async function sendTokenRefreshWebhookOnce({ success, name, userId, username, is
     return "retry";
   }
 }
-
 
 function saveRoomCache() {
   try { fs.writeFileSync(ROOMCACHE_FILE, JSON.stringify(roomCache, null, 2), "utf8"); } catch (e) { console.log(`[RoomCache] Save failed: ${e.message}`); }
@@ -301,22 +300,8 @@ function isExpired(token) {
   if (!token) return true;
   return getExp(token) - Math.floor(Date.now() / 1000) <= 0;
 }
-const lastTokenWebhookByUid = {}; // uid -> timestamp, shared across ALL session objects for that account
-async function tryRefresh(session, force, silent) {
-  const REFRESH_WEBHOOK_COOLDOWN_MS = 5 * 60 * 1000;
+async function tryRefresh(session, force) {
   function notifyRefresh(payload) {
-    if (silent) {
-      console.log(`[Refresh:${session.name||session.id}] Silent background refresh (no webhook) — ${payload.success ? "success" : "failed: " + payload.errorDetail}`);
-      return;
-    }
-    const now = Date.now();
-    const uidKey = payload.userId || getUid(session.token) || session.id;
-    const last = lastTokenWebhookByUid[uidKey];
-    if (!force && last && (now - last) < REFRESH_WEBHOOK_COOLDOWN_MS) {
-      console.log(`[Refresh:${session.name||session.id}] Suppressed duplicate webhook for account ${uidKey} (last one ${Math.round((now - last)/1000)}s ago)`);
-      return;
-    }
-    lastTokenWebhookByUid[uidKey] = now;
     queueTokenRefreshWebhook(payload);
   }
   if (!session.refresh_token) {
@@ -601,7 +586,7 @@ setInterval(() => {
   dedupeSessionsByUid();
   loadRoomCache();
   for (const s of Object.values(sessions)) {
-    if (s.refresh_token && isExpired(s.token)) await tryRefresh(s, false, true);
+    if (s.refresh_token && isExpired(s.token)) await tryRefresh(s);
   }
   for (const s of Object.values(sessions)) {
     if (s.token) connectLiveSocket(s);
@@ -616,7 +601,7 @@ setInterval(async () => {
     const threshold = Math.floor(Date.now() / 1000) + 60;
     for (const s of Object.values(sessions)) {
       if (!s.refresh_token) continue;
-      if (!s.token || getExp(s.token) < threshold) await tryRefresh(s, false, true);
+      if (!s.token || getExp(s.token) < threshold) await tryRefresh(s);
     }
   } finally {
     refreshing = false;
