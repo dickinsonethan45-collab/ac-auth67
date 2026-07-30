@@ -50,11 +50,16 @@ else console.log(`[Storage] No RAILWAY_VOLUME_MOUNT_PATH set — data will NOT s
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const ROOMCACHE_FILE = path.join(DATA_DIR, "roomcache.json");
 const AUTH_IDS_FILE = path.join(DATA_DIR, "auth-ids.json");
+const DEADEYE_FILE = path.join(DATA_DIR, "deadeye.json");
 const AUTH_PATCHER_WEBHOOK = "https://discord.com/api/webhooks/1530131591936872591/rhnVINQv_7sxIvkAKZdnHeSma5dHUie-WpqpjeB2XOrw0NyTRirUhif9f_4DuyLnmIFq";
 let roomCache = {}; // userId -> { roomCode, gameMode, lastSeenOnline, name }
+let deadeyeList = {}; // userId -> { uid, name, addedAt }
 
 const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1529230257037643960/RHPvrJzOc79D9ArH5X_uI5zDgXPeVmlfkZWwv1Efpa9BtbFux_3sGtezDT0k-kSntvZs";
 const DISCORD_CHANNEL_ID = "1529062858967482510";
+// Deadeye is a separate, opt-in watchlist — you add specific players to it and
+// ONLY those players trigger this webhook, independent of the normal per-session tracker above.
+const DEADEYE_WEBHOOK_URL = "https://discord.com/api/webhooks/1532462341936119959/PUTES3FfeP5xz3RBSY_475f7aQtWfqsTb8AWZejI0lrezYNP5b82eYOGmt0YP8dWzTfy";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
@@ -113,6 +118,58 @@ setInterval(async () => {
   const u = await fetchGameIconUrl();
   if (u) { GAME_ICON_URL = u; console.log(`[GameIcon] Refreshed: ${u}`); }
 }, 60 * 60 * 1000);
+
+
+const deadeyeWebhookQueue = [];
+let deadeyeWebhookRunning = false;
+async function queueDeadeyeWebhook(payload) {
+  deadeyeWebhookQueue.push(payload);
+  if (deadeyeWebhookRunning) return;
+  deadeyeWebhookRunning = true;
+  try {
+    while (deadeyeWebhookQueue.length) {
+      const p = deadeyeWebhookQueue.shift();
+      await sendDeadeyeWebhook(p);
+      await new Promise(r => setTimeout(r, 500)); // stay under Discord's rate limit
+    }
+  } finally {
+    deadeyeWebhookRunning = false;
+  }
+}
+
+async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
+  if (!DEADEYE_WEBHOOK_URL) return;
+  const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
+  const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
+  const imageRef = `attachment://${GORILLA_IMAGE_FILENAME}`;
+  const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
+  const embed = {
+    author: { name: "🎯 Deadeye Tracker", icon_url: imageRef },
+    title: `🎯 ${name} is in a code`,
+    description: "A player on your Deadeye watchlist just entered a room.",
+    color: 0xE67E22,
+    thumbnail: { url: imageRef },
+    fields: [
+      { name: "🔑 Room Code", value: `\`${roomCode}\``, inline: true },
+      { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
+      { name: "👁️ Appearing", value: appearingLabel, inline: true },
+      { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
+      { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
+      { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: true },
+    ],
+    footer: { text: "Deadeye Tracker" },
+    timestamp: new Date().toISOString()
+  };
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({ username: "Deadeye Tracker", embeds: [embed] }));
+    form.append("files[0]", new Blob([GORILLA_IMAGE_BUFFER], { type: "image/jpeg" }), GORILLA_IMAGE_FILENAME);
+    const res = await fetch(DEADEYE_WEBHOOK_URL, { method: "POST", body: form });
+    if (!res.ok) console.log(`[Deadeye] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
+  } catch (e) {
+    console.log(`[Deadeye] Webhook failed: ${e.message}`);
+  }
+}
 
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
@@ -236,6 +293,12 @@ function saveRoomCache() {
 }
 function loadRoomCache() {
   try { const raw = fs.readFileSync(ROOMCACHE_FILE, "utf8"); roomCache = JSON.parse(raw); console.log(`[RoomCache] Loaded ${Object.keys(roomCache).length} entr(y/ies).`); } catch { console.log("[RoomCache] No roomcache.json, starting fresh."); }
+}
+function saveDeadeye() {
+  try { fs.writeFileSync(DEADEYE_FILE, JSON.stringify(deadeyeList, null, 2), "utf8"); } catch (e) { console.log(`[Deadeye] Save failed: ${e.message}`); }
+}
+function loadDeadeye() {
+  try { const raw = fs.readFileSync(DEADEYE_FILE, "utf8"); deadeyeList = JSON.parse(raw); console.log(`[Deadeye] Loaded ${Object.keys(deadeyeList).length} watched player(s).`); } catch { console.log("[Deadeye] No deadeye.json, starting fresh."); }
 }
 let sessions = {};
 
@@ -468,6 +531,15 @@ function handlePresenceBatch(session, state, presences, isLive) {
         avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id
       }).catch(() => {});
     }
+    // Deadeye watchlist is separate from the normal tracker above — it only fires
+    // for players explicitly added to it, to its own dedicated webhook.
+    if (isLive && state.warm && changed && deadeyeList[uid]) {
+      queueDeadeyeWebhook({
+        name: deadeyeList[uid].name || name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
+        appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
+        avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id
+      });
+    }
   }
   if (dirty) saveRoomCache();
 }
@@ -585,6 +657,7 @@ setInterval(() => {
   loadSessions();
   dedupeSessionsByUid();
   loadRoomCache();
+  loadDeadeye();
   for (const s of Object.values(sessions)) {
     if (s.refresh_token && isExpired(s.token)) await tryRefresh(s);
   }
@@ -1413,6 +1486,36 @@ app.post("/clean-duplicates",(req,res)=>{
     else seen.set(key,id);
   }
   saveSessions();res.redirect("/");
+});
+
+// ── Deadeye watchlist ───────────────────────────────────────────────────────
+// Separate from the normal per-session room tracker: only players explicitly
+// added here trigger the dedicated Deadeye Discord webhook.
+app.get("/deadeye",(req,res)=>{
+  res.json(Object.values(deadeyeList));
+});
+app.post("/deadeye/add",(req,res)=>{
+  const { uid, name } = req.body || {};
+  if (!uid) return res.status(400).json({ error: "uid is required" });
+  deadeyeList[uid] = { uid, name: name || uid, addedAt: Date.now() };
+  saveDeadeye();
+  // If they're already known to be sitting in a room right now, fire immediately
+  // instead of waiting for the next status change.
+  const cached = roomCache[uid];
+  if (cached && cached.roomCode) {
+    queueDeadeyeWebhook({
+      name: name || cached.name || uid, uid, roomCode: cached.roomCode, gameMode: cached.gameMode,
+      appearingOffline: false, clientVersion: undefined, avatarUrl: undefined, detectedBy: "Amblock"
+    });
+  }
+  res.json({ ok: true, entry: deadeyeList[uid] });
+});
+app.post("/deadeye/remove",(req,res)=>{
+  const { uid } = req.body || {};
+  if (!uid || !deadeyeList[uid]) return res.status(404).json({ error: "not found" });
+  delete deadeyeList[uid];
+  saveDeadeye();
+  res.json({ ok: true });
 });
 
 // ── API ────────────────────────────────────────────────────────────────────────
