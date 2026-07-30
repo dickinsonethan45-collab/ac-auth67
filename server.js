@@ -1267,6 +1267,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     <a href="/session-logout" class="hnav-btn">Session Logout</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
     <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
+    <a href="/deadeye-tracker" class="hnav-btn">🎯 Deadeye</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -1516,6 +1517,163 @@ app.post("/deadeye/remove",(req,res)=>{
   delete deadeyeList[uid];
   saveDeadeye();
   res.json({ ok: true });
+});
+
+app.get("/deadeye-tracker", (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Deadeye Tracker — AC Auth</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;900&family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --pp:#ffb020;--pk:#e08a10;--or:#7a4a08;
+  --pp-dim:rgba(255,176,32,0.12);
+  --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.14);
+  --bg0:#08090b;--bg1:rgba(255,255,255,0.025);--bg2:rgba(255,255,255,0.04);
+  --text:#f5f2ea;--muted:rgba(180,175,160,0.35);--mono:'JetBrains Mono',monospace;
+  --success:#50fa7b;--danger:#ff5555;--de:#E67E22;--de-dim:rgba(230,126,34,0.12);
+}
+html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.page{position:relative;z-index:1;max-width:1020px;margin:0 auto;padding-bottom:80px}
+.hdr{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--border);background:rgba(0,0,10,0.55);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100}
+.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(255,176,32,0.5);animation:logopulse 4s ease-in-out infinite;flex-shrink:0}
+@keyframes logopulse{0%,100%{box-shadow:0 0 24px rgba(255,176,32,0.5)}50%{box-shadow:0 0 40px rgba(255,176,32,0.8),0 0 60px rgba(224,138,16,0.3)}}
+.hdr-name{font-size:18px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;letter-spacing:-.5px}
+.hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(255,176,32,0.15),rgba(224,138,16,0.1));border:1px solid rgba(255,176,32,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden}
+.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,176,32,0.08),transparent);animation:shimmer 2.5s linear infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(255,176,32,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}
+@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+.made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}
+.hdr-nav{display:flex;gap:4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:4px}
+.hnav-btn{font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;color:var(--muted);text-decoration:none;transition:all .15s;letter-spacing:.2px}
+.hnav-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}
+.hnav-active{background:linear-gradient(135deg,var(--de),#c0651a)!important;color:#fff!important;box-shadow:0 2px 12px rgba(230,126,34,0.4)}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
+.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
+.abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
+.abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(255,176,32,0.25)}
+.abtn-ghost:hover{background:var(--pp-dim)}
+.abtn-de{background:linear-gradient(135deg,var(--de),#c0651a);color:#fff}
+
+.dw-wrap{padding:32px 28px}
+.dw-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.dw-sub{font-size:13px;color:var(--muted);margin-bottom:6px}
+.dw-by{font-size:11px;color:rgba(180,175,160,0.2);letter-spacing:.5px;margin-bottom:28px}
+
+.dw-form{background:var(--bg1);border:1px solid var(--border);border-radius:18px;padding:22px;margin-bottom:24px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.dw-field{flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px}
+.dw-field label{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.3px;text-transform:uppercase}
+.dw-field input{background:var(--bg2);border:1px solid var(--border-hi);border-radius:10px;padding:10px 14px;color:var(--text);font-family:var(--mono);font-size:13px;outline:none;transition:border-color .15s}
+.dw-field input:focus{border-color:var(--de)}
+
+.dw-list{display:flex;flex-direction:column;gap:10px}
+.dw-empty{text-align:center;padding:40px;color:var(--muted);font-size:13px;background:var(--bg1);border:1px dashed var(--border-hi);border-radius:18px}
+.dw-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px}
+.dw-dot{width:8px;height:8px;border-radius:50%;background:var(--de);box-shadow:0 0 8px rgba(230,126,34,0.7);flex-shrink:0}
+.dw-info{flex:1;min-width:0}
+.dw-name{font-size:14px;font-weight:700;color:#fff}
+.dw-uid{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px}
+.dw-added{font-size:10px;color:rgba(180,175,160,0.3);font-family:var(--mono)}
+.dw-rm{background:transparent;border:1px solid rgba(255,85,85,0.3);color:var(--danger);border-radius:9px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
+.dw-rm:hover{background:rgba(255,85,85,0.1)}
+.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--de),#c0651a);color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(230,126,34,0.4)}
+.toast.show{opacity:1;transform:translateY(0) scale(1)}
+</style></head><body>
+<canvas id="bg"></canvas>
+<div class="page">
+
+<div class="hdr">
+  <div class="hdr-logo">📡</div>
+  <div class="hdr-name">AC Auth <em>Backend</em></div>
+  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Created By Amblock</div></div>
+  <nav class="hdr-nav">
+    <a href="/" class="hnav-btn">Sessions</a>
+    <a href="/session-logout" class="hnav-btn">Session Logout</a>
+    <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+    <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
+    <a href="/deadeye-tracker" class="hnav-btn hnav-active">🎯 Deadeye</a>
+  </nav>
+  <div class="hdr-r">
+    <div class="hdr-clock" id="clock"></div>
+    <form method="POST" action="/logout" style="display:inline">
+      <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
+    </form>
+  </div>
+</div>
+
+<div class="dw-wrap">
+  <div class="dw-title">🎯 Deadeye Player Tracker</div>
+  <div class="dw-sub">Add specific players by username + player ID. When they join a room, an alert goes to the Deadeye Discord webhook — separate from the normal tracker.</div>
+  <div class="dw-by">BY AMBLOCK</div>
+
+  <div class="dw-form">
+    <div class="dw-field">
+      <label>Username</label>
+      <input type="text" id="dw-name" placeholder="e.g. Gage_Offical">
+    </div>
+    <div class="dw-field">
+      <label>Player ID (uid)</label>
+      <input type="text" id="dw-uid" placeholder="e.g. d91081a8-519d-4af2-845f-4a2d7c7c69d6">
+    </div>
+    <button class="abtn abtn-de" onclick="addPlayer()">+ Add to Deadeye</button>
+  </div>
+
+  <div class="dw-list" id="dw-list">
+    <div class="dw-empty">Loading watchlist…</div>
+  </div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show';setTimeout(()=>t.className='toast',2200);}
+
+async function loadList(){
+  const listEl=document.getElementById('dw-list');
+  try{
+    const res=await fetch('/deadeye');
+    const entries=await res.json();
+    if(!entries.length){listEl.innerHTML='<div class="dw-empty">No players on the watchlist yet — add one above.</div>';return;}
+    listEl.innerHTML=entries.map(e=>\`
+      <div class="dw-card">
+        <div class="dw-dot"></div>
+        <div class="dw-info">
+          <div class="dw-name">\${escapeHtml(e.name)}</div>
+          <div class="dw-uid">\${escapeHtml(e.uid)}</div>
+        </div>
+        <div class="dw-added">added \${new Date(e.addedAt).toLocaleString()}</div>
+        <button class="dw-rm" onclick="removePlayer('\${e.uid.replace(/'/g,"\\\\'")}')">Remove</button>
+      </div>\`).join('');
+  }catch(e){listEl.innerHTML='<div class="dw-empty">Failed to load watchlist.</div>';}
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+async function addPlayer(){
+  const name=document.getElementById('dw-name').value.trim();
+  const uid=document.getElementById('dw-uid').value.trim();
+  if(!uid){showToast('Player ID is required');return;}
+  const res=await fetch('/deadeye/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid,name})});
+  if(res.ok){
+    document.getElementById('dw-name').value='';
+    document.getElementById('dw-uid').value='';
+    showToast('Added to Deadeye watchlist');
+    loadList();
+  }else{showToast('Failed to add player');}
+}
+async function removePlayer(uid){
+  const res=await fetch('/deadeye/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid})});
+  if(res.ok){showToast('Removed from watchlist');loadList();}else{showToast('Failed to remove player');}
+}
+
+loadList();
+(function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
+</script>
+${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length || Object.keys(sessions).length)}
+</body></html>`);
 });
 
 // ── API ────────────────────────────────────────────────────────────────────────
@@ -1814,6 +1972,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     <a href="/session-logout" class="hnav-btn hnav-active">Session Logout</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
     <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
+    <a href="/deadeye-tracker" class="hnav-btn">🎯 Deadeye</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -1956,6 +2115,7 @@ pre{padding:18px;font-size:11px;color:rgba(180,175,160,0.5);font-family:var(--mo
     <a href="/session-logout" class="hnav-btn">Session Logout</a>
     <a href="/symbol-getter" class="hnav-btn hnav-active">Symbol Getter</a>
     <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
+    <a href="/deadeye-tracker" class="hnav-btn">🎯 Deadeye</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
@@ -2366,6 +2526,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
     <a href="/session-logout" class="hnav-btn">Session Logout</a>
     <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
     <a href="/auth-id-patcher" class="hnav-btn hnav-active">Auth ID Patcher</a>
+    <a href="/deadeye-tracker" class="hnav-btn">🎯 Deadeye</a>
   </nav>
   <div class="hdr-r">
     <div class="hdr-clock" id="clock"></div>
