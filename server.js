@@ -170,8 +170,8 @@ async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffl
     // @everyone ping is unique to the Deadeye tracker — the normal tracker never pings.
     form.append("payload_json", JSON.stringify({
       username: "Deadeye Tracker",
-      content: "@everyone",
-      allowed_mentions: { parse: ["everyone"] },
+      content: "<@&1532692101408751647>",
+      allowed_mentions: { roles: ["1532692101408751647"] },
       embeds: [embed]
     }));
     form.append("files[0]", new Blob([DEADEYE_IMAGE_BUFFER], { type: "image/png" }), DEADEYE_IMAGE_FILENAME);
@@ -1505,22 +1505,14 @@ app.post("/clean-duplicates",(req,res)=>{
 // ── Deadeye watchlist ───────────────────────────────────────────────────────
 // Separate from the normal per-session room tracker: only players explicitly
 // added here trigger the dedicated Deadeye Discord webhook.
-app.get("/deadeye",async(req,res)=>{
-  const entries = Object.values(deadeyeList);
-  if (!entries.length) return res.json(entries);
-
+// Checks live presence for a list of uids across EVERY valid session, merging results —
+// a single account may not have visibility into a given target's status at all, so we
+// can't rely on just one. Used by both the watchlist view and the "just added" welcome alert.
+async function getLivePresenceForUids(uids) {
   const validSessions = Object.values(sessions).filter(s=>!isExpired(s.token));
-  if (!validSessions.length) {
-    // No valid session to check live presence with — return cached/last-known info only.
-    return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, presenceError: "no_valid_session" })));
-  }
+  if (!validSessions.length || !uids.length) return { presenceMap: {}, anySucceeded: false, error: "no_valid_session" };
 
-  const uids = entries.map(e => e.uid);
-  // Query through every account, not just one — a single account may not be able to
-  // see a given target's presence at all (no relationship/visibility), which was
-  // silently reading as "Offline" even when the player was actually online-but-hidden.
   const results = await Promise.all(validSessions.map(s => fetchPresences(s.token, uids)));
-
   const presenceMap = {};
   let anySucceeded = false;
   let lastError = null;
@@ -1531,11 +1523,23 @@ app.get("/deadeye",async(req,res)=>{
     for (const p of presenceResult.presences) {
       let parsed = {};
       try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
-      // If multiple accounts see this player, prefer whichever result is actually online.
       const existing = presenceMap[p.user_id];
       if (existing && !parsed.roomCode && existing.roomCode) continue;
-      presenceMap[p.user_id] = { roomCode: parsed.roomCode || null, gameMode: parsed.gameMode, appearOffline: !!parsed.appearOffline };
+      presenceMap[p.user_id] = { roomCode: parsed.roomCode || null, gameMode: parsed.gameMode, appearOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion || null };
     }
+  }
+  return { presenceMap, anySucceeded, error: lastError };
+}
+
+app.get("/deadeye",async(req,res)=>{
+  const entries = Object.values(deadeyeList);
+  if (!entries.length) return res.json(entries);
+
+  const uids = entries.map(e => e.uid);
+  const { presenceMap, anySucceeded, error } = await getLivePresenceForUids(uids);
+  if (!Object.values(sessions).some(s=>!isExpired(s.token))) {
+    // No valid session to check live presence with — return cached/last-known info only.
+    return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, presenceError: "no_valid_session" })));
   }
 
   const enriched = entries.map(e => {
@@ -1546,27 +1550,36 @@ app.get("/deadeye",async(req,res)=>{
       online: !!pres,
       appearingOffline: !!(pres && pres.appearOffline),
       roomCode: (pres && pres.roomCode) || (cached ? cached.roomCode : null),
-      presenceError: anySucceeded ? null : lastError
+      presenceError: anySucceeded ? null : error
     };
   });
   res.json(enriched);
 
 });
-app.post("/deadeye/add",(req,res)=>{
+app.post("/deadeye/add",async(req,res)=>{
   const { uid, name } = req.body || {};
   if (!uid) return res.status(400).json({ error: "uid is required" });
   deadeyeList[uid] = { uid, name: name || uid, addedAt: Date.now() };
   saveDeadeye();
-  // If they're already known to be sitting in a room right now, fire immediately
-  // instead of waiting for the next status change.
+  res.json({ ok: true, entry: deadeyeList[uid] }); // respond immediately, don't block on the presence check
+
+  // If they're already in a room right now, fire the alert immediately instead of
+  // waiting for the next status change — using a real live check (not stale cache)
+  // so "Appearing"/"Client Version" reflect their actual current status.
+  const { presenceMap } = await getLivePresenceForUids([uid]);
+  const pres = presenceMap[uid];
   const cached = roomCache[uid];
-  if (cached && cached.roomCode) {
+  const roomCode = (pres && pres.roomCode) || (cached ? cached.roomCode : null);
+  if (roomCode) {
     queueDeadeyeWebhook({
-      name: name || cached.name || uid, uid, roomCode: cached.roomCode, gameMode: cached.gameMode,
-      appearingOffline: false, clientVersion: undefined, avatarUrl: undefined, detectedBy: "Amblock"
+      name: name || (cached && cached.name) || uid, uid, roomCode,
+      gameMode: (pres && pres.gameMode) || (cached ? cached.gameMode : null),
+      appearingOffline: !!(pres && pres.appearOffline),
+      clientVersion: pres && pres.clientVersion,
+      avatarUrl: undefined, detectedBy: "Amblock"
     });
   }
-  res.json({ ok: true, entry: deadeyeList[uid] });
+
 });
 app.post("/deadeye/remove",(req,res)=>{
   const { uid } = req.body || {};
