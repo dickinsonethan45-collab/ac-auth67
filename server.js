@@ -1407,7 +1407,7 @@ async function trackFriends(id,force){
       } else {
         room='<span class="fnoroom">no code</span>';
       }
-      return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+room+'<button class="fid-btn" onclick="copy(\'' + (u.id||'') + '\',\'Player ID copied\')" title="Copy player ID">🆔 Copy ID</button><span class="fstate '+cls+'">'+lbl+'</span></div>';
+      return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+room+'<button class="fid-btn" onclick="copy(&#39;' + (u.id||'') + '&#39;,&#39;Player ID copied&#39;)" title="Copy player ID">🆔 Copy ID</button><span class="fstate '+cls+'">'+lbl+'</span></div>';
     }).join('');
   }catch(e){
     list.innerHTML='<div class="ferr">Network error fetching friends.</div>';
