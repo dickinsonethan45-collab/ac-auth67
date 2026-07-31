@@ -142,12 +142,13 @@ async function queueDeadeyeWebhook(payload) {
   }
 }
 
-async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
+async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy, steamId }) {
   if (!DEADEYE_WEBHOOK_URL) return;
   const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
   const imageRef = `attachment://${DEADEYE_IMAGE_FILENAME}`;
   const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
+  const platformLabel = (steamId && String(steamId).length) ? "🔴 Steam" : "🔵 Meta";
   const embed = {
     author: { name: "🎯 Deadeye Tracker", icon_url: imageRef },
     title: `🎯 ${name} is in a code`,
@@ -160,6 +161,7 @@ async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffl
       { name: "👁️ Appearing", value: appearingLabel, inline: true },
       { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
       { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
+      { name: "🎮 Platform", value: platformLabel, inline: true },
       { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: true },
     ],
     footer: { text: "Deadeye Tracker" },
@@ -183,13 +185,14 @@ async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffl
 }
 
 
-async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy }) {
+async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy, steamId }) {
   if (!DISCORD_WEBHOOK_URL) return;
   const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
   const color = EMBED_COLOR;
   const imageRef = `attachment://${GORILLA_IMAGE_FILENAME}`;
   const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
+  const platformLabel = (steamId && String(steamId).length) ? "🔴 Steam" : "🔵 Meta";
   const embed = {
     author: { name: BOT_NAME, icon_url: imageRef },
     title: `📡 ${name} joined a room`,
@@ -202,6 +205,7 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
       { name: "👁️ Appearing", value: appearingLabel, inline: true },
       { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
       { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
+      { name: "🎮 Platform", value: platformLabel, inline: true },
       { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: true },
     ],
     footer: { text: BOT_NAME },
@@ -539,7 +543,8 @@ function handlePresenceBatch(session, state, presences, isLive) {
       sendRoomJoinWebhook({
         name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
         appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
-        avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id
+        avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id,
+        steamId: u && u.steam_id
       }).catch(() => {});
     }
     // Deadeye watchlist is separate from the normal tracker above — it only fires
@@ -548,7 +553,8 @@ function handlePresenceBatch(session, state, presences, isLive) {
       queueDeadeyeWebhook({
         name: deadeyeList[uid].name || name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
         appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
-        avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id
+        avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id,
+        steamId: u && u.steam_id
       });
     }
   }
@@ -1951,7 +1957,8 @@ app.get("/session/:id/friends",async(req,res)=>{
           pendingWebhooks.push({
             name, uid, roomCode:liveRoomCode, gameMode:pres.gameMode,
             appearingOffline, clientVersion:pres.clientVersion,
-            avatarUrl:f.user&&f.user.avatar_url, detectedBy:s.name||s.id
+            avatarUrl:f.user&&f.user.avatar_url, detectedBy:s.name||s.id,
+            steamId:f.user&&f.user.steam_id
           });
         }
       }
