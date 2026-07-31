@@ -1505,8 +1505,39 @@ app.post("/clean-duplicates",(req,res)=>{
 // ── Deadeye watchlist ───────────────────────────────────────────────────────
 // Separate from the normal per-session room tracker: only players explicitly
 // added here trigger the dedicated Deadeye Discord webhook.
-app.get("/deadeye",(req,res)=>{
-  res.json(Object.values(deadeyeList));
+app.get("/deadeye",async(req,res)=>{
+  const entries = Object.values(deadeyeList);
+  if (!entries.length) return res.json(entries);
+
+  const s = Object.values(sessions).find(s=>!isExpired(s.token));
+  if (!s) {
+    // No valid session to check live presence with — return cached/last-known info only.
+    return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, presenceError: "no_valid_session" })));
+  }
+
+  const uids = entries.map(e => e.uid);
+  const presenceResult = await fetchPresences(s.token, uids);
+  const presenceMap = {};
+  if (presenceResult.presences) {
+    for (const p of presenceResult.presences) {
+      let parsed = {};
+      try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
+      presenceMap[p.user_id] = { roomCode: parsed.roomCode || null, gameMode: parsed.gameMode, appearOffline: !!parsed.appearOffline };
+    }
+  }
+
+  const enriched = entries.map(e => {
+    const pres = presenceMap[e.uid];
+    const cached = roomCache[e.uid];
+    return {
+      ...e,
+      online: !!pres,
+      appearingOffline: !!(pres && pres.appearOffline),
+      roomCode: (pres && pres.roomCode) || (cached ? cached.roomCode : null),
+      presenceError: presenceResult.error || null
+    };
+  });
+  res.json(enriched);
 });
 app.post("/deadeye/add",(req,res)=>{
   const { uid, name } = req.body || {};
@@ -1587,6 +1618,17 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .dw-empty{text-align:center;padding:40px;color:var(--muted);font-size:13px;background:var(--bg1);border:1px dashed var(--border-hi);border-radius:18px}
 .dw-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px}
 .dw-dot{width:8px;height:8px;border-radius:50%;background:var(--de);box-shadow:0 0 8px rgba(155,48,255,0.7);flex-shrink:0}
+.dw-presence{display:flex;align-items:center;gap:6px;flex:none;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:4px 10px;border-radius:100px}
+.dw-presence .pdot{width:7px;height:7px;border-radius:50%}
+.dw-presence-on{color:#4ade80;background:rgba(74,222,128,0.1)}
+.dw-presence-on .pdot{background:#4ade80;box-shadow:0 0 6px #4ade80}
+.dw-presence-off{color:#9ca3af;background:rgba(156,163,175,0.08)}
+.dw-presence-off .pdot{background:#52525b}
+.dw-presence-hidden{color:#c084fc;background:rgba(192,132,252,0.1)}
+.dw-presence-hidden .pdot{background:#c084fc;box-shadow:0 0 6px #c084fc}
+.dw-presence-unknown{color:var(--muted);background:rgba(255,255,255,0.04)}
+.dw-presence-unknown .pdot{background:var(--muted)}
+.dw-room{font-size:10px;font-family:var(--mono);color:var(--de);background:rgba(155,48,255,0.1);border:1px solid rgba(155,48,255,0.3);border-radius:8px;padding:4px 9px;flex:none}
 .dw-info{flex:1;min-width:0}
 .dw-name{font-size:14px;font-weight:700;color:#fff}
 .dw-uid{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px}
@@ -1658,10 +1700,22 @@ async function loadList(){
           <div class="dw-name">\${escapeHtml(e.name)}</div>
           <div class="dw-uid">\${escapeHtml(e.uid)}</div>
         </div>
+        \${e.roomCode ? '<div class="dw-room">🔑 ' + escapeHtml(e.roomCode) + '</div>' : ''}
+        <div class="dw-presence \${presenceClass(e)}"><span class="pdot"></span>\${presenceLabel(e)}</div>
         <div class="dw-added">added \${new Date(e.addedAt).toLocaleString()}</div>
         <button class="dw-rm" onclick="removePlayer('\${e.uid.replace(/'/g,"\\\\'")}')">Remove</button>
       </div>\`).join('');
   }catch(e){listEl.innerHTML='<div class="dw-empty">Failed to load watchlist.</div>';}
+}
+function presenceClass(e){
+  if(e.online===null||e.online===undefined) return 'dw-presence-unknown';
+  if(!e.online) return 'dw-presence-off';
+  return e.appearingOffline ? 'dw-presence-hidden' : 'dw-presence-on';
+}
+function presenceLabel(e){
+  if(e.online===null||e.online===undefined) return 'Unknown';
+  if(!e.online) return 'Offline';
+  return e.appearingOffline ? 'Hidden' : 'Online';
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -1683,6 +1737,7 @@ async function removePlayer(uid){
 }
 
 loadList();
+setInterval(loadList, 20000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
 </script>
 ${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length || Object.keys(sessions).length)}
