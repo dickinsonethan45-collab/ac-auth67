@@ -161,8 +161,8 @@ async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffl
       { name: "👁️ Appearing", value: appearingLabel, inline: true },
       { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
       { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
-      { name: "🎮 Platform", value: platformLabel, inline: false },
-      { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: false },
+      { name: "🎮 Platform", value: platformLabel, inline: true },
+      { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: true },
     ],
     footer: { text: "Deadeye Tracker" },
     timestamp: new Date().toISOString()
@@ -205,8 +205,8 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
       { name: "👁️ Appearing", value: appearingLabel, inline: true },
       { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
       { name: "🆔 User ID", value: `\`${uid}\``, inline: true },
-      { name: "🎮 Platform", value: platformLabel, inline: false },
-      { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: false },
+      { name: "🎮 Platform", value: platformLabel, inline: true },
+      { name: "🤖 Detected By", value: `\`${detectedBy || "Amblock"}\``, inline: true },
     ],
     footer: { text: BOT_NAME },
     timestamp: new Date().toISOString()
