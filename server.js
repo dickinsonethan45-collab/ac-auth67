@@ -537,7 +537,7 @@ function handlePresenceBatch(session, state, presences, isLive) {
     const name = (u && (u.display_name || u.username)) || uid;
     const prev = roomCache[uid];
     const changed = !prev || prev.roomCode !== parsed.roomCode;
-    roomCache[uid] = { roomCode: parsed.roomCode, gameMode: parsed.gameMode, lastSeenOnline: Date.now(), name };
+    roomCache[uid] = { roomCode: parsed.roomCode, gameMode: parsed.gameMode, lastSeenOnline: Date.now(), name, steamId: u && u.steam_id };
     dirty = true;
     if (isLive && state.warm && changed) {
       sendRoomJoinWebhook({
@@ -1588,7 +1588,8 @@ app.post("/deadeye/add",async(req,res)=>{
       gameMode: (pres && pres.gameMode) || (cached ? cached.gameMode : null),
       appearingOffline: !!(pres && pres.appearOffline),
       clientVersion: pres && pres.clientVersion,
-      avatarUrl: undefined, detectedBy: "Amblock"
+      avatarUrl: undefined, detectedBy: "Amblock",
+      steamId: cached && cached.steamId
     });
   }
 
