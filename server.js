@@ -1551,7 +1551,7 @@ app.get("/deadeye",async(req,res)=>{
   const { presenceMap, anySucceeded, error } = await getLivePresenceForUids(uids);
   if (!Object.values(sessions).some(s=>!isExpired(s.token))) {
     // No valid session to check live presence with — return cached/last-known info only.
-    return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, steamId: roomCache[e.uid]?.steamId || null, presenceError: "no_valid_session" })));
+    return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, steamId: e.steamId || roomCache[e.uid]?.steamId || null, presenceError: "no_valid_session" })));
   }
 
   const enriched = entries.map(e => {
@@ -1562,19 +1562,52 @@ app.get("/deadeye",async(req,res)=>{
       online: !!pres,
       appearingOffline: !!(pres && pres.appearOffline),
       roomCode: (pres && pres.roomCode) || (cached ? cached.roomCode : null),
-      steamId: cached ? cached.steamId : null,
+      steamId: e.steamId || (cached ? cached.steamId : null),
       presenceError: anySucceeded ? null : error
     };
   });
   res.json(enriched);
 
 });
+async function fetchUserInfoByIds(token, uids) {
+  try {
+    const qs = uids.map(id => `ids=${encodeURIComponent(id)}`).join("&");
+    const r = await fetch(`${NAKAMA_SERVER}/v2/user?${qs}`, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
+        "x-unity-version": "6000.3.12f1"
+      }
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    return (data && data.users) || [];
+  } catch (e) {
+    return null;
+  }
+}
+
 app.post("/deadeye/add",async(req,res)=>{
   const { uid, name } = req.body || {};
   if (!uid) return res.status(400).json({ error: "uid is required" });
   deadeyeList[uid] = { uid, name: name || uid, addedAt: Date.now() };
   saveDeadeye();
   res.json({ ok: true, entry: deadeyeList[uid] }); // respond immediately, don't block on the presence check
+
+  // Look up the account directly so Platform is accurate immediately — roomCache
+  // only knows steam_id for players we've already seen live at least once, but a
+  // freshly-added player may never have triggered that yet.
+  const anySession = Object.values(sessions).find(s => !isExpired(s.token));
+  let steamId = roomCache[uid] && roomCache[uid].steamId;
+  if (anySession) {
+    const users = await fetchUserInfoByIds(anySession.token, [uid]);
+    const u = users && users[0];
+    if (u && u.steam_id) steamId = u.steam_id;
+  }
+  if (steamId && deadeyeList[uid]) {
+    deadeyeList[uid].steamId = steamId;
+    saveDeadeye();
+  }
 
   // If they're already in a room right now, fire the alert immediately instead of
   // waiting for the next status change — using a real live check (not stale cache)
@@ -1590,7 +1623,7 @@ app.post("/deadeye/add",async(req,res)=>{
       appearingOffline: !!(pres && pres.appearOffline),
       clientVersion: pres && pres.clientVersion,
       avatarUrl: undefined, detectedBy: "Amblock",
-      steamId: cached && cached.steamId
+      steamId
     });
   }
 
