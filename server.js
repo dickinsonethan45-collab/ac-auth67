@@ -1256,6 +1256,9 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .fid-btn{flex:none;font-size:10px;font-family:var(--mono);color:var(--muted);background:transparent;border:1px solid var(--border-hi);border-radius:7px;padding:3px 7px;cursor:pointer;transition:all .12s;line-height:1}
 .fid-btn:hover{color:var(--pp);border-color:rgba(255,176,32,0.4);background:var(--pp-dim)}
 .fnote{font-size:10px;color:var(--muted);font-family:var(--mono);text-align:center;padding:6px 0 10px}
+.fplat{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
+.fplat-steam{color:#f87171;background:rgba(248,113,113,0.12)}
+.fplat-meta{color:#60a5fa;background:rgba(96,165,250,0.12)}
 .fstate{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
 .fs-friend{color:#4ade80;background:rgba(74,222,128,0.12)}
 .fs-out{color:#fbbf24;background:rgba(251,191,36,0.12)}
@@ -1387,9 +1390,12 @@ async function trackFriends(id,force){
     let note='';
     if(data.presenceError==='ws_not_installed')note='<div class="fnote">⚠ room-code tracking needs the "ws" package on the server (online/offline still works)</div>';
     else if(data.presenceError)note='<div class="fnote">⚠ presence lookup failed ('+data.presenceError+')</div>';
+    if(sorted[0])console.log('[platform debug] sample friend.user object:',sorted[0].user);
     list.innerHTML=note+sorted.map(f=>{
       const u=f.user||{};
       const name=(u.display_name||u.username||u.id||'unknown').replace(/</g,'&lt;');
+      const isSteam=!!(u.steam_id&&u.steam_id.length);
+      const platform='<span class="fplat '+(isSteam?'fplat-steam':'fplat-meta')+'">'+(isSteam?'Steam':'Meta')+'</span>';
       const lbl=FSTATE_LBL[f.state]||'Unknown';
       const cls=FSTATE_CLS[f.state]||'fs-friend';
       const presenceCls=f.online?(f.appearingOffline?'fpresence-hidden':'fpresence-on'):'fpresence-off';
@@ -1407,7 +1413,7 @@ async function trackFriends(id,force){
       } else {
         room='<span class="fnoroom">no code</span>';
       }
-      return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+room+'<button class="fid-btn" onclick="copy(&#39;' + (u.id||'') + '&#39;,&#39;Player ID copied&#39;)" title="Copy player ID">🆔 Copy ID</button><span class="fstate '+cls+'">'+lbl+'</span></div>';
+      return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+platform+room+'<button class="fid-btn" onclick="copy(&#39;' + (u.id||'') + '&#39;,&#39;Player ID copied&#39;)" title="Copy player ID">🆔 Copy ID</button><span class="fstate '+cls+'">'+lbl+'</span></div>';
     }).join('');
   }catch(e){
     list.innerHTML='<div class="ferr">Network error fetching friends.</div>';
@@ -1625,7 +1631,7 @@ app.get("/deadeye-tracker", (req, res) => {
   --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.14);
   --bg0:#08090b;--bg1:rgba(255,255,255,0.025);--bg2:rgba(255,255,255,0.04);
   --text:#f5f2ea;--muted:rgba(180,175,160,0.35);--mono:'JetBrains Mono',monospace;
-  --success:#50fa7b;--danger:#ff5555;--de:#9B30FF;--de-dim:rgba(155,48,255,0.12);
+  --success:#50fa7b;--danger:#ff5555;--de:#ffb020;--de-dim:rgba(255,176,32,0.12);
 }
 html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}
 #bg{position:fixed;inset:0;z-index:0;pointer-events:none}
@@ -1644,14 +1650,14 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .hdr-nav{display:flex;gap:4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:4px}
 .hnav-btn{font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;color:var(--muted);text-decoration:none;transition:all .15s;letter-spacing:.2px}
 .hnav-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}
-.hnav-active{background:linear-gradient(135deg,var(--de),#6E1FB3)!important;color:#fff!important;box-shadow:0 2px 12px rgba(155,48,255,0.4)}
+.hnav-active{background:linear-gradient(135deg,var(--de),#e08a10)!important;color:#fff!important;box-shadow:0 2px 12px rgba(255,176,32,0.4)}
 .hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
 .hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
 .abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
 .abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
 .abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(255,176,32,0.25)}
 .abtn-ghost:hover{background:var(--pp-dim)}
-.abtn-de{background:linear-gradient(135deg,var(--de),#6E1FB3);color:#fff}
+.abtn-de{background:linear-gradient(135deg,var(--de),#e08a10);color:#fff}
 
 .dw-wrap{padding:32px 28px}
 .dw-title{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;margin-bottom:6px;display:flex;align-items:center;gap:10px}
@@ -1667,7 +1673,7 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .dw-list{display:flex;flex-direction:column;gap:10px}
 .dw-empty{text-align:center;padding:40px;color:var(--muted);font-size:13px;background:var(--bg1);border:1px dashed var(--border-hi);border-radius:18px}
 .dw-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px}
-.dw-dot{width:8px;height:8px;border-radius:50%;background:var(--de);box-shadow:0 0 8px rgba(155,48,255,0.7);flex-shrink:0}
+.dw-dot{width:8px;height:8px;border-radius:50%;background:var(--de);box-shadow:0 0 8px rgba(255,176,32,0.7);flex-shrink:0}
 .dw-presence{display:flex;align-items:center;gap:6px;flex:none;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:4px 10px;border-radius:100px}
 .dw-presence .pdot{width:7px;height:7px;border-radius:50%}
 .dw-presence-on{color:#4ade80;background:rgba(74,222,128,0.1)}
@@ -1678,17 +1684,17 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .dw-presence-hidden .pdot{background:#c084fc;box-shadow:0 0 6px #c084fc}
 .dw-presence-unknown{color:var(--muted);background:rgba(255,255,255,0.04)}
 .dw-presence-unknown .pdot{background:var(--muted)}
-.dw-room{font-size:10px;font-family:var(--mono);color:var(--de);background:rgba(155,48,255,0.1);border:1px solid rgba(155,48,255,0.3);border-radius:8px;padding:4px 9px;flex:none}
+.dw-room{font-size:10px;font-family:var(--mono);color:var(--de);background:rgba(255,176,32,0.1);border:1px solid rgba(255,176,32,0.3);border-radius:8px;padding:4px 9px;flex:none}
 .dw-info{flex:1;min-width:0}
 .dw-name{font-size:14px;font-weight:700;color:#fff}
 .dw-uid{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px}
 .dw-added{font-size:10px;color:rgba(180,175,160,0.3);font-family:var(--mono)}
 .dw-rm{background:transparent;border:1px solid rgba(255,85,85,0.3);color:var(--danger);border-radius:9px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
 .dw-rm:hover{background:rgba(255,85,85,0.1)}
-.dw-addfriend{background:transparent;border:1px solid rgba(155,48,255,0.35);color:var(--de);border-radius:9px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
+.dw-addfriend{background:transparent;border:1px solid rgba(255,176,32,0.35);color:var(--de);border-radius:9px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
 .dw-addfriend:hover{background:var(--de-dim)}
 .dw-addfriend:disabled{opacity:.5;cursor:default}
-.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--de),#6E1FB3);color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(155,48,255,0.4)}
+.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--de),#e08a10);color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(255,176,32,0.4)}
 .toast.show{opacity:1;transform:translateY(0) scale(1)}
 </style></head><body>
 <canvas id="bg"></canvas>
