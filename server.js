@@ -1509,19 +1509,31 @@ app.get("/deadeye",async(req,res)=>{
   const entries = Object.values(deadeyeList);
   if (!entries.length) return res.json(entries);
 
-  const s = Object.values(sessions).find(s=>!isExpired(s.token));
-  if (!s) {
+  const validSessions = Object.values(sessions).filter(s=>!isExpired(s.token));
+  if (!validSessions.length) {
     // No valid session to check live presence with — return cached/last-known info only.
     return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, presenceError: "no_valid_session" })));
   }
 
   const uids = entries.map(e => e.uid);
-  const presenceResult = await fetchPresences(s.token, uids);
+  // Query through every account, not just one — a single account may not be able to
+  // see a given target's presence at all (no relationship/visibility), which was
+  // silently reading as "Offline" even when the player was actually online-but-hidden.
+  const results = await Promise.all(validSessions.map(s => fetchPresences(s.token, uids)));
+
   const presenceMap = {};
-  if (presenceResult.presences) {
+  let anySucceeded = false;
+  let lastError = null;
+  for (const presenceResult of results) {
+    if (presenceResult.error) lastError = presenceResult.error;
+    if (!presenceResult.presences) continue;
+    anySucceeded = true;
     for (const p of presenceResult.presences) {
       let parsed = {};
       try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
+      // If multiple accounts see this player, prefer whichever result is actually online.
+      const existing = presenceMap[p.user_id];
+      if (existing && !parsed.roomCode && existing.roomCode) continue;
       presenceMap[p.user_id] = { roomCode: parsed.roomCode || null, gameMode: parsed.gameMode, appearOffline: !!parsed.appearOffline };
     }
   }
@@ -1534,10 +1546,11 @@ app.get("/deadeye",async(req,res)=>{
       online: !!pres,
       appearingOffline: !!(pres && pres.appearOffline),
       roomCode: (pres && pres.roomCode) || (cached ? cached.roomCode : null),
-      presenceError: presenceResult.error || null
+      presenceError: anySucceeded ? null : lastError
     };
   });
   res.json(enriched);
+
 });
 app.post("/deadeye/add",(req,res)=>{
   const { uid, name } = req.body || {};
