@@ -1589,6 +1589,30 @@ app.post("/deadeye/remove",(req,res)=>{
   res.json({ ok: true });
 });
 
+app.post("/deadeye/friend-request",async(req,res)=>{
+  const { uid, sessionId } = req.body || {};
+  if (!uid) return res.status(400).json({ error: "uid is required" });
+  const s = sessionId ? sessions[sessionId] : Object.values(sessions).find(s=>!isExpired(s.token));
+  if (!s || isExpired(s.token)) return res.status(400).json({ error: "no valid session available to send the request from" });
+  try {
+    const r = await fetch(`${NAKAMA_SERVER}/v2/friend?ids=${encodeURIComponent(uid)}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${s.token}`,
+        "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
+        "x-unity-version": "6000.3.12f1"
+      }
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      return res.status(r.status).json({ error: `Nakama returned ${r.status}: ${text.slice(0,200)}` });
+    }
+    res.json({ ok: true, sentFrom: s.name || s.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/deadeye-tracker", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Deadeye Tracker — AC Auth</title>
@@ -1661,6 +1685,9 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .dw-added{font-size:10px;color:rgba(180,175,160,0.3);font-family:var(--mono)}
 .dw-rm{background:transparent;border:1px solid rgba(255,85,85,0.3);color:var(--danger);border-radius:9px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
 .dw-rm:hover{background:rgba(255,85,85,0.1)}
+.dw-addfriend{background:transparent;border:1px solid rgba(155,48,255,0.35);color:var(--de);border-radius:9px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
+.dw-addfriend:hover{background:var(--de-dim)}
+.dw-addfriend:disabled{opacity:.5;cursor:default}
 .toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--de),#6E1FB3);color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(155,48,255,0.4)}
 .toast.show{opacity:1;transform:translateY(0) scale(1)}
 </style></head><body>
@@ -1729,6 +1756,7 @@ async function loadList(){
         \${e.roomCode ? '<div class="dw-room">🔑 ' + escapeHtml(e.roomCode) + '</div>' : ''}
         <div class="dw-presence \${presenceClass(e)}"><span class="pdot"></span>\${presenceLabel(e)}</div>
         <div class="dw-added">added \${new Date(e.addedAt).toLocaleString()}</div>
+        <button class="dw-addfriend" onclick="sendFriendRequest('\${e.uid.replace(/'/g,"\\\\'")}',this)">➕ Add Friend</button>
         <button class="dw-rm" onclick="removePlayer('\${e.uid.replace(/'/g,"\\\\'")}')">Remove</button>
       </div>\`).join('');
   }catch(e){listEl.innerHTML='<div class="dw-empty">Failed to load watchlist.</div>';}
@@ -1760,6 +1788,19 @@ async function addPlayer(){
 async function removePlayer(uid){
   const res=await fetch('/deadeye/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid})});
   if(res.ok){showToast('Removed from watchlist');loadList();}else{showToast('Failed to remove player');}
+}
+async function sendFriendRequest(uid,btn){
+  btn.disabled=true;
+  const orig=btn.textContent;
+  btn.textContent='Sending…';
+  try{
+    const res=await fetch('/deadeye/friend-request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid})});
+    const data=await res.json();
+    if(res.ok){showToast('Friend request sent from '+(data.sentFrom||'an account'));}
+    else{showToast('Failed: '+(data.error||'unknown error'));}
+  }catch(e){showToast('Failed to send friend request');}
+  btn.disabled=false;
+  btn.textContent=orig;
 }
 
 loadList();
