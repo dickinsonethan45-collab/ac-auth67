@@ -1551,7 +1551,7 @@ app.get("/deadeye",async(req,res)=>{
   const { presenceMap, anySucceeded, error } = await getLivePresenceForUids(uids);
   if (!Object.values(sessions).some(s=>!isExpired(s.token))) {
     // No valid session to check live presence with — return cached/last-known info only.
-    return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, presenceError: "no_valid_session" })));
+    return res.json(entries.map(e => ({ ...e, online: null, appearingOffline: false, roomCode: roomCache[e.uid]?.roomCode || null, steamId: roomCache[e.uid]?.steamId || null, presenceError: "no_valid_session" })));
   }
 
   const enriched = entries.map(e => {
@@ -1562,6 +1562,7 @@ app.get("/deadeye",async(req,res)=>{
       online: !!pres,
       appearingOffline: !!(pres && pres.appearOffline),
       roomCode: (pres && pres.roomCode) || (cached ? cached.roomCode : null),
+      steamId: cached ? cached.steamId : null,
       presenceError: anySucceeded ? null : error
     };
   });
@@ -1692,6 +1693,9 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 .dw-presence-unknown{color:var(--muted);background:rgba(255,255,255,0.04)}
 .dw-presence-unknown .pdot{background:var(--muted)}
 .dw-room{font-size:10px;font-family:var(--mono);color:var(--de);background:rgba(255,176,32,0.1);border:1px solid rgba(255,176,32,0.3);border-radius:8px;padding:4px 9px;flex:none}
+.dw-plat{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
+.dw-plat-steam{color:#f87171;background:rgba(248,113,113,0.12)}
+.dw-plat-meta{color:#60a5fa;background:rgba(96,165,250,0.12)}
 .dw-info{flex:1;min-width:0}
 .dw-name{font-size:14px;font-weight:700;color:#fff}
 .dw-uid{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px}
@@ -1767,6 +1771,7 @@ async function loadList(){
           <div class="dw-uid">\${escapeHtml(e.uid)}</div>
         </div>
         \${e.roomCode ? '<div class="dw-room">🔑 ' + escapeHtml(e.roomCode) + '</div>' : ''}
+        <div class="dw-plat \${(e.steamId && String(e.steamId).length) ? 'dw-plat-steam' : 'dw-plat-meta'}">\${(e.steamId && String(e.steamId).length) ? 'Steam' : 'Meta'}</div>
         <div class="dw-presence \${presenceClass(e)}"><span class="pdot"></span>\${presenceLabel(e)}</div>
         <div class="dw-added">added \${new Date(e.addedAt).toLocaleString()}</div>
         <button class="dw-addfriend" onclick="sendFriendRequest('\${e.uid.replace(/'/g,"\\\\'")}',this)">➕ Add Friend</button>
