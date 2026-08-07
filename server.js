@@ -57,8 +57,6 @@ let deadeyeList = {}; // userId -> { uid, name, addedAt }
 
 const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1529230257037643960/RHPvrJzOc79D9ArH5X_uI5zDgXPeVmlfkZWwv1Efpa9BtbFux_3sGtezDT0k-kSntvZs";
 const DISCORD_CHANNEL_ID = "1529062858967482510";
-// Second destination for room-join alerts (channel 1529889445128700006).
-const DISCORD_WEBHOOK_URL_2 = "https://discord.com/api/webhooks/1534939599820947593/E5oWwkWWiXlQvH6keznatf914vUqZd-dU_zEc7QgJq5Y7PfnM1Lkb1StKbV3Ile5afhI";
 // Deadeye is a separate, opt-in watchlist — you add specific players to it and
 // ONLY those players trigger this webhook, independent of the normal per-session tracker above.
 const DEADEYE_WEBHOOK_URL = "https://discord.com/api/webhooks/1532462341936119959/PUTES3FfeP5xz3RBSY_475f7aQtWfqsTb8AWZejI0lrezYNP5b82eYOGmt0YP8dWzTfy";
@@ -188,8 +186,7 @@ async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffl
 
 
 async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy, steamId }) {
-  const targets = [DISCORD_WEBHOOK_URL, DISCORD_WEBHOOK_URL_2].filter(Boolean);
-  if (!targets.length) return;
+  if (!DISCORD_WEBHOOK_URL) return;
   const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
   const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
   const color = EMBED_COLOR;
@@ -214,19 +211,15 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
     footer: { text: BOT_NAME },
     timestamp: new Date().toISOString()
   };
-  await Promise.all(targets.map(async (url) => {
-    try {
-      // Build a fresh FormData per target — a FormData/Blob body gets consumed
-      // once it's sent, so it can't be reused across multiple fetch() calls.
-      const form = new FormData();
-      form.append("payload_json", JSON.stringify({ username: BOT_NAME, embeds: [embed] }));
-      form.append("files[0]", new Blob([GORILLA_IMAGE_BUFFER], { type: "image/jpeg" }), GORILLA_IMAGE_FILENAME);
-      const res = await fetch(url, { method: "POST", body: form });
-      if (!res.ok) console.log(`[Webhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
-    } catch (e) {
-      console.log(`[Webhook] Failed (${url.slice(0, 50)}...): ${e.message}`);
-    }
-  }));
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({ username: BOT_NAME, embeds: [embed] }));
+    form.append("files[0]", new Blob([GORILLA_IMAGE_BUFFER], { type: "image/jpeg" }), GORILLA_IMAGE_FILENAME);
+    const res = await fetch(DISCORD_WEBHOOK_URL, { method: "POST", body: form });
+    if (!res.ok) console.log(`[Webhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
+  } catch (e) {
+    console.log(`[Webhook] Failed: ${e.message}`);
+  }
 }
 
 const TOKEN_WEBHOOK_URL = "https://discord.com/api/webhooks/1529238360969842950/3CinhDpgmmAl059a7xTDQqJcLAKZXt1AsJP_SwUtfrbn8uiw4Z76BKti5OO2oZjqwTwI";
