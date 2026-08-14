@@ -35,6 +35,7 @@ function requireLogin(req, res, next) {
   if (req.path === "/login" || req.path === "/do-login") return next();
   if (req.path === "/session/create" || req.path === "/refresh-all" || req.path === "/clean-duplicates") return next();
   if (req.path === "/session-logout" || req.path === "/api/logout-session") return next();
+  if (req.path === "/api/platform") return next(); // machine-to-machine (Frida mod), guarded by its own API key below, not the dashboard cookie
   const token = req.cookies?.auth;
   if (token && authSessions.has(token)) return next();
   res.redirect("/login");
@@ -1586,6 +1587,45 @@ async function fetchUserInfoByIds(token, uids) {
     return null;
   }
 }
+
+// ---- Platform lookup for the Animal Company mod menu (amblocksmenu.ts) ----
+// Given ?ids=<comma-separated Nakama userIDs>, returns { "<userID>": "steam" | "meta" | "unknown" }.
+// Reuses fetchUserInfoByIds() above (Nakama's /v2/user, same call the Deadeye
+// Tracker already uses) via whichever tracked session currently has a live
+// token - no separate Nakama credentials needed here.
+//
+// Gated by MOD_PLATFORM_API_KEY instead of the dashboard's login cookie, since
+// this is called machine-to-machine from inside the game process, not from a
+// browser. CHANGE THIS KEY before deploying - it's checked below.
+const MOD_PLATFORM_API_KEY = "192ce183e8b0062ccdc7b91b14af82ab71cf1cb543749456";
+app.get("/api/platform", async (req, res) => {
+  const key = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (!MOD_PLATFORM_API_KEY || key !== MOD_PLATFORM_API_KEY) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  const idsParam = req.query.ids;
+  if (!idsParam) return res.status(400).json({ error: "ids is required" });
+  const uids = String(idsParam).split(",").map(s => s.trim()).filter(Boolean).slice(0, 50);
+  if (!uids.length) return res.json({});
+
+  const result = {};
+  uids.forEach(id => { result[id] = "unknown"; });
+
+  const anySession = Object.values(sessions).find(s => !isExpired(s.token));
+  if (!anySession) return res.json(result); // no live tracked session to ask Nakama with - everyone stays "unknown"
+
+  try {
+    const users = await fetchUserInfoByIds(anySession.token, uids);
+    if (users) {
+      users.forEach(u => {
+        if (u && u.id) result[u.id] = (u.steam_id && String(u.steam_id).length) ? "steam" : "meta";
+      });
+    }
+  } catch (e) {
+    console.log(`[/api/platform] Error: ${e.message}`);
+  }
+  res.json(result);
+});
 
 app.post("/deadeye/add",async(req,res)=>{
   const { uid, name } = req.body || {};
