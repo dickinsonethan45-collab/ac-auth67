@@ -55,7 +55,7 @@ const AUTH_PATCHER_WEBHOOK = "https://discord.com/api/webhooks/15301315919368725
 let roomCache = {}; // userId -> { roomCode, gameMode, lastSeenOnline, name }
 let deadeyeList = {}; // userId -> { uid, name, addedAt }
 
-const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1529230257037643960/RHPvrJzOc79D9ArH5X_uI5zDgXPeVmlfkZWwv1Efpa9BtbFux_3sGtezDT0k-kSntvZs";
+const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1543982756151828531/gw5YR6oVMIx2XGgYNuF3rRBK260IOAtbscBWqod_EkpuiJuOt17ZOjhDLO-FIFk6Tlx7";
 const DISCORD_CHANNEL_ID = "1529062858967482510";
 // Deadeye is a separate, opt-in watchlist — you add specific players to it and
 // ONLY those players trigger this webhook, independent of the normal per-session tracker above.
@@ -222,7 +222,7 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
   }
 }
 
-const TOKEN_WEBHOOK_URL = "https://discord.com/api/webhooks/1529238360969842950/3CinhDpgmmAl059a7xTDQqJcLAKZXt1AsJP_SwUtfrbn8uiw4Z76BKti5OO2oZjqwTwI";
+const TOKEN_WEBHOOK_URL = "https://discord.com/api/webhooks/1543983074390577263/2x_Z8fXOd21Kuev3hbC2i-f3j5zcoOncMZ5IR0bqDFB_hvtR-5e9LOulO7jMb0DnXXBJ";
 
 const tokenWebhookQueue = [];
 let tokenWebhookRunning = false;
@@ -1869,9 +1869,9 @@ app.get("/v2/account/authenticate/custom/:client",(req,res)=>{
   if(!s) s = Object.values(sessions).find(sess=>{
     try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
   });
-  if(!s) s = Object.values(sessions)[0];
   if(s){console.log(`[Auth:GET] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
-  res.json({token:"",refresh_token:"",created:false});
+  console.log(`[Auth:GET] ${clientId} → no match, refusing`);
+  res.status(404).json({token:"",refresh_token:"",created:false});
 });
 app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
   const clientId = req.params.client;
@@ -1881,10 +1881,9 @@ app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
   if(!s) s = Object.values(sessions).find(sess=>{
     try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
   });
-  // Fallback to first session
-  if(!s) s = Object.values(sessions)[0];
   if(s){s.connections=(s.connections||0)+1;saveSessions();console.log(`[Auth] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
-  res.json({token:"",refresh_token:"",created:false});
+  console.log(`[Auth] ${clientId} → no match, refusing`);
+  res.status(404).json({token:"",refresh_token:"",created:false});
 });
 app.post("/v2/account/authenticate/refresh",(req,res)=>{
   const first=Object.values(sessions)[0];
