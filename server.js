@@ -145,71 +145,16 @@ async function queueDeadeyeWebhook(payload) {
 // supporter codes boooom
 
 const redeemed = new Map();
-const supporterNonces = new Map();
-
 app.set("trust proxy", true);
-
-const NONCE_TTL = 5 * 60 * 1000;
-
-function getIp(req) {
-  const forwarded = req.headers["x-forwarded-for"];
-
-  return (
-    (typeof forwarded === "string"
-      ? forwarded.split(",")[0].trim()
-      : null) ||
-    req.ip ||
-    req.socket?.remoteAddress ||
-    "unknown"
-  );
-}
-
-function hashNonce(nonce) {
-  return crypto.createHash("sha256").update(nonce).digest("hex");
-}
-
-function createSupporterNonce(ip, code) {
-  const nonce = crypto.randomBytes(32).toString("hex");
-
-  supporterNonces.set(hashNonce(nonce), {
-    ip,
-    code,
-    expiresAt: Date.now() + NONCE_TTL
-  });
-
-  return nonce;
-}
-
-function consumeSupporterNonce(req) {
-  const nonce = req.headers["x-supporter-nonce"];
-
-  if (!nonce || typeof nonce !== "string") {
-    return { ok: false, status: 401, error: "Supporter nonce required" };
-  }
-
-  const hash = hashNonce(nonce);
-  const data = supporterNonces.get(hash);
-
-  if (!data) {
-    return { ok: false, status: 401, error: "Invalid or already used nonce" };
-  }
-
-  supporterNonces.delete(hash);
-
-  if (Date.now() > data.expiresAt) {
-    return { ok: false, status: 401, error: "Nonce expired" };
-  }
-
-  if (data.ip !== getIp(req)) {
-    return { ok: false, status: 403, error: "Nonce belongs to another IP" };
-  }
-
-  return { ok: true };
-}
 
 const getValidCodes = () => {
   try {
     const filePath = path.join(DATA_DIR, "codes.txt");
+
+    if (!fs.existsSync(filePath)) {
+      console.error(`[SupporterCode] codes.txt not found at: ${filePath}`);
+      return null;
+    }
 
     return new Set(
       fs.readFileSync(filePath, "utf-8")
@@ -217,68 +162,101 @@ const getValidCodes = () => {
         .map(c => c.trim())
         .filter(Boolean)
     );
-  } catch {
-    return new Set();
+  } catch (err) {
+    console.error("[SupporterCode] Failed to read codes.txt:", err);
+    return null;
   }
 };
 
 function handleSupporterCode(req, res) {
-  const code = String(req.body?.code ?? req.query?.code ?? "").trim();
+  console.log(`[SupporterCode] HIT ${req.method} ${req.originalUrl}`);
 
-  if (!code) {
-    return res.status(400).json({
+  if (req.method !== "POST" && req.method !== "GET") {
+    return res.status(405).json({
       valid: false,
-      error: "No code"
+      error: "Method not allowed"
     });
   }
 
-  const validCodes = getValidCodes();
+  try {
+    const rawCode = req.body?.code ?? req.query?.code ?? "";
+    const code = String(rawCode).trim();
 
-  if (!validCodes.has(code)) {
-    return res.status(401).json({
-      valid: false,
-      error: "Invalid code"
-    });
-  }
+    if (!code) {
+      return res.status(400).json({
+        valid: false,
+        error: "No code"
+      });
+    }
 
-  const ip = getIp(req);
+    const validCodes = getValidCodes();
 
-  if (redeemed.has(code) && redeemed.get(code) !== ip) {
+    if (!validCodes) {
+      return res.status(503).json({
+        valid: false,
+        error: "codes.txt could not be loaded"
+      });
+    }
+
+    if (!validCodes.has(code)) {
+      return res.status(401).json({
+        valid: false,
+        message: "Invalid code"
+      });
+    }
+
+    const forwarded = req.headers["x-forwarded-for"];
+
+    const ip =
+      (typeof forwarded === "string"
+        ? forwarded.split(",")[0].trim()
+        : null) ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      "unknown";
+
+  if (redeemed.has(code)) {
+    const ownerIp = redeemed.get(code);
+
+    if (ownerIp === ip) {
+      return res.status(200).json({
+        valid: true,
+        message: "Code valid"
+      });
+    }
+
     return res.status(403).json({
       valid: false,
-      error: "This code is linked to another IP"
+      message: "This code is already linked to another IP"
     });
   }
 
-  if (!redeemed.has(code)) {
-    redeemed.set(code, ip);
-  }
+  redeemed.set(code, ip);
 
-  const nonce = createSupporterNonce(ip, code);
+  console.log(`[SupporterCode] Code "${code}" linked to IP ${ip}`);
 
-  return res.json({
+  return res.status(200).json({
     valid: true,
-    nonce,
-    expiresIn: 300
+    message: "Code redeemed"
   });
+
+  } catch (err) {
+    console.error("[SupporterCode] Handler error:", err);
+
+    return res.status(500).json({
+      valid: false,
+      error: "Internal server error"
+    });
+  }
 }
 
-app.post("/v2/supportercode", handleSupporterCode);
-app.post("/v2/supportercode/", handleSupporterCode);
+// Explicitly support both forms
+app.all("/v2/supportercode", handleSupporterCode);
+app.all("/v2/supportercode/", handleSupporterCode);
 
 app.get("/v2/redeemed", (req, res) => {
   return res.json([...redeemed.keys()]);
 });
-
-setInterval(() => {
-  const now = Date.now();
-
-  for (const [hash, data] of supporterNonces) {
-    if (now > data.expiresAt) {
-      supporterNonces.delete(hash);
-    }
-  }
-}, 60000).unref();
 
 
 async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy, steamId }) {
@@ -2002,53 +1980,28 @@ ${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length ||
 });
 
 // ── API ────────────────────────────────────────────────────────────────────────
-function handleCustomAuth(req, res) {
-  const verification = consumeSupporterNonce(req);
-
-  if (!verification.ok) {
-    return res.status(verification.status).json({
-      error: verification.error
-    });
-  }
-
+app.get("/v2/account/authenticate/custom/:client",(req,res)=>{
   const clientId = req.params.client;
-
   let s = sessions[clientId];
-
-  if (!s) {
-    s = Object.values(sessions).find(sess => {
-      try {
-        return JSON.parse(
-          Buffer.from(sess.token.split(".")[1], "base64").toString()
-        ).uid === clientId;
-      } catch {
-        return false;
-      }
-    });
-  }
-
-  if (!s) {
-    return res.status(404).json({
-      token: "",
-      refresh_token: "",
-      created: false
-    });
-  }
-
-  s.connections = (s.connections || 0) + 1;
-  saveSessions();
-
-  return res.json({
-    token: s.token,
-    refresh_token: s.refresh_token,
-    created: false
+  if(!s) s = Object.values(sessions).find(sess=>{
+    try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
   });
-}
-
-app.get("/v2/account/authenticate/custom/:client", handleCustomAuth);
-app.post("/v2/account/authenticate/custom/:client", handleCustomAuth);
-
-
+  if(s){console.log(`[Auth:GET] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
+  console.log(`[Auth:GET] ${clientId} → no match, refusing`);
+  res.status(404).json({token:"",refresh_token:"",created:false});
+});
+app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
+  const clientId = req.params.client;
+  // First try direct key match
+  let s = sessions[clientId];
+  // Then try matching by uid in token payload
+  if(!s) s = Object.values(sessions).find(sess=>{
+    try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
+  });
+  if(s){s.connections=(s.connections||0)+1;saveSessions();console.log(`[Auth] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
+  console.log(`[Auth] ${clientId} → no match, refusing`);
+  res.status(404).json({token:"",refresh_token:"",created:false});
+});
 app.post("/v2/account/authenticate/refresh",(req,res)=>{
   const first=Object.values(sessions)[0];
   res.json({token:first?.token||"",refresh_token:first?.refresh_token||"",created:false});
