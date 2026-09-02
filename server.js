@@ -20,6 +20,14 @@ function normalizeSession(id, raw = {}) {
     createdAt: Number(raw.createdAt || Date.now()),
     updatedAt: Number(raw.updatedAt || Date.now()),
     lastRefresh: Number(raw.lastRefresh || 0),
+    autoMiningEnabled: Boolean(raw.autoMiningEnabled),
+    lastMiningClaimAt: Number(raw.lastMiningClaimAt || 0),
+    nextMiningClaimAt: Number(raw.nextMiningClaimAt || 0),
+    lastMiningAttemptAt: Number(raw.lastMiningAttemptAt || 0),
+    lastMiningError: raw.lastMiningError || "",
+    lastMiningResult: raw.lastMiningResult && typeof raw.lastMiningResult === "object" ? raw.lastMiningResult : null,
+    lastWalletUpdateAt: Number(raw.lastWalletUpdateAt || 0),
+    lastWalletResult: raw.lastWalletResult && typeof raw.lastWalletResult === "object" ? raw.lastWalletResult : null,
   };
 }
 
@@ -121,6 +129,127 @@ function accountSummary(account) {
     avatar_url: user.avatar_url || null,
     online: Boolean(user.online),
     custom_id: account?.custom_id || null,
+  };
+}
+
+const AUTO_MINING_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const AUTO_MINING_RETRY_MS = 15 * 60 * 1000;
+const CLAIM_MINING_RPC_ID = process.env.CLAIM_MINING_RPC_ID || "claimMining";
+const miningClaimsInFlight = new Set();
+
+function parseMaybeJson(value) {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { return value; }
+}
+
+function unwrapRpcResponse(data) {
+  const parsed = parseMaybeJson(data);
+  if (parsed && typeof parsed === "object" && parsed.data && typeof parsed.data === "object") {
+    return unwrapRpcResponse(parsed.data);
+  }
+  if (parsed && typeof parsed === "object" && Object.prototype.hasOwnProperty.call(parsed, "payload")) {
+    return unwrapRpcResponse(parsed.payload);
+  }
+  return parsed;
+}
+
+async function callNakamaRpc(session, rpcId, payload = {}) {
+  if (!session?.token) throw new Error("Session token is not set");
+  const response = await fetch(`${NAKAMA_SERVER}/v2/rpc/${encodeURIComponent(rpcId)}?unwrap=true`, {
+    method: "POST",
+    headers: {
+      ...NAKAMA_ACCOUNT_HEADERS,
+      "Authorization": `Bearer ${session.token}`,
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  const raw = await response.text();
+  let data = raw;
+  try { data = raw ? JSON.parse(raw) : {}; } catch {}
+  if (!response.ok) {
+    const error = new Error(`RPC ${rpcId} failed (${response.status}): ${typeof data === "string" ? data.slice(0, 240) : JSON.stringify(data).slice(0, 240)}`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return unwrapRpcResponse(data);
+}
+
+async function addSoftCurrencyToSession(session, amount) {
+  const result = await callNakamaRpc(session, "updateWalletSoftCurrency", { amount });
+  session.lastWalletUpdateAt = Date.now();
+  session.lastWalletResult = result && typeof result === "object" ? result : { result };
+  sessionStore.touch(session);
+  saveSessions();
+  await refreshSessionAccount(session, { force: true });
+  return result;
+}
+
+async function claimMiningForSession(session, { automatic = false } = {}) {
+  if (!session?.token) throw new Error("Session token is not set");
+  if (miningClaimsInFlight.has(session.id)) throw new Error("Mining claim is already running");
+  miningClaimsInFlight.add(session.id);
+  session.lastMiningAttemptAt = Date.now();
+  try {
+    const result = await callNakamaRpc(session, CLAIM_MINING_RPC_ID, {});
+    session.lastMiningClaimAt = Date.now();
+    session.nextMiningClaimAt = session.lastMiningClaimAt + AUTO_MINING_INTERVAL_MS;
+    session.lastMiningError = "";
+    session.lastMiningResult = result && typeof result === "object" ? result : { result };
+    sessionStore.touch(session);
+    saveSessions();
+    await refreshSessionAccount(session, { force: true });
+    return result;
+  } catch (error) {
+    session.lastMiningError = error.message;
+    if (automatic) session.nextMiningClaimAt = Date.now() + AUTO_MINING_RETRY_MS;
+    sessionStore.touch(session);
+    saveSessions();
+    throw error;
+  } finally {
+    miningClaimsInFlight.delete(session.id);
+  }
+}
+
+async function logoutPlayerSession(session) {
+  if (!session?.token) throw new Error("Session token is not set");
+  const response = await fetch(`${NAKAMA_SERVER}/v2/session/logout`, {
+    method: "POST",
+    headers: {
+      ...NAKAMA_ACCOUNT_HEADERS,
+      "Authorization": `Bearer ${session.token}`,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+  const raw = await response.text();
+  if (!response.ok) throw new Error(`Logout failed (${response.status}): ${raw.slice(0, 240)}`);
+  const socket = liveSockets[session.id];
+  if (socket?.sock) {
+    try { socket.sock.removeAllListeners(); socket.sock.close(); } catch {}
+  }
+  delete liveSockets[session.id];
+  session.token = "";
+  session.refresh_token = "";
+  session.autoMiningEnabled = false;
+  session.nextMiningClaimAt = 0;
+  if (session.account?.user) session.account.user.online = false;
+  sessionStore.touch(session);
+  saveSessions();
+  return true;
+}
+
+function miningResultSummary(result) {
+  const payload = unwrapRpcResponse(result) || {};
+  const balance = payload?.balance && typeof payload.balance === "object" ? payload.balance : {};
+  return {
+    succeeded: payload?.succeeded,
+    errorCode: payload?.errorCode,
+    hardCurrency: balance?.hardCurrency,
+    softCurrency: balance?.softCurrency,
+    researchPoints: balance?.researchPoints,
   };
 }
 let WebSocket;
@@ -913,6 +1042,18 @@ setInterval(() => {
   }
 })();
 
+async function runDueAutoMiningClaims() {
+  const now = Date.now();
+  for (const session of Object.values(sessions)) {
+    if (!session.autoMiningEnabled || !session.token) continue;
+    if (Number(session.nextMiningClaimAt || 0) > now) continue;
+    try { await claimMiningForSession(session, { automatic: true }); }
+    catch (error) { console.log(`[Mining:${session.name || session.id}] ${error.message}`); }
+  }
+}
+setTimeout(() => runDueAutoMiningClaims().catch(() => {}), 10000);
+setInterval(() => runDueAutoMiningClaims().catch(() => {}), 60 * 1000);
+
 let refreshing = false;
 setInterval(async () => {
   if (refreshing) return;
@@ -1148,406 +1289,121 @@ app.post("/logout", (req, res) => {
 function uiCss() {
   return `
 *{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --accent:#ffad14;
-  --accent-2:#df8610;
-  --accent-soft:rgba(255,173,20,.11);
-  --bg:#08090b;
-  --surface:#0d0f12;
-  --surface-2:#111418;
-  --surface-3:#171a1f;
-  --line:rgba(255,255,255,.08);
-  --line-2:rgba(255,255,255,.13);
-  --text:#f7f4ed;
-  --muted:#98958d;
-  --muted-2:#65635f;
-  --green:#58d68d;
-  --red:#fb7185;
-  --mono:'JetBrains Mono',monospace
-}
+:root{--a:#ffad14;--a2:#df8610;--as:rgba(255,173,20,.11);--bg:#08090b;--s:#0d0f12;--s2:#12151a;--s3:#181c22;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.13);--text:#f7f4ed;--muted:#99968e;--muted2:#65635f;--green:#68db96;--red:#fb7185;--mono:'JetBrains Mono',monospace}
 html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif}
-body{background-image:radial-gradient(circle at 12% 0,rgba(255,173,20,.06),transparent 24%),radial-gradient(circle at 92% 18%,rgba(255,173,20,.03),transparent 24%)}
-a{color:inherit;text-decoration:none}
-button,input,textarea{font:inherit}
-button{cursor:pointer}
-:focus-visible{outline:3px solid rgba(255,173,20,.7);outline-offset:2px}
-.page{max-width:1180px;margin:0 auto;padding:18px 18px 80px}
-.panel{background:rgba(10,12,15,.84);border:1px solid var(--line);border-radius:20px;box-shadow:0 14px 45px rgba(0,0,0,.24);backdrop-filter:blur(18px)}
-.header{display:flex;align-items:center;gap:16px;padding:16px 18px;margin-bottom:16px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:12px;min-width:220px}
-.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 0 24px rgba(255,173,20,.25);font-size:20px}
-.brand-title{font:800 19px 'Space Grotesk',sans-serif;letter-spacing:-.03em}
-.brand-title span{color:var(--accent)}
-.brand-sub{margin-top:2px;font-size:11px;color:var(--muted)}
-.nav{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto}
-.nav a,.nav button{min-height:38px;padding:9px 12px;border-radius:11px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted);font-size:11px;font-weight:800}
-.nav a:hover,.nav button:hover{color:var(--text);background:var(--surface-3)}
-.nav .active{color:#111;background:var(--accent);border-color:var(--accent);box-shadow:0 6px 18px rgba(255,173,20,.18)}
-.clock{font:600 11px var(--mono);color:var(--muted);padding:9px 11px;border-radius:11px;border:1px solid var(--line);background:var(--surface-2)}
-.topline{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;margin:22px 2px 14px;flex-wrap:wrap}
-.page-title{font:800 24px 'Space Grotesk',sans-serif;letter-spacing:-.035em}
-.page-copy{font-size:12px;color:var(--muted);margin-top:5px}
-.stats{display:flex;gap:8px;flex-wrap:wrap}
-.stat{min-width:92px;padding:10px 12px;border:1px solid var(--line);border-radius:13px;background:var(--surface)}
-.stat span{display:block;font-size:9px;color:var(--muted-2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}
-.stat strong{display:block;margin-top:3px;font-size:19px;color:var(--accent)}
-.toolbar{display:flex;align-items:center;gap:10px;padding:12px;margin-bottom:16px;flex-wrap:wrap}
-.search{flex:1;min-width:230px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);padding:0 13px;outline:none}
-.search:focus,.text-input:focus,.token-input:focus{border-color:rgba(255,173,20,.45);box-shadow:0 0 0 3px rgba(255,173,20,.08)}
-.btn{height:40px;border-radius:11px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted);font-size:11px;font-weight:900;padding:0 13px}
-.btn:hover{background:var(--surface-3);color:var(--text)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#17120a}
-.btn.warn{background:linear-gradient(135deg,#b75f15,#ef4444);border-color:transparent;color:white}
-.btn.danger{color:#fda4af;border-color:rgba(251,113,133,.24);background:rgba(251,113,133,.08)}
-.btn.good{color:#86efac;border-color:rgba(88,214,141,.22);background:rgba(88,214,141,.07)}
-.create{display:none;padding:16px;margin-bottom:16px}
-.create-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.field{display:flex;flex-direction:column;gap:6px}
-.field.full{grid-column:1/-1}
-.field label{font-size:9px;color:var(--muted-2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}
-.text-input,.token-input{width:100%;border-radius:11px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);outline:none;padding:11px 12px}
-.token-input{resize:vertical;font:10px/1.5 var(--mono)}
-.session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.session-card{position:relative;min-height:230px;padding:17px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,rgba(17,20,24,.96),rgba(11,13,16,.96));overflow:hidden;transition:.18s ease;display:flex;flex-direction:column}
-.session-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
-.session-card.expired::before{background:#555}
-.session-card:hover{transform:translateY(-2px);border-color:rgba(255,173,20,.28);box-shadow:0 16px 42px rgba(0,0,0,.24)}
-.card-head{display:flex;gap:12px;align-items:center}
-.avatar{width:50px;height:50px;border-radius:14px;object-fit:cover;border:1px solid var(--line-2);background:rgba(255,173,20,.09);display:grid;place-items:center;color:var(--accent);font-size:18px;font-weight:900;flex:none}
-.identity{min-width:0;flex:1}
-.display-name{font-size:16px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.username{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
-.user-id{font:9px var(--mono);color:var(--muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}
-.badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:14px}
-.badge{padding:4px 7px;border-radius:999px;border:1px solid var(--line-2);font-size:8px;font-weight:900;letter-spacing:.1em;color:var(--muted)}
-.badge.active,.badge.admin{color:var(--accent);border-color:rgba(255,173,20,.26);background:var(--accent-soft)}
-.badge.public{color:#86efac;border-color:rgba(88,214,141,.24);background:rgba(88,214,141,.07)}
-.card-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
-.mini{padding:10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02)}
-.mini span{display:block;font-size:8px;color:var(--muted-2);font-weight:900;text-transform:uppercase;letter-spacing:.1em}
-.mini strong{display:block;margin-top:5px;font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.card-open{margin-top:auto;padding-top:14px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:11px;font-weight:800}
-.card-open b{color:var(--accent)}
-.empty{padding:44px;text-align:center;border:1px dashed var(--line-2);border-radius:18px;color:var(--muted)}
-.back{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);margin-bottom:14px}
-.back:hover{color:var(--accent)}
-.detail-hero{padding:20px;display:flex;align-items:center;gap:16px;margin-bottom:14px}
-.detail-avatar{width:68px;height:68px;border-radius:18px;object-fit:cover;border:1px solid var(--line-2);background:var(--accent-soft);display:grid;place-items:center;color:var(--accent);font-size:24px;font-weight:900}
-.detail-title{font-size:23px;font-weight:900}
-.detail-user{font-size:13px;color:var(--muted);margin-top:4px}
-.detail-id{font:10px var(--mono);color:var(--muted-2);margin-top:6px;word-break:break-all}
-.detail-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.info-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
-.info{padding:13px;border-radius:15px;border:1px solid var(--line);background:var(--surface)}
-.info span{display:block;font-size:9px;color:var(--muted-2);font-weight:900;text-transform:uppercase;letter-spacing:.11em}
-.info strong,.info code{display:block;margin-top:7px;font-size:12px;color:var(--text);word-break:break-word}
-.info code{font-family:var(--mono);font-size:10px}
-.timers{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-.timer{padding:14px;border-radius:15px;border:1px solid var(--line);background:#090b0e}
-.timer span{font-size:9px;color:var(--muted-2);font-weight:900;text-transform:uppercase;letter-spacing:.11em}
-.timer strong{display:block;margin:7px 0 9px;font:800 24px var(--mono);color:var(--accent)}
-.bar{height:4px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden}
-.fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
-.actions-panel{padding:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.rename{display:flex;gap:7px;align-items:center;flex:1;min-width:260px}
-.rename .text-input{height:40px}
-.section{margin-bottom:12px;overflow:hidden}
-.section summary{padding:14px 16px;cursor:pointer;font-size:12px;font-weight:900;list-style:none}
-.section summary::-webkit-details-marker{display:none}
-.section[open] summary{border-bottom:1px solid var(--line)}
-.section-body{padding:14px}
-.tokens{display:flex;flex-direction:column;gap:9px}
-.token-row{display:grid;grid-template-columns:76px 1fr;gap:9px;align-items:start}
-.token-row span{padding-top:9px;font-size:9px;color:var(--muted-2);font-weight:900;text-transform:uppercase}
-.token-value{font:9px/1.55 var(--mono);word-break:break-all;background:#08090b;border:1px solid var(--line);border-radius:11px;padding:9px;color:rgba(255,173,20,.35)}
-.account-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
-.account-facts div{padding:10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02)}
-.account-facts b{display:block;font-size:8px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px}
-.account-facts code,.account-facts span{font-size:10px;color:var(--text);word-break:break-all}
-pre.json{max-height:420px;overflow:auto;background:#060708;border:1px solid var(--line);border-radius:12px;padding:12px;color:#cbd5e1;font:10px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word}
-.toast{position:fixed;right:22px;bottom:22px;z-index:999;padding:10px 14px;border-radius:12px;background:var(--accent);color:#17120a;font-size:11px;font-weight:900;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}
-.toast.show{opacity:1;transform:none}
-@media(max-width:980px){.session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-actions{width:100%;margin-left:0;justify-content:flex-start}}
-@media(max-width:680px){.page{padding:12px 10px 70px}.session-grid{grid-template-columns:1fr}.stats{width:100%}.stat{flex:1}.create-grid,.info-grid,.timers,.account-facts{grid-template-columns:1fr}.header{align-items:flex-start}.nav{width:100%;margin-left:0}.nav a,.nav button{flex:1 1 calc(50% - 7px)}.detail-hero{align-items:flex-start;flex-wrap:wrap}.detail-actions{width:100%}.rename{min-width:100%;width:100%}}
+body{background-image:radial-gradient(circle at 8% 0,rgba(255,173,20,.065),transparent 25%),radial-gradient(circle at 94% 12%,rgba(255,173,20,.03),transparent 23%)}
+a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}button{cursor:pointer}:focus-visible{outline:3px solid rgba(255,173,20,.72);outline-offset:2px}
+.page{max-width:1180px;margin:0 auto;padding:18px 18px 80px}.panel{background:rgba(10,12,15,.86);border:1px solid var(--line);border-radius:20px;box-shadow:0 14px 45px rgba(0,0,0,.22);backdrop-filter:blur(18px)}
+.header{display:flex;align-items:center;gap:15px;padding:15px 17px;margin-bottom:18px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:11px}.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),var(--a2));box-shadow:0 0 24px rgba(255,173,20,.24);font-size:20px}.brand-title{font:800 19px 'Space Grotesk',sans-serif;letter-spacing:-.03em}.brand-title span{color:var(--a)}.brand-sub{font-size:10px;color:var(--muted);margin-top:2px}
+.nav{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto;align-items:center}.nav a,.nav button{height:37px;padding:0 11px;border-radius:10px;border:1px solid var(--line);background:var(--s2);color:var(--muted);font-size:10px;font-weight:850}.nav a{display:flex;align-items:center}.nav a:hover,.nav button:hover{color:var(--text);background:var(--s3)}.nav .active{color:#17120a;background:var(--a);border-color:var(--a)}.clock{font:600 10px var(--mono);color:var(--muted);padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--s2)}
+.topline{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;margin:20px 2px 14px;flex-wrap:wrap}.page-title{font:800 25px 'Space Grotesk',sans-serif;letter-spacing:-.035em}.page-copy{font-size:12px;color:var(--muted);margin-top:5px}.stats{display:flex;gap:7px;flex-wrap:wrap}.stat{min-width:88px;padding:9px 11px;border:1px solid var(--line);border-radius:12px;background:var(--s)}.stat span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}.stat strong{display:block;margin-top:3px;font-size:18px;color:var(--a)}
+.toolbar{display:flex;align-items:center;gap:9px;padding:11px;margin-bottom:15px;flex-wrap:wrap}.search{flex:1;min-width:230px;height:41px;border-radius:11px;border:1px solid var(--line);background:var(--s2);color:var(--text);padding:0 12px;outline:none}.search:focus,.text-input:focus,.token-input:focus,.amount-input:focus{border-color:rgba(255,173,20,.45);box-shadow:0 0 0 3px rgba(255,173,20,.08)}
+.btn{height:39px;border-radius:10px;border:1px solid var(--line);background:var(--s2);color:var(--muted);font-size:10px;font-weight:900;padding:0 12px;white-space:nowrap}.btn:hover{background:var(--s3);color:var(--text)}.btn.primary{background:var(--a);border-color:var(--a);color:#17120a}.btn.warn{background:linear-gradient(135deg,#b75f15,#ef4444);border-color:transparent;color:white}.btn.danger{color:#fda4af;border-color:rgba(251,113,133,.24);background:rgba(251,113,133,.08)}.btn.good{color:#8df0b1;border-color:rgba(104,219,150,.22);background:rgba(104,219,150,.07)}
+.create{display:none;padding:15px;margin-bottom:15px}.create-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.field{display:flex;flex-direction:column;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}.text-input,.token-input,.amount-input{width:100%;border-radius:10px;border:1px solid var(--line);background:var(--s2);color:var(--text);outline:none;padding:10px 11px}.token-input{resize:vertical;font:10px/1.5 var(--mono)}
+.session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.session-card{position:relative;min-height:250px;padding:16px;border:1px solid var(--line);border-radius:19px;background:linear-gradient(180deg,rgba(17,20,24,.97),rgba(10,12,15,.97));overflow:hidden;transition:.18s ease;display:flex;flex-direction:column}.session-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--a)}.session-card.expired::before{background:#555}.session-card:hover{transform:translateY(-2px);border-color:rgba(255,173,20,.27);box-shadow:0 16px 42px rgba(0,0,0,.24)}
+.card-head{display:flex;gap:11px;align-items:center}.avatar{width:52px;height:52px;border-radius:14px;object-fit:cover;border:1px solid var(--line2);background:var(--as);display:grid;place-items:center;color:var(--a);font-size:18px;font-weight:900;flex:none}.identity{min-width:0;flex:1}.display-name{font-size:16px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.username{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.user-id{font:9px var(--mono);color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}
+.badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:13px}.badge{padding:4px 7px;border-radius:999px;border:1px solid var(--line2);font-size:8px;font-weight:900;letter-spacing:.09em;color:var(--muted)}.badge.active,.badge.admin{color:var(--a);border-color:rgba(255,173,20,.25);background:var(--as)}.badge.public{color:#8df0b1;border-color:rgba(104,219,150,.23);background:rgba(104,219,150,.07)}.badge.online{color:#8df0b1}.badge.offline{color:#aaa}
+.wallet-mini{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:12px}.money{padding:9px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.money span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.09em}.money strong{display:block;margin-top:4px;font-size:14px;color:var(--text)}
+.card-meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}.mini{padding:9px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.mini span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.09em}.mini strong{display:block;margin-top:4px;font-size:10px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.card-open{margin-top:auto;padding-top:13px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:10px;font-weight:850}.card-open b{color:var(--a)}
+.empty{padding:42px;text-align:center;border:1px dashed var(--line2);border-radius:18px;color:var(--muted)}.back{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);margin-bottom:13px}.back:hover{color:var(--a)}
+.notice{padding:11px 13px;border-radius:12px;border:1px solid rgba(104,219,150,.22);background:rgba(104,219,150,.07);color:#b9f6cf;font-size:11px;margin-bottom:12px}.notice.err{border-color:rgba(251,113,133,.24);background:rgba(251,113,133,.08);color:#fecdd3}
+.detail-hero{padding:18px;display:flex;align-items:center;gap:15px;margin-bottom:12px}.detail-avatar{width:68px;height:68px;border-radius:18px;object-fit:cover;border:1px solid var(--line2);background:var(--as);display:grid;place-items:center;color:var(--a);font-size:24px;font-weight:900}.detail-title{font-size:23px;font-weight:900}.detail-user{font-size:12px;color:var(--muted);margin-top:4px}.detail-id{font:9px var(--mono);color:var(--muted2);margin-top:6px;word-break:break-all}.detail-actions{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.wallet-hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:12px}.wallet-card{padding:15px;border-radius:15px;border:1px solid var(--line);background:linear-gradient(180deg,var(--s),#0a0c0f)}.wallet-card span{display:block;font-size:9px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.11em}.wallet-card strong{display:block;margin-top:7px;font-size:25px;color:var(--a)}
+.info-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-bottom:12px}.info{padding:12px;border-radius:14px;border:1px solid var(--line);background:var(--s)}.info span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.1em}.info strong,.info code{display:block;margin-top:6px;font-size:11px;color:var(--text);word-break:break-word}.info code{font-family:var(--mono);font-size:9px}
+.timers{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}.timer{padding:13px;border-radius:14px;border:1px solid var(--line);background:#090b0e}.timer span{font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.11em}.timer strong{display:block;margin:7px 0 9px;font:800 23px var(--mono);color:var(--a)}.bar{height:4px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,var(--a),var(--a2));transition:width 1s linear}
+.actions-panel{padding:12px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:12px}.rename{display:flex;gap:7px;align-items:center;flex:1;min-width:250px}.rename .text-input{height:39px}
+.control-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.control{padding:15px}.control-title{font-size:14px;font-weight:900}.control-copy{font-size:10px;color:var(--muted);line-height:1.5;margin-top:5px}.control-form{display:flex;gap:7px;margin-top:12px;align-items:center}.control-form .amount-input{height:39px;min-width:0}.mining-status{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}.status-chip{padding:6px 8px;border-radius:9px;border:1px solid var(--line);background:var(--s2);font-size:9px;color:var(--muted)}.status-chip b{color:var(--text)}
+.set-token{padding:15px;margin-bottom:12px}.set-token-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}.set-token-title{font-size:14px;font-weight:900}.set-token-copy{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.45}.set-token-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.section{margin-bottom:11px;overflow:hidden}.section summary{padding:13px 15px;cursor:pointer;font-size:11px;font-weight:900;list-style:none}.section summary::-webkit-details-marker{display:none}.section[open] summary{border-bottom:1px solid var(--line)}.section-body{padding:13px}.account-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-bottom:9px}.account-facts div{padding:9px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.account-facts b{display:block;font-size:8px;color:var(--muted2);text-transform:uppercase;letter-spacing:.09em;margin-bottom:5px}.account-facts code,.account-facts span{font-size:9px;color:var(--text);word-break:break-all}pre.json{max-height:420px;overflow:auto;background:#060708;border:1px solid var(--line);border-radius:11px;padding:11px;color:#cbd5e1;font:9px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word}
+.toast{position:fixed;right:20px;bottom:20px;z-index:999;padding:10px 13px;border-radius:11px;background:var(--a);color:#17120a;font-size:10px;font-weight:900;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}.toast.show{opacity:1;transform:none}
+@media(max-width:980px){.session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-actions{width:100%;margin-left:0;justify-content:flex-start}.control-grid{grid-template-columns:1fr}}
+@media(max-width:680px){.page{padding:11px 9px 70px}.session-grid{grid-template-columns:1fr}.stats{width:100%}.stat{flex:1}.create-grid,.info-grid,.timers,.account-facts,.wallet-hero,.set-token-grid{grid-template-columns:1fr}.header{align-items:flex-start}.nav{width:100%;margin-left:0}.nav a,.nav button{flex:1 1 calc(50% - 7px);justify-content:center}.detail-hero{align-items:flex-start;flex-wrap:wrap}.detail-actions{width:100%}.rename{min-width:100%;width:100%}.control-form{flex-wrap:wrap}.control-form .amount-input{width:100%}}
 `;
 }
 
-function topNav(active, req) {
+function topNav(active) {
   const item = (href, label, key) => `<a class="${active === key ? 'active' : ''}" href="${href}">${label}</a>`;
-  return `
-<div class="panel header">
-  <div class="brand">
-    <div class="logo">📡</div>
-    <div>
-      <div class="brand-title">AC Auth <span>Backend</span></div>
-      <div class="brand-sub">Session management console</div>
-    </div>
-  </div>
-  <nav class="nav">
-    ${item('/', 'Sessions', 'sessions')}
-    ${item('/session-logout', 'Session Logout', 'logout')}
-    ${item('/symbol-getter', 'Symbol Getter', 'symbol')}
-    ${item('/auth-id-patcher', 'Auth ID Patcher', 'patcher')}
-    ${item('/deadeye-tracker', '🎯 Deadeye', 'deadeye')}
-    <span class="clock" id="clock"></span>
-    <form method="POST" action="/logout"><button type="submit">Sign Out</button></form>
-  </nav>
-</div>`;
+  return `<div class="panel header"><div class="brand"><div class="logo">📡</div><div><div class="brand-title">AC Auth <span>Backend</span></div><div class="brand-sub">Session management console</div></div></div><nav class="nav">${item('/', 'Sessions', 'sessions')}${item('/session-logout', 'Session Logout', 'logout')}${item('/symbol-getter', 'Symbol Getter', 'symbol')}${item('/auth-id-patcher', 'Auth ID Patcher', 'patcher')}${item('/deadeye-tracker', '🎯 Deadeye', 'deadeye')}<span class="clock" id="clock"></span><form method="POST" action="/logout"><button type="submit">Sign Out</button></form></nav></div>`;
 }
 
 function uiScripts() {
-  return `
-<script>
-function copyText(value, message) {
-  navigator.clipboard.writeText(value);
-  const toast = document.getElementById('toast');
-  if (!toast) return;
-  toast.textContent = message || 'Copied';
-  toast.classList.add('show');
-  clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => toast.classList.remove('show'), 1600);
-}
-function toggleCreate() {
-  const panel = document.getElementById('create-panel');
-  if (panel) panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
-}
-function filterCards(value) {
-  const q = value.toLowerCase();
-  document.querySelectorAll('.session-card').forEach(card => {
-    card.style.display = card.textContent.toLowerCase().includes(q) ? 'flex' : 'none';
-  });
-}
-(function tick() {
-  const clock = document.getElementById('clock');
-  if (clock) clock.textContent = new Date().toLocaleTimeString();
-  setTimeout(tick, 1000);
-})();
+  return `<script>
+function copyText(value,message){navigator.clipboard.writeText(value);const t=document.getElementById('toast');if(!t)return;t.textContent=message||'Copied';t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),1500)}
+function toggleCreate(){const p=document.getElementById('create-panel');if(p)p.style.display=p.style.display==='block'?'none':'block'}
+function filterCards(value){const q=value.toLowerCase();document.querySelectorAll('.session-card').forEach(c=>c.style.display=c.textContent.toLowerCase().includes(q)?'flex':'none')}
+function formatCountdown(seconds){if(seconds<=0)return'EXPIRED';const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;if(h>0)return h+'h '+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s';return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')}
+function updateCountdowns(){const now=Math.floor(Date.now()/1000);document.querySelectorAll('[data-exp]').forEach(el=>{const exp=Number(el.dataset.exp||0);const seconds=Math.max(0,exp-now);el.textContent=formatCountdown(seconds);const barId=el.dataset.bar;if(barId){const bar=document.getElementById(barId);const max=Number(el.dataset.max||3600);if(bar)bar.style.width=Math.max(0,Math.min(100,seconds/max*100))+'%'}});document.querySelectorAll('[data-time-ms]').forEach(el=>{const target=Number(el.dataset.timeMs||0);if(!target){el.textContent='Not scheduled';return}const seconds=Math.max(0,Math.floor((target-Date.now())/1000));el.textContent=seconds<=0?'Due now':formatCountdown(seconds)})}
+setInterval(updateCountdowns,1000);updateCountdowns();(function tick(){const c=document.getElementById('clock');if(c)c.textContent=new Date().toLocaleTimeString();setTimeout(tick,1000)})();
 </script>`;
+}
+
+function walletFromAccount(account) {
+  try { return typeof account?.wallet === "string" ? JSON.parse(account.wallet) : account?.wallet || {}; }
+  catch { return {}; }
+}
+
+function sessionPageUrl(id, message, error = false) {
+  const params = new URLSearchParams();
+  if (message) params.set(error ? "error" : "msg", message);
+  const query = params.toString();
+  return `/session/${id}${query ? `?${query}` : ""}`;
 }
 
 app.get("/", (req, res) => {
   const list = Object.values(sessions);
   const active = list.filter(s => !isExpired(s.token)).length;
   const totalConnections = list.reduce((sum, s) => sum + Number(s.connections || 0), 0);
-
   const cards = list.map(s => {
     const user = s.account?.user || {};
+    const wallet = walletFromAccount(s.account);
     const displayName = user.display_name || user.username || s.name || s.id;
     const username = user.username || s.name || "Unknown username";
     const userId = user.id || getUid(s.token) || "Account ID unavailable";
-    const avatar = user.avatar_url
-      ? `<img class="avatar" src="${escHtml(user.avatar_url)}" alt="${escHtml(displayName)}" loading="lazy">`
-      : `<div class="avatar">${escHtml(displayName.slice(0,1).toUpperCase())}</div>`;
-
-    return `
-<a class="session-card ${isExpired(s.token) ? 'expired' : ''}" href="/session/${s.id}">
-  <div class="card-head">
-    ${avatar}
-    <div class="identity">
-      <div class="display-name">${escHtml(displayName)}</div>
-      <div class="username">@${escHtml(username)}</div>
-      <div class="user-id">${escHtml(userId)}</div>
-    </div>
-  </div>
-  <div class="badges">
-    <span class="badge ${isExpired(s.token) ? '' : 'active'}">${isExpired(s.token) ? 'Expired' : 'Active'}</span>
-    ${s.isPublic ? '<span class="badge public">Public</span>' : '<span class="badge">Private</span>'}
-    ${s.isAdmin ? '<span class="badge admin">Admin</span>' : ''}
-  </div>
-  <div class="card-meta">
-    <div class="mini"><span>Session</span><strong>${escHtml(s.name || s.id)}</strong></div>
-    <div class="mini"><span>Connections</span><strong>${Number(s.connections || 0)}</strong></div>
-    <div class="mini"><span>Token</span><strong>${escHtml(timeLeft(s.token))}</strong></div>
-    <div class="mini"><span>Refresh</span><strong>${escHtml(timeLeft(s.refresh_token))}</strong></div>
-  </div>
-  <div class="card-open"><span>Open session details</span><b>View →</b></div>
+    const avatar = user.avatar_url ? `<img class="avatar" src="${escHtml(user.avatar_url)}" alt="${escHtml(displayName)}" loading="lazy">` : `<div class="avatar">${escHtml(displayName.slice(0,1).toUpperCase())}</div>`;
+    return `<a class="session-card ${isExpired(s.token) ? 'expired' : ''}" href="/session/${s.id}">
+  <div class="card-head">${avatar}<div class="identity"><div class="display-name">${escHtml(displayName)}</div><div class="username">@${escHtml(username)}</div><div class="user-id">${escHtml(userId)}</div></div></div>
+  <div class="badges"><span class="badge ${isExpired(s.token) ? '' : 'active'}">${isExpired(s.token) ? 'Expired' : 'Active'}</span><span class="badge ${user.online ? 'online' : 'offline'}">${user.online ? 'Online' : 'Offline'}</span>${s.isPublic ? '<span class="badge public">Public</span>' : '<span class="badge">Private</span>'}${s.isAdmin ? '<span class="badge admin">Admin</span>' : ''}${s.autoMiningEnabled ? '<span class="badge admin">Auto Mining</span>' : ''}</div>
+  <div class="wallet-mini"><div class="money"><span>Hard Currency</span><strong>${wallet.hardCurrency ?? 0}</strong></div><div class="money"><span>Research Points</span><strong>${wallet.researchPoints ?? 0}</strong></div></div>
+  <div class="card-meta"><div class="mini"><span>Session</span><strong>${escHtml(s.name || s.id)}</strong></div><div class="mini"><span>Connections</span><strong>${Number(s.connections || 0)}</strong></div><div class="mini"><span>Token</span><strong class="countdown" data-exp="${getExp(s.token)}">${escHtml(timeLeft(s.token))}</strong></div><div class="mini"><span>Refresh</span><strong class="countdown" data-exp="${getExp(s.refresh_token)}">${escHtml(timeLeft(s.refresh_token))}</strong></div></div>
+  <div class="card-open"><span>Open player controls</span><b>View →</b></div>
 </a>`;
   }).join("");
 
-  res.send(`<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AC Auth Backend</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet">
-<style>${uiCss()}</style>
-</head>
-<body>
-<div class="page">
-  ${topNav('sessions', req)}
-  <div class="topline">
-    <div>
-      <div class="page-title">Sessions</div>
-      <div class="page-copy">Select a player card to open the full account and session controls.</div>
-    </div>
-    <div class="stats">
-      <div class="stat"><span>Sessions</span><strong>${list.length}</strong></div>
-      <div class="stat"><span>Active</span><strong>${active}</strong></div>
-      <div class="stat"><span>Connections</span><strong>${totalConnections}</strong></div>
-    </div>
-  </div>
-  <div class="panel toolbar">
-    <input class="search" type="search" placeholder="Search display name, username, ID…" oninput="filterCards(this.value)">
-    <button class="btn primary" type="button" onclick="toggleCreate()">+ New Session</button>
-    <form method="POST" action="/refresh-all"><button class="btn warn" type="submit">Refresh All</button></form>
-    <form method="POST" action="/clean-duplicates"><button class="btn" type="submit">Clean Dupes</button></form>
-  </div>
-  <div id="create-panel" class="panel create">
-    <form method="POST" action="/session/create">
-      <div class="create-grid">
-        <div class="field"><label>Session name</label><input class="text-input" name="name" placeholder="Private account"></div>
-        <div class="field full"><label>Token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste token"></textarea></div>
-        <div class="field full"><label>Refresh token</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Paste refresh token"></textarea></div>
-      </div>
-      <div style="margin-top:10px"><button class="btn primary" type="submit">Create Session</button></div>
-    </form>
-  </div>
-  <div class="session-grid">${cards || '<div class="empty">No sessions yet.</div>'}</div>
-</div>
-<div class="toast" id="toast"></div>
-${uiScripts()}
-${radarBgScript(Math.max(active, list.length))}
-</body>
-</html>`);
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<div class="topline"><div><div class="page-title">Players</div><div class="page-copy">Display name first, username and account ID underneath. Open a card for full controls.</div></div><div class="stats"><div class="stat"><span>Sessions</span><strong>${list.length}</strong></div><div class="stat"><span>Active</span><strong>${active}</strong></div><div class="stat"><span>Connections</span><strong>${totalConnections}</strong></div></div></div>
+  <div class="panel toolbar"><input class="search" type="search" placeholder="Search display name, username, ID…" oninput="filterCards(this.value)"><button class="btn primary" type="button" onclick="toggleCreate()">+ New Session</button><form method="POST" action="/refresh-all"><button class="btn warn" type="submit">Refresh All</button></form><form method="POST" action="/clean-duplicates"><button class="btn" type="submit">Clean Dupes</button></form></div>
+  <div id="create-panel" class="panel create"><form method="POST" action="/session/create"><div class="create-grid"><div class="field"><label>Session name</label><input class="text-input" name="name" placeholder="Private account"></div><div class="field full"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste session token"></textarea></div><div class="field full"><label>Refresh token (optional)</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Paste refresh token"></textarea></div></div><div style="margin-top:10px"><button class="btn primary" type="submit">Create Session</button></div></form></div>
+  <div class="session-grid">${cards || '<div class="empty">No sessions yet.</div>'}</div></div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(Math.max(active, list.length))}</body></html>`);
 });
 
 app.get("/session/:id", (req, res) => {
   const s = sessions[req.params.id];
   if (!s) return res.status(404).send("Session not found");
-
   const account = s.account || {};
   const user = account.user || {};
+  const wallet = walletFromAccount(account);
   const displayName = user.display_name || user.username || s.name || s.id;
   const username = user.username || s.name || "Unknown username";
   const userId = user.id || getUid(s.token) || "—";
-  const tokenExp = getExp(s.token);
-  const refreshExp = getExp(s.refresh_token);
-  const now = Math.floor(Date.now() / 1000);
-  const tokenSeconds = Math.max(0, tokenExp - now);
-  const refreshSeconds = Math.max(0, refreshExp - now);
-  const percent = (value, max) => Math.max(0, Math.min(100, max ? value / max * 100 : 0)).toFixed(1);
-  let wallet = null;
-  try { wallet = typeof account.wallet === "string" ? JSON.parse(account.wallet) : account.wallet; } catch {}
-  const avatar = user.avatar_url
-    ? `<img class="detail-avatar" src="${escHtml(user.avatar_url)}" alt="${escHtml(displayName)}">`
-    : `<div class="detail-avatar">${escHtml(displayName.slice(0,1).toUpperCase())}</div>`;
+  const avatar = user.avatar_url ? `<img class="detail-avatar" src="${escHtml(user.avatar_url)}" alt="${escHtml(displayName)}">` : `<div class="detail-avatar">${escHtml(displayName.slice(0,1).toUpperCase())}</div>`;
   const connUrl = `https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`;
   const accountJson = escHtml(JSON.stringify(account, null, 2) || "{}");
+  const miningSummary = miningResultSummary(s.lastMiningResult);
+  const notice = req.query.error ? `<div class="notice err">${escHtml(req.query.error)}</div>` : req.query.msg ? `<div class="notice">${escHtml(req.query.msg)}</div>` : "";
+  const nextMining = s.autoMiningEnabled ? Number(s.nextMiningClaimAt || Date.now()) : 0;
 
-  res.send(`<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escHtml(displayName)} · AC Auth Backend</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet">
-<style>${uiCss()}</style>
-</head>
-<body>
-<div class="page">
-  ${topNav('sessions', req)}
-  <a class="back" href="/">← Back to sessions</a>
-
-  <div class="panel detail-hero">
-    ${avatar}
-    <div>
-      <div class="detail-title">${escHtml(displayName)}</div>
-      <div class="detail-user">@${escHtml(username)} · ${escHtml(s.name || s.id)}</div>
-      <div class="detail-id">${escHtml(userId)}</div>
-    </div>
-    <div class="detail-actions">
-      <button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button>
-      <button class="btn" type="button" onclick="copyText('${connUrl}','Endpoint copied')">Copy Endpoint</button>
-      <form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form>
-      <form method="POST" action="/session/${s.id}/refresh"><button class="btn warn" type="submit">Refresh Token</button></form>
-    </div>
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(displayName)} · AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<a class="back" href="/">← Back to players</a>${notice}
+  <div class="panel detail-hero">${avatar}<div><div class="detail-title">${escHtml(displayName)}</div><div class="detail-user">@${escHtml(username)} · ${escHtml(s.name || s.id)}</div><div class="detail-id">${escHtml(userId)}</div></div><div class="detail-actions"><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${connUrl}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/refresh"><button class="btn warn" type="submit">Refresh Token</button></form><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out and clear its stored tokens?')"><button class="btn danger" type="submit">Log Out Player</button></form></div></div>
+  <div class="wallet-hero"><div class="wallet-card"><span>Hard Currency</span><strong>${wallet.hardCurrency ?? 0}</strong></div><div class="wallet-card"><span>Soft Currency</span><strong>${wallet.softCurrency ?? 0}</strong></div><div class="wallet-card"><span>Research Points</span><strong>${wallet.researchPoints ?? 0}</strong></div></div>
+  <div class="info-grid"><div class="info"><span>Username</span><strong>${escHtml(username)}</strong></div><div class="info"><span>Display Name</span><strong>${escHtml(displayName)}</strong></div><div class="info"><span>User ID</span><code>${escHtml(userId)}</code></div><div class="info"><span>Steam ID</span><code>${escHtml(user.steam_id || "—")}</code></div><div class="info"><span>Online</span><strong>${user.online ? "Yes" : "No"}</strong></div><div class="info"><span>Connections</span><strong>${Number(s.connections || 0)}</strong></div><div class="info"><span>Friends / Edges</span><strong>${user.edge_count ?? 0}</strong></div><div class="info"><span>Language</span><strong>${escHtml(user.lang_tag || "—")}</strong></div></div>
+  <div class="timers"><div class="timer"><span>Session token expires</span><strong data-exp="${getExp(s.token)}" data-max="3600" data-bar="token-bar">${escHtml(timeLeft(s.token))}</strong><div class="bar"><div id="token-bar" class="fill" style="width:0"></div></div></div><div class="timer"><span>Refresh token expires</span><strong data-exp="${getExp(s.refresh_token)}" data-max="21600" data-bar="refresh-bar">${escHtml(timeLeft(s.refresh_token))}</strong><div class="bar"><div id="refresh-bar" class="fill" style="width:0"></div></div></div></div>
+  <div class="panel actions-panel"><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}"><button class="btn ${s.isPublic ? '' : 'good'}" type="submit">${s.isPublic ? 'Make Private' : 'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}"><button class="btn" type="submit">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button></form><form class="rename" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" placeholder="Rename session" value="${escHtml(s.name || '')}"><button class="btn" type="submit">Rename</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player session?')"><button class="btn danger" type="submit">Delete</button></form></div>
+  <div class="control-grid">
+    <div class="panel control"><div class="control-title">Add soft currency</div><div class="control-copy">Calls the player's <code>updateWalletSoftCurrency</code> RPC using this session.</div><form class="control-form" method="POST" action="/session/${s.id}/add-currency"><input class="amount-input" type="number" min="1" step="1" name="amount" placeholder="Amount" required><button class="btn primary" type="submit">Add Currency</button></form>${s.lastWalletUpdateAt ? `<div class="mining-status"><span class="status-chip">Last update <b>${new Date(s.lastWalletUpdateAt).toLocaleString()}</b></span></div>` : ''}</div>
+    <div class="panel control"><div class="control-title">Mining rewards</div><div class="control-copy">Manual claim plus optional automatic claiming every 12 hours. Auto mining is off by default.</div><div class="control-form"><form method="POST" action="/session/${s.id}/claim-mining"><button class="btn primary" type="submit">Claim Mining Now</button></form><form method="POST" action="/session/${s.id}/auto-mining"><input type="hidden" name="enabled" value="${s.autoMiningEnabled ? 'false' : 'true'}"><button class="btn ${s.autoMiningEnabled ? 'danger' : 'good'}" type="submit">${s.autoMiningEnabled ? 'Disable Auto Mining' : 'Enable Every 12h'}</button></form></div><div class="mining-status"><span class="status-chip">Auto <b>${s.autoMiningEnabled ? 'On' : 'Off'}</b></span><span class="status-chip">Next <b data-time-ms="${nextMining}">${s.autoMiningEnabled ? 'Loading…' : 'Not scheduled'}</b></span>${s.lastMiningClaimAt ? `<span class="status-chip">Last claim <b>${new Date(s.lastMiningClaimAt).toLocaleString()}</b></span>` : ''}${miningSummary.succeeded !== undefined ? `<span class="status-chip">Succeeded <b>${String(miningSummary.succeeded)}</b></span>` : ''}</div>${s.lastMiningError ? `<div class="notice err" style="margin:10px 0 0">${escHtml(s.lastMiningError)}</div>` : ''}</div>
   </div>
-
-  <div class="info-grid">
-    <div class="info"><span>Username</span><strong>${escHtml(username)}</strong></div>
-    <div class="info"><span>Display Name</span><strong>${escHtml(displayName)}</strong></div>
-    <div class="info"><span>User ID</span><code>${escHtml(userId)}</code></div>
-    <div class="info"><span>Custom ID</span><code>${escHtml(account.custom_id || "—")}</code></div>
-    <div class="info"><span>Connections</span><strong>${Number(s.connections || 0)}</strong></div>
-    <div class="info"><span>Visibility</span><strong>${s.isPublic ? "Public" : "Private"}</strong></div>
-    <div class="info"><span>Role</span><strong>${s.isAdmin ? "Admin" : "Standard"}</strong></div>
-    <div class="info"><span>Online</span><strong>${user.online ? "Yes" : "No"}</strong></div>
-  </div>
-
-  <div class="timers">
-    <div class="timer">
-      <span>Token expires</span>
-      <strong>${escHtml(timeLeft(s.token))}</strong>
-      <div class="bar"><div class="fill" style="width:${percent(tokenSeconds,3600)}%"></div></div>
-    </div>
-    <div class="timer">
-      <span>Refresh expires</span>
-      <strong>${escHtml(timeLeft(s.refresh_token))}</strong>
-      <div class="bar"><div class="fill" style="width:${percent(refreshSeconds,21600)}%"></div></div>
-    </div>
-  </div>
-
-  <div class="panel actions-panel">
-    <form method="POST" action="/session/${s.id}/public">
-      <input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}">
-      <button class="btn ${s.isPublic ? '' : 'good'}" type="submit">${s.isPublic ? 'Make Private' : 'Make Public'}</button>
-    </form>
-    <form method="POST" action="/session/${s.id}/admin">
-      <input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}">
-      <button class="btn" type="submit">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button>
-    </form>
-    <form class="rename" method="POST" action="/session/${s.id}/rename">
-      <input class="text-input" name="name" placeholder="Rename session" value="${escHtml(s.name || '')}">
-      <button class="btn" type="submit">Rename</button>
-    </form>
-    <form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this session?')">
-      <button class="btn danger" type="submit">Delete Session</button>
-    </form>
-  </div>
-
-  <details class="panel section">
-    <summary>Session tokens</summary>
-    <div class="section-body tokens">
-      <div class="token-row"><span>Token</span><div class="token-value">${escHtml(s.token || "—")}</div></div>
-      <div class="token-row"><span>Refresh</span><div class="token-value">${escHtml(s.refresh_token || "—")}</div></div>
-    </div>
-  </details>
-
-  <details class="panel section">
-    <summary>Edit session tokens</summary>
-    <div class="section-body">
-      <form method="POST" action="/session/${s.id}/update">
-        <input type="hidden" name="_from" value="ui">
-        <div class="field"><label>Token</label><textarea class="token-input" name="token" rows="4">${escHtml(s.token || "")}</textarea></div>
-        <div class="field" style="margin-top:10px"><label>Refresh token</label><textarea class="token-input" name="refresh_token" rows="4">${escHtml(s.refresh_token || "")}</textarea></div>
-        <div style="margin-top:10px"><button class="btn primary" type="submit">Save Tokens</button></div>
-      </form>
-    </div>
-  </details>
-
-  <details class="panel section">
-    <summary>Account data</summary>
-    <div class="section-body">
-      <div class="account-facts">
-        <div><b>Created</b><span>${escHtml(user.create_time || "—")}</span></div>
-        <div><b>Updated</b><span>${escHtml(user.update_time || "—")}</span></div>
-        <div><b>Devices</b><span>${Array.isArray(account.devices) ? account.devices.length : 0}</span></div>
-        <div><b>Language</b><span>${escHtml(user.lang_tag || "—")}</span></div>
-        <div><b>Soft Currency</b><span>${wallet?.softCurrency ?? "—"}</span></div>
-        <div><b>Hard Currency</b><span>${wallet?.hardCurrency ?? "—"}</span></div>
-        <div><b>Research Points</b><span>${wallet?.researchPoints ?? "—"}</span></div>
-        <div><b>Edge Count</b><span>${user.edge_count ?? "—"}</span></div>
-      </div>
-      <pre class="json">${accountJson}</pre>
-    </div>
-  </details>
-</div>
-<div class="toast" id="toast"></div>
-${uiScripts()}
-${radarBgScript(1)}
-</body>
-</html>`);
+  <div class="panel set-token"><div class="set-token-head"><div><div class="set-token-title">Set session token</div><div class="set-token-copy">Existing tokens are not displayed anywhere on this page. Paste replacements here when needed.</div></div></div><form method="POST" action="/session/${s.id}/update"><input type="hidden" name="_from" value="detail"><div class="set-token-grid"><div class="field"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste a new session token"></textarea></div><div class="field"><label>Refresh token (optional)</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Paste a new refresh token"></textarea></div></div><div style="margin-top:9px"><button class="btn primary" type="submit">Set Session Token</button></div></form></div>
+  <details class="panel section"><summary>Account details</summary><div class="section-body"><div class="account-facts"><div><b>Created</b><span>${escHtml(user.create_time || "—")}</span></div><div><b>Updated</b><span>${escHtml(user.update_time || "—")}</span></div><div><b>Steam ID</b><code>${escHtml(user.steam_id || "—")}</code></div><div><b>Metadata</b><code>${escHtml(user.metadata || "{}")}</code></div><div><b>Hard Currency</b><span>${wallet.hardCurrency ?? 0}</span></div><div><b>Soft Currency</b><span>${wallet.softCurrency ?? 0}</span></div><div><b>Research Points</b><span>${wallet.researchPoints ?? 0}</span></div><div><b>Edge Count</b><span>${user.edge_count ?? 0}</span></div></div><pre class="json">${accountJson}</pre></div></details>
+  </div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(1)}</body></html>`);
 });
 
 app.post("/session/create", async (req,res)=>{
@@ -1561,7 +1417,7 @@ app.post("/session/create", async (req,res)=>{
     await refreshSessionAccount(sessions[id], { force: true });
   }
   if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true,id,account:sessions[id]?.account||null});
-  res.redirect("/");
+  res.redirect(`/session/${id}`);
 });
 app.post("/session/:id/update",async(req,res)=>{
   const s=sessions[req.params.id];
@@ -1577,39 +1433,92 @@ app.post("/session/:id/update",async(req,res)=>{
     connectLiveSocket(s);
     await refreshSessionAccount(s, { force: true });
   }
-  req.body._from==="ui"?res.redirect("/"):res.json({ok:true,account:s.account||null});
+  if (req.body._from === "ui" || req.body._from === "detail") return res.redirect(sessionPageUrl(s.id, "Session token updated"));
+  res.json({ok:true,account:s.account||null});
 });
 app.post("/session/:id/rename",(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
-  s.name=req.body.name?.trim()||s.name;saveSessions();res.redirect("/");
+  s.name=req.body.name?.trim()||s.name;sessionStore.touch(s);saveSessions();res.redirect(`/session/${s.id}`);
 });
 
 app.post("/session/:id/public",(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
   s.isPublic=String(req.body.public).toLowerCase()==="true";
-  sessionStore.touch(s);saveSessions();res.redirect("/");
+  sessionStore.touch(s);saveSessions();res.redirect(`/session/${s.id}`);
 });
 app.post("/session/:id/admin",async(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
   s.isAdmin=String(req.body.admin).toLowerCase()==="true";
   if(s.isAdmin) await refreshSessionAccount(s,{force:true});
-  sessionStore.touch(s);saveSessions();res.redirect("/");
+  sessionStore.touch(s);saveSessions();res.redirect(`/session/${s.id}`);
 });
 app.post("/session/:id/account-refresh",async(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
   const account=await refreshSessionAccount(s,{force:true});
   if(req.headers["accept"]?.includes("application/json")) return res.json({ok:Boolean(account),account});
-  res.redirect("/");
+  res.redirect(`/session/${s.id}`);
 });
 app.post("/session/:id/refresh",async(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
-  await tryRefresh(s, true);res.redirect("/");
+  await tryRefresh(s, true);res.redirect(`/session/${s.id}`);
 });
+app.post("/session/:id/logout", async (req, res) => {
+  const s = sessions[req.params.id];
+  if (!s) return res.status(404).json({ error: "Not found" });
+  try {
+    await logoutPlayerSession(s);
+    res.redirect(sessionPageUrl(s.id, "Player session logged out"));
+  } catch (error) {
+    res.redirect(sessionPageUrl(s.id, error.message, true));
+  }
+});
+
+app.post("/session/:id/add-currency", async (req, res) => {
+  const s = sessions[req.params.id];
+  if (!s) return res.status(404).json({ error: "Not found" });
+  const amount = Number(req.body.amount);
+  if (!Number.isSafeInteger(amount) || amount <= 0) return res.redirect(sessionPageUrl(s.id, "Currency amount must be a positive whole number", true));
+  try {
+    await addSoftCurrencyToSession(s, amount);
+    res.redirect(sessionPageUrl(s.id, `Added ${amount} soft currency`));
+  } catch (error) {
+    res.redirect(sessionPageUrl(s.id, error.message, true));
+  }
+});
+
+app.post("/session/:id/claim-mining", async (req, res) => {
+  const s = sessions[req.params.id];
+  if (!s) return res.status(404).json({ error: "Not found" });
+  try {
+    const result = await claimMiningForSession(s);
+    const summary = miningResultSummary(result);
+    const message = summary.succeeded === false ? `Mining claim returned ${summary.errorCode || "an error"}` : "Mining rewards claimed";
+    res.redirect(sessionPageUrl(s.id, message, summary.succeeded === false));
+  } catch (error) {
+    res.redirect(sessionPageUrl(s.id, error.message, true));
+  }
+});
+
+app.post("/session/:id/auto-mining", async (req, res) => {
+  const s = sessions[req.params.id];
+  if (!s) return res.status(404).json({ error: "Not found" });
+  const enabled = String(req.body.enabled).toLowerCase() === "true";
+  s.autoMiningEnabled = enabled;
+  s.nextMiningClaimAt = enabled ? Date.now() : 0;
+  sessionStore.touch(s);
+  saveSessions();
+  if (enabled && s.token) {
+    try { await claimMiningForSession(s, { automatic: true }); }
+    catch (error) { return res.redirect(sessionPageUrl(s.id, `Auto mining enabled, but the first claim failed: ${error.message}`, true)); }
+  }
+  res.redirect(sessionPageUrl(s.id, enabled ? "Auto mining enabled. Claims run every 12 hours." : "Auto mining disabled."));
+});
+
 app.post("/session/:id/delete",(req,res)=>{
   const ex=liveSockets[req.params.id];
   if(ex&&ex.sock){try{ex.sock.removeAllListeners();ex.sock.close();}catch(_){}}
