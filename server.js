@@ -38,6 +38,7 @@ function normalizeSession(id, raw = {}) {
     friendsData: raw.friendsData && typeof raw.friendsData === "object" ? raw.friendsData : null,
     friendsUpdatedAt: Number(raw.friendsUpdatedAt || 0),
     friendsError: raw.friendsError || "",
+    suppressOwnTrackerWebhook: Boolean(raw.suppressOwnTrackerWebhook),
   };
 }
 
@@ -1168,12 +1169,19 @@ function handlePresenceBatch(session, state, presences, isLive) {
     roomCache[uid] = { roomCode: parsed.roomCode, gameMode: parsed.gameMode, lastSeenOnline: Date.now(), name, steamId: u && u.steam_id };
     dirty = true;
     if (isLive && state.warm && changed) {
-      sendRoomJoinWebhook({
-        name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
-        appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
-        avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id,
-        steamId: u && u.steam_id
-      }).catch(() => {});
+      const ownUserId = session.account?.user?.id || getUid(session.token);
+      const suppressOwnId = session.suppressOwnTrackerWebhook && ownUserId && uid === ownUserId;
+
+      if (!suppressOwnId) {
+        sendRoomJoinWebhook({
+          name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
+          appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
+          avatarUrl: u && u.avatar_url, detectedBy: session.name || session.id,
+          steamId: u && u.steam_id
+        }).catch(() => {});
+      } else {
+        console.log(`[Tracker:${session.name || session.id}] Suppressed own user ID ${uid}`);
+      }
     }
     if (isLive && state.warm && changed && deadeyeList[uid]) {
       queueDeadeyeWebhook({
@@ -1782,7 +1790,7 @@ app.get("/session/:id", async (req, res) => {
     ];
     content = `<div class="panel block"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div class="block-title">Avatar Storage</div><div class="block-copy">Parsed from <code>/v2/storage/user_avatar</code>. No fake avatar image is shown.</div></div><form method="POST" action="/session/${s.id}/storage/avatar/refresh"><button class="btn primary" type="submit">Refresh</button></form></div><div class="avatar-grid" style="margin-top:10px">${parts.map(([label,key])=>`<div class="avatar-part"><span>${label}</span><code class="${avatarPart(avatar[key])==='None'?'empty-part':''}">${escHtml(avatarPart(avatar[key]))}</code></div>`).join("")}</div>${s.storageErrors?.avatar ? `<div class="notice err" style="margin-top:8px">${escHtml(s.storageErrors.avatar)}</div>` : ''}</div>`;
   } else if (tab === "settings") {
-    content = `<div class="panel settings-card"><div class="block-title">Player actions</div><div class="action-grid"><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic?'false':'true'}"><button class="btn" type="submit">${s.isPublic?'Make Private':'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin?'false':'true'}"><button class="btn" type="submit">${s.isAdmin?'Remove Admin':'Make Admin'}</button></form><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${`https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out?')"><button class="btn danger" type="submit">Log Out Player</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player?')"><button class="btn danger" type="submit">Delete Player</button></form></div><form class="rename-row" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" value="${escHtml(s.name||'')}" placeholder="Rename"><button class="btn" type="submit">Rename</button></form></div>`;
+    content = `<div class="panel settings-card"><div class="block-title">Player actions</div><div class="action-grid"><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic?'false':'true'}"><button class="btn" type="submit">${s.isPublic?'Make Private':'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin?'false':'true'}"><button class="btn" type="submit">${s.isAdmin?'Remove Admin':'Make Admin'}</button></form><form method="POST" action="/session/${s.id}/tracker-privacy"><input type="hidden" name="enabled" value="${s.suppressOwnTrackerWebhook?'false':'true'}"><button class="btn ${s.suppressOwnTrackerWebhook?'good':''}" type="submit">${s.suppressOwnTrackerWebhook?'Own ID Hidden':'Hide Own ID From Tracker'}</button></form><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${`https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out?')"><button class="btn danger" type="submit">Log Out Player</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player?')"><button class="btn danger" type="submit">Delete Player</button></form></div><form class="rename-row" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" value="${escHtml(s.name||'')}" placeholder="Rename"><button class="btn" type="submit">Rename</button></form></div>`;
   } else {
     content = `<div class="panel raw"><pre class="json">${escHtml(JSON.stringify(account,null,2)||"{}")}</pre></div>`;
   }
@@ -1839,6 +1847,23 @@ app.post("/session/:id/admin",async(req,res)=>{
   if(s.isAdmin) await refreshSessionAccount(s,{force:true});
   sessionStore.touch(s);saveSessions();res.redirect(`/session/${s.id}`);
 });
+
+app.post("/session/:id/tracker-privacy",(req,res)=>{
+  const s=sessions[req.params.id];
+  if(!s)return res.status(404).json({error:"Not found"});
+  s.suppressOwnTrackerWebhook=String(req.body.enabled).toLowerCase()==="true";
+  sessionStore.touch(s);
+  saveSessions();
+  res.redirect(sessionPageUrl(
+    s.id,
+    s.suppressOwnTrackerWebhook
+      ? "Your own user ID will no longer trigger the Player Tracker webhook."
+      : "Your own user ID can trigger the Player Tracker webhook again.",
+    false,
+    "settings"
+  ));
+});
+
 app.post("/session/:id/account-refresh",async(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
