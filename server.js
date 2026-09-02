@@ -28,41 +28,71 @@ function normalizeSession(id, raw = {}) {
     lastMiningResult: raw.lastMiningResult && typeof raw.lastMiningResult === "object" ? raw.lastMiningResult : null,
     lastWalletUpdateAt: Number(raw.lastWalletUpdateAt || 0),
     lastWalletResult: raw.lastWalletResult && typeof raw.lastWalletResult === "object" ? raw.lastWalletResult : null,
+    softCurrencyTracked: Number.isFinite(Number(raw.softCurrencyTracked)) ? Number(raw.softCurrencyTracked) : null,
+    miningBalance: raw.miningBalance && typeof raw.miningBalance === "object" ? raw.miningBalance : null,
+    miningBalanceUpdatedAt: Number(raw.miningBalanceUpdatedAt || 0),
+    storageData: raw.storageData && typeof raw.storageData === "object" ? raw.storageData : {},
+    storageUpdatedAt: raw.storageUpdatedAt && typeof raw.storageUpdatedAt === "object" ? raw.storageUpdatedAt : {},
+    storageErrors: raw.storageErrors && typeof raw.storageErrors === "object" ? raw.storageErrors : {},
   };
 }
 
-function createSessionStore(filePath) {
+function createSessionStore(primaryPath, mirrorPath, legacyPaths = []) {
   let data = {};
+  const candidates = [...new Set([primaryPath, mirrorPath, ...legacyPaths].filter(Boolean))];
+
+  function readFirstValid() {
+    for (const candidate of candidates) {
+      try {
+        if (!fs.existsSync(candidate)) continue;
+        const parsed = JSON.parse(fs.readFileSync(candidate, "utf8"));
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+        return { parsed, candidate };
+      } catch (error) {
+        console.log(`[Sessions] Could not load ${candidate}: ${error.message}`);
+      }
+    }
+    return { parsed: {}, candidate: null };
+  }
+
+  function atomicWrite(filePath, body) {
+    if (!filePath) return;
+    ensureParentDir(filePath);
+    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    const fd = fs.openSync(tmpPath, "w");
+    try {
+      fs.writeFileSync(fd, body, "utf8");
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmpPath, filePath);
+  }
 
   function load() {
-    ensureParentDir(filePath);
-    try {
-      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-      const source = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-      data = Object.fromEntries(
-        Object.entries(source).map(([id, session]) => [id, normalizeSession(id, session)])
-      );
-      console.log(`[Sessions] Loaded ${Object.keys(data).length} session(s) from ${filePath}`);
-    } catch (error) {
-      if (error.code !== "ENOENT") console.error(`[Sessions] Load failed: ${error.message}`);
-      data = {};
-      save();
-    }
+    const { parsed, candidate } = readFirstValid();
+    data = Object.fromEntries(
+      Object.entries(parsed).map(([id, session]) => [id, normalizeSession(id, session)])
+    );
+    console.log(`[Sessions] Loaded ${Object.keys(data).length} session(s)${candidate ? ` from ${candidate}` : ""}`);
+    save();
     return data;
   }
 
   function save() {
-    ensureParentDir(filePath);
-    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
-    fs.renameSync(tmpPath, filePath);
+    const body = JSON.stringify(data, null, 2);
+    atomicWrite(primaryPath, body);
+    if (mirrorPath && path.resolve(mirrorPath) !== path.resolve(primaryPath)) {
+      try { atomicWrite(mirrorPath, body); }
+      catch (error) { console.log(`[Sessions] Mirror save failed: ${error.message}`); }
+    }
   }
 
   function touch(session) {
     if (session) session.updatedAt = Date.now();
   }
 
-  return { load, save, touch };
+  return { load, save, touch, primaryPath, mirrorPath };
 }
 
 function createSupporterNonceService({ ttlMs = 10 * 60 * 1000 } = {}) {
@@ -134,7 +164,14 @@ function accountSummary(account) {
 
 const AUTO_MINING_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const AUTO_MINING_RETRY_MS = 15 * 60 * 1000;
-const CLAIM_MINING_RPC_ID = process.env.CLAIM_MINING_RPC_ID || "claimMining";
+const MINING_COLLECT_RPC = "mining.collect";
+const MINING_BALANCE_RPC = "mining.ballance";
+const SOFT_CURRENCY_RPC = "updateWalletSoftCurrency";
+const STORAGE_COLLECTIONS = {
+  avatar: "user_avatar",
+  stash: process.env.USER_STASH_COLLECTION || "user_stash",
+  loadout: process.env.USER_LOADOUT_COLLECTION || "user_loadout",
+};
 const miningClaimsInFlight = new Set();
 
 function parseMaybeJson(value) {
@@ -144,32 +181,30 @@ function parseMaybeJson(value) {
 
 function unwrapRpcResponse(data) {
   const parsed = parseMaybeJson(data);
-  if (parsed && typeof parsed === "object" && parsed.data && typeof parsed.data === "object") {
-    return unwrapRpcResponse(parsed.data);
-  }
-  if (parsed && typeof parsed === "object" && Object.prototype.hasOwnProperty.call(parsed, "payload")) {
-    return unwrapRpcResponse(parsed.payload);
-  }
+  if (parsed && typeof parsed === "object" && parsed.data && typeof parsed.data === "object") return unwrapRpcResponse(parsed.data);
+  if (parsed && typeof parsed === "object" && Object.prototype.hasOwnProperty.call(parsed, "payload")) return unwrapRpcResponse(parsed.payload);
   return parsed;
 }
 
-async function callNakamaRpc(session, rpcId, payload = {}) {
+async function postRpc(session, rpcId, payload, stringifyPayload = false) {
   if (!session?.token) throw new Error("Session token is not set");
-  const response = await fetch(`${NAKAMA_SERVER}/v2/rpc/${encodeURIComponent(rpcId)}?unwrap=true`, {
+  const body = stringifyPayload ? JSON.stringify(JSON.stringify(payload)) : JSON.stringify(payload);
+  const response = await fetch(`${NAKAMA_SERVER}/v2/rpc/${encodeURIComponent(rpcId)}`, {
     method: "POST",
     headers: {
-      ...NAKAMA_ACCOUNT_HEADERS,
+      "User-Agent": "Mozilla/5.0",
       "Authorization": `Bearer ${session.token}`,
       "Content-Type": "application/json",
       "Accept": "application/json",
     },
-    body: JSON.stringify(payload),
+    body,
   });
   const raw = await response.text();
   let data = raw;
   try { data = raw ? JSON.parse(raw) : {}; } catch {}
   if (!response.ok) {
-    const error = new Error(`RPC ${rpcId} failed (${response.status}): ${typeof data === "string" ? data.slice(0, 240) : JSON.stringify(data).slice(0, 240)}`);
+    const detail = typeof data === "string" ? data : JSON.stringify(data);
+    const error = new Error(`RPC ${rpcId} failed (${response.status}): ${detail.slice(0, 260)}`);
     error.status = response.status;
     error.data = data;
     throw error;
@@ -177,14 +212,43 @@ async function callNakamaRpc(session, rpcId, payload = {}) {
   return unwrapRpcResponse(data);
 }
 
+function accountWallet(account) {
+  try {
+    const wallet = typeof account?.wallet === "string" ? JSON.parse(account.wallet) : account?.wallet;
+    return wallet && typeof wallet === "object" ? wallet : {};
+  } catch {
+    return {};
+  }
+}
+
 async function addSoftCurrencyToSession(session, amount) {
-  const result = await callNakamaRpc(session, "updateWalletSoftCurrency", { amount });
+  const result = await postRpc(session, SOFT_CURRENCY_RPC, { amount }, false);
+  const accountSoft = Number(accountWallet(session.account).softCurrency);
+  const base = Number.isFinite(accountSoft) ? accountSoft : Number(session.softCurrencyTracked || 0);
+  session.softCurrencyTracked = base + amount;
   session.lastWalletUpdateAt = Date.now();
   session.lastWalletResult = result && typeof result === "object" ? result : { result };
   sessionStore.touch(session);
   saveSessions();
   await refreshSessionAccount(session, { force: true });
+  saveSessions();
   return result;
+}
+
+async function getMiningBalanceForSession(session, { force = false } = {}) {
+  if (!session?.token) return session?.miningBalance || null;
+  if (!force && session.miningBalance && Date.now() - Number(session.miningBalanceUpdatedAt || 0) < 60 * 1000) return session.miningBalance;
+  let result;
+  try {
+    result = await postRpc(session, MINING_BALANCE_RPC, {}, true);
+  } catch (firstError) {
+    result = await postRpc(session, MINING_BALANCE_RPC, {}, false);
+  }
+  session.miningBalance = result && typeof result === "object" ? result : { result };
+  session.miningBalanceUpdatedAt = Date.now();
+  sessionStore.touch(session);
+  saveSessions();
+  return session.miningBalance;
 }
 
 async function claimMiningForSession(session, { automatic = false } = {}) {
@@ -193,14 +257,18 @@ async function claimMiningForSession(session, { automatic = false } = {}) {
   miningClaimsInFlight.add(session.id);
   session.lastMiningAttemptAt = Date.now();
   try {
-    const result = await callNakamaRpc(session, CLAIM_MINING_RPC_ID, {});
+    const result = await postRpc(session, MINING_COLLECT_RPC, { hardCurrency: 400, researchPoints: 5 }, true);
     session.lastMiningClaimAt = Date.now();
     session.nextMiningClaimAt = session.lastMiningClaimAt + AUTO_MINING_INTERVAL_MS;
     session.lastMiningError = "";
     session.lastMiningResult = result && typeof result === "object" ? result : { result };
     sessionStore.touch(session);
     saveSessions();
-    await refreshSessionAccount(session, { force: true });
+    await Promise.allSettled([
+      refreshSessionAccount(session, { force: true }),
+      getMiningBalanceForSession(session, { force: true }),
+    ]);
+    saveSessions();
     return result;
   } catch (error) {
     session.lastMiningError = error.message;
@@ -211,6 +279,66 @@ async function claimMiningForSession(session, { automatic = false } = {}) {
   } finally {
     miningClaimsInFlight.delete(session.id);
   }
+}
+
+async function fetchPlayerStorage(session, type, { force = false } = {}) {
+  const collection = STORAGE_COLLECTIONS[type];
+  if (!collection) throw new Error("Unknown storage type");
+  session.storageData ||= {};
+  session.storageUpdatedAt ||= {};
+  session.storageErrors ||= {};
+  if (!force && session.storageData[type] && Date.now() - Number(session.storageUpdatedAt[type] || 0) < 2 * 60 * 1000) return session.storageData[type];
+  const response = await fetch(`${NAKAMA_SERVER}/v2/storage/${encodeURIComponent(collection)}`, {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      "Authorization": `Bearer ${session.token}`,
+      "Accept": "application/json",
+    },
+  });
+  const raw = await response.text();
+  let data = raw;
+  try { data = raw ? JSON.parse(raw) : {}; } catch {}
+  if (!response.ok) {
+    const detail = typeof data === "string" ? data : JSON.stringify(data);
+    const error = new Error(`${collection} failed (${response.status}): ${detail.slice(0, 220)}`);
+    session.storageErrors[type] = error.message;
+    sessionStore.touch(session);
+    saveSessions();
+    throw error;
+  }
+  session.storageData[type] = data;
+  session.storageUpdatedAt[type] = Date.now();
+  session.storageErrors[type] = "";
+  sessionStore.touch(session);
+  saveSessions();
+  return data;
+}
+
+function findImageUrl(value, depth = 0) {
+  if (depth > 8 || value == null) return null;
+  const parsed = parseMaybeJson(value);
+  if (typeof parsed === "string") return /^https?:\/\/.+/i.test(parsed) && /\.(png|jpe?g|webp)(\?|$)/i.test(parsed) ? parsed : null;
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      const found = findImageUrl(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof parsed === "object") {
+    const preferred = ["avatar_url", "avatarUrl", "image_url", "imageUrl", "url", "image"];
+    for (const key of preferred) {
+      if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+        const found = findImageUrl(parsed[key], depth + 1);
+        if (found) return found;
+      }
+    }
+    for (const child of Object.values(parsed)) {
+      const found = findImageUrl(child, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 async function logoutPlayerSession(session) {
@@ -334,11 +462,14 @@ const STORAGE_BACKEND = resolveStorageBackend();
 const DATA_DIR = STORAGE_BACKEND.dir;
 if (STORAGE_BACKEND.persistent) console.log(`[Storage] Persistent storage enabled at ${DATA_DIR} (${STORAGE_BACKEND.source})`);
 else console.log(`[Storage] Using non-persistent storage at ${DATA_DIR}. For Railway restarts/redeploys, mount a Volume (commonly /data) or set RAILWAY_VOLUME_MOUNT_PATH.`);
-const SESSIONS_FILE = path.join(__dirname, "sessions.txt");
-const LEGACY_SESSIONS_FILE = path.join(__dirname, "sessions.json");
-if (!fs.existsSync(SESSIONS_FILE) && fs.existsSync(LEGACY_SESSIONS_FILE)) {
-  try { fs.copyFileSync(LEGACY_SESSIONS_FILE, SESSIONS_FILE); } catch {}
-}
+const SESSION_DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || (fs.existsSync("/data") ? "/data" : __dirname);
+const SESSIONS_FILE = path.join(SESSION_DATA_DIR, "sessions.txt");
+const SESSIONS_MIRROR_FILE = path.join(__dirname, "sessions.txt");
+const LEGACY_SESSION_FILES = [
+  path.join(SESSION_DATA_DIR, "sessions.json"),
+  path.join(__dirname, "sessions.json"),
+  SESSIONS_MIRROR_FILE,
+];
 const ROOMCACHE_FILE = path.join(DATA_DIR, "roomcache.json");
 const AUTH_IDS_FILE = path.join(DATA_DIR, "auth-ids.json");
 const DEADEYE_FILE = path.join(DATA_DIR, "deadeye.json");
@@ -657,15 +788,32 @@ function saveDeadeye() {
 function loadDeadeye() {
   try { const raw = fs.readFileSync(DEADEYE_FILE, "utf8"); deadeyeList = JSON.parse(raw); console.log(`[Deadeye] Loaded ${Object.keys(deadeyeList).length} watched player(s).`); } catch { console.log("[Deadeye] No deadeye.json, starting fresh."); }
 }
-const sessionStore = createSessionStore(SESSIONS_FILE);
+const sessionStore = createSessionStore(SESSIONS_FILE, SESSIONS_MIRROR_FILE, LEGACY_SESSION_FILES);
 let sessions = {};
 
 function saveSessions() {
-  try { sessionStore.save(); } catch (e) { console.log(`[Sessions] Save failed: ${e.message}`); }
+  try {
+    sessionStore.save();
+    return true;
+  } catch (e) {
+    console.log(`[Sessions] Save failed: ${e.message}`);
+    return false;
+  }
 }
 function loadSessions() {
   sessions = sessionStore.load();
 }
+
+setInterval(() => saveSessions(), 30 * 1000);
+process.once("SIGTERM", () => {
+  saveSessions();
+  process.exit(0);
+});
+process.once("SIGINT", () => {
+  saveSessions();
+  process.exit(0);
+});
+process.once("beforeExit", () => saveSessions());
 function getExp(token) {
   try { return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).exp; } catch { return 0; }
 }
@@ -723,6 +871,8 @@ async function refreshSessionAccount(session, { force = false } = {}) {
   if (freshEnough && !force) return session.account;
   try {
     session.account = await fetchAccount(NAKAMA_SERVER, session.token);
+    const accountSoftCurrency = Number(accountWallet(session.account).softCurrency);
+    if (Number.isFinite(accountSoftCurrency)) session.softCurrencyTracked = accountSoftCurrency;
     session.accountUpdatedAt = Date.now();
     sessionStore.touch(session);
     saveSessions();
@@ -1289,35 +1439,34 @@ app.post("/logout", (req, res) => {
 function uiCss() {
   return `
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--a:#ffad14;--a2:#df8610;--as:rgba(255,173,20,.11);--bg:#08090b;--s:#0d0f12;--s2:#12151a;--s3:#181c22;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.13);--text:#f7f4ed;--muted:#99968e;--muted2:#65635f;--green:#68db96;--red:#fb7185;--mono:'JetBrains Mono',monospace}
-html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif}
-body{background-image:radial-gradient(circle at 8% 0,rgba(255,173,20,.065),transparent 25%),radial-gradient(circle at 94% 12%,rgba(255,173,20,.03),transparent 23%)}
-a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}button{cursor:pointer}:focus-visible{outline:3px solid rgba(255,173,20,.72);outline-offset:2px}
-.page{max-width:1180px;margin:0 auto;padding:18px 18px 80px}.panel{background:rgba(10,12,15,.86);border:1px solid var(--line);border-radius:20px;box-shadow:0 14px 45px rgba(0,0,0,.22);backdrop-filter:blur(18px)}
-.header{display:flex;align-items:center;gap:15px;padding:15px 17px;margin-bottom:18px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:11px}.logo{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),var(--a2));box-shadow:0 0 24px rgba(255,173,20,.24);font-size:20px}.brand-title{font:800 19px 'Space Grotesk',sans-serif;letter-spacing:-.03em}.brand-title span{color:var(--a)}.brand-sub{font-size:10px;color:var(--muted);margin-top:2px}
-.nav{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto;align-items:center}.nav a,.nav button{height:37px;padding:0 11px;border-radius:10px;border:1px solid var(--line);background:var(--s2);color:var(--muted);font-size:10px;font-weight:850}.nav a{display:flex;align-items:center}.nav a:hover,.nav button:hover{color:var(--text);background:var(--s3)}.nav .active{color:#17120a;background:var(--a);border-color:var(--a)}.clock{font:600 10px var(--mono);color:var(--muted);padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--s2)}
-.topline{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;margin:20px 2px 14px;flex-wrap:wrap}.page-title{font:800 25px 'Space Grotesk',sans-serif;letter-spacing:-.035em}.page-copy{font-size:12px;color:var(--muted);margin-top:5px}.stats{display:flex;gap:7px;flex-wrap:wrap}.stat{min-width:88px;padding:9px 11px;border:1px solid var(--line);border-radius:12px;background:var(--s)}.stat span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}.stat strong{display:block;margin-top:3px;font-size:18px;color:var(--a)}
-.toolbar{display:flex;align-items:center;gap:9px;padding:11px;margin-bottom:15px;flex-wrap:wrap}.search{flex:1;min-width:230px;height:41px;border-radius:11px;border:1px solid var(--line);background:var(--s2);color:var(--text);padding:0 12px;outline:none}.search:focus,.text-input:focus,.token-input:focus,.amount-input:focus{border-color:rgba(255,173,20,.45);box-shadow:0 0 0 3px rgba(255,173,20,.08)}
-.btn{height:39px;border-radius:10px;border:1px solid var(--line);background:var(--s2);color:var(--muted);font-size:10px;font-weight:900;padding:0 12px;white-space:nowrap}.btn:hover{background:var(--s3);color:var(--text)}.btn.primary{background:var(--a);border-color:var(--a);color:#17120a}.btn.warn{background:linear-gradient(135deg,#b75f15,#ef4444);border-color:transparent;color:white}.btn.danger{color:#fda4af;border-color:rgba(251,113,133,.24);background:rgba(251,113,133,.08)}.btn.good{color:#8df0b1;border-color:rgba(104,219,150,.22);background:rgba(104,219,150,.07)}
-.create{display:none;padding:15px;margin-bottom:15px}.create-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.field{display:flex;flex-direction:column;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}.text-input,.token-input,.amount-input{width:100%;border-radius:10px;border:1px solid var(--line);background:var(--s2);color:var(--text);outline:none;padding:10px 11px}.token-input{resize:vertical;font:10px/1.5 var(--mono)}
-.session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.session-card{position:relative;min-height:250px;padding:16px;border:1px solid var(--line);border-radius:19px;background:linear-gradient(180deg,rgba(17,20,24,.97),rgba(10,12,15,.97));overflow:hidden;transition:.18s ease;display:flex;flex-direction:column}.session-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--a)}.session-card.expired::before{background:#555}.session-card:hover{transform:translateY(-2px);border-color:rgba(255,173,20,.27);box-shadow:0 16px 42px rgba(0,0,0,.24)}
-.card-head{display:flex;gap:11px;align-items:center}.avatar{width:52px;height:52px;border-radius:14px;object-fit:cover;border:1px solid var(--line2);background:var(--as);display:grid;place-items:center;color:var(--a);font-size:18px;font-weight:900;flex:none}.identity{min-width:0;flex:1}.display-name{font-size:16px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.username{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.user-id{font:9px var(--mono);color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}
-.badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:13px}.badge{padding:4px 7px;border-radius:999px;border:1px solid var(--line2);font-size:8px;font-weight:900;letter-spacing:.09em;color:var(--muted)}.badge.active,.badge.admin{color:var(--a);border-color:rgba(255,173,20,.25);background:var(--as)}.badge.public{color:#8df0b1;border-color:rgba(104,219,150,.23);background:rgba(104,219,150,.07)}.badge.online{color:#8df0b1}.badge.offline{color:#aaa}
-.wallet-mini{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:12px}.money{padding:9px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.money span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.09em}.money strong{display:block;margin-top:4px;font-size:14px;color:var(--text)}
-.card-meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}.mini{padding:9px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.mini span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.09em}.mini strong{display:block;margin-top:4px;font-size:10px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.card-open{margin-top:auto;padding-top:13px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:10px;font-weight:850}.card-open b{color:var(--a)}
-.empty{padding:42px;text-align:center;border:1px dashed var(--line2);border-radius:18px;color:var(--muted)}.back{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);margin-bottom:13px}.back:hover{color:var(--a)}
-.notice{padding:11px 13px;border-radius:12px;border:1px solid rgba(104,219,150,.22);background:rgba(104,219,150,.07);color:#b9f6cf;font-size:11px;margin-bottom:12px}.notice.err{border-color:rgba(251,113,133,.24);background:rgba(251,113,133,.08);color:#fecdd3}
-.detail-hero{padding:18px;display:flex;align-items:center;gap:15px;margin-bottom:12px}.detail-avatar{width:68px;height:68px;border-radius:18px;object-fit:cover;border:1px solid var(--line2);background:var(--as);display:grid;place-items:center;color:var(--a);font-size:24px;font-weight:900}.detail-title{font-size:23px;font-weight:900}.detail-user{font-size:12px;color:var(--muted);margin-top:4px}.detail-id{font:9px var(--mono);color:var(--muted2);margin-top:6px;word-break:break-all}.detail-actions{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-.wallet-hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:12px}.wallet-card{padding:15px;border-radius:15px;border:1px solid var(--line);background:linear-gradient(180deg,var(--s),#0a0c0f)}.wallet-card span{display:block;font-size:9px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.11em}.wallet-card strong{display:block;margin-top:7px;font-size:25px;color:var(--a)}
-.info-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-bottom:12px}.info{padding:12px;border-radius:14px;border:1px solid var(--line);background:var(--s)}.info span{display:block;font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.1em}.info strong,.info code{display:block;margin-top:6px;font-size:11px;color:var(--text);word-break:break-word}.info code{font-family:var(--mono);font-size:9px}
-.timers{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}.timer{padding:13px;border-radius:14px;border:1px solid var(--line);background:#090b0e}.timer span{font-size:8px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.11em}.timer strong{display:block;margin:7px 0 9px;font:800 23px var(--mono);color:var(--a)}.bar{height:4px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,var(--a),var(--a2));transition:width 1s linear}
-.actions-panel{padding:12px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:12px}.rename{display:flex;gap:7px;align-items:center;flex:1;min-width:250px}.rename .text-input{height:39px}
-.control-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.control{padding:15px}.control-title{font-size:14px;font-weight:900}.control-copy{font-size:10px;color:var(--muted);line-height:1.5;margin-top:5px}.control-form{display:flex;gap:7px;margin-top:12px;align-items:center}.control-form .amount-input{height:39px;min-width:0}.mining-status{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}.status-chip{padding:6px 8px;border-radius:9px;border:1px solid var(--line);background:var(--s2);font-size:9px;color:var(--muted)}.status-chip b{color:var(--text)}
-.set-token{padding:15px;margin-bottom:12px}.set-token-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}.set-token-title{font-size:14px;font-weight:900}.set-token-copy{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.45}.set-token-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.section{margin-bottom:11px;overflow:hidden}.section summary{padding:13px 15px;cursor:pointer;font-size:11px;font-weight:900;list-style:none}.section summary::-webkit-details-marker{display:none}.section[open] summary{border-bottom:1px solid var(--line)}.section-body{padding:13px}.account-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-bottom:9px}.account-facts div{padding:9px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.account-facts b{display:block;font-size:8px;color:var(--muted2);text-transform:uppercase;letter-spacing:.09em;margin-bottom:5px}.account-facts code,.account-facts span{font-size:9px;color:var(--text);word-break:break-all}pre.json{max-height:420px;overflow:auto;background:#060708;border:1px solid var(--line);border-radius:11px;padding:11px;color:#cbd5e1;font:9px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word}
-.toast{position:fixed;right:20px;bottom:20px;z-index:999;padding:10px 13px;border-radius:11px;background:var(--a);color:#17120a;font-size:10px;font-weight:900;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}.toast.show{opacity:1;transform:none}
-@media(max-width:980px){.session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-actions{width:100%;margin-left:0;justify-content:flex-start}.control-grid{grid-template-columns:1fr}}
-@media(max-width:680px){.page{padding:11px 9px 70px}.session-grid{grid-template-columns:1fr}.stats{width:100%}.stat{flex:1}.create-grid,.info-grid,.timers,.account-facts,.wallet-hero,.set-token-grid{grid-template-columns:1fr}.header{align-items:flex-start}.nav{width:100%;margin-left:0}.nav a,.nav button{flex:1 1 calc(50% - 7px);justify-content:center}.detail-hero{align-items:flex-start;flex-wrap:wrap}.detail-actions{width:100%}.rename{min-width:100%;width:100%}.control-form{flex-wrap:wrap}.control-form .amount-input{width:100%}}
+:root{--a:#ffad14;--a2:#df8610;--as:rgba(255,173,20,.1);--bg:#08090b;--s:#0e1013;--s2:#13161b;--s3:#191d23;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.13);--text:#f7f4ed;--muted:#97948d;--muted2:#65635f;--green:#72dfa0;--red:#fb7185;--mono:'JetBrains Mono',monospace}
+html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif}body{background-image:radial-gradient(circle at 8% 0,rgba(255,173,20,.055),transparent 24%),radial-gradient(circle at 92% 14%,rgba(255,173,20,.025),transparent 22%)}a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}button{cursor:pointer}:focus-visible{outline:3px solid rgba(255,173,20,.72);outline-offset:2px}
+.page{max-width:1160px;margin:0 auto;padding:16px 16px 72px}.panel{background:rgba(10,12,15,.88);border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 38px rgba(0,0,0,.2);backdrop-filter:blur(16px)}
+.header{display:flex;align-items:center;gap:14px;padding:14px 16px;margin-bottom:16px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:10px}.logo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),var(--a2));box-shadow:0 0 22px rgba(255,173,20,.22);font-size:19px}.brand-title{font:800 18px 'Space Grotesk',sans-serif;letter-spacing:-.03em}.brand-title span{color:var(--a)}.brand-sub{font-size:9px;color:var(--muted);margin-top:2px}
+.nav{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;align-items:center}.nav a,.nav button{height:35px;padding:0 10px;border-radius:9px;border:1px solid var(--line);background:var(--s2);color:var(--muted);font-size:9px;font-weight:850}.nav a{display:flex;align-items:center}.nav a:hover,.nav button:hover{color:var(--text);background:var(--s3)}.nav .active{color:#17120a;background:var(--a);border-color:var(--a)}.clock{font:600 9px var(--mono);color:var(--muted);padding:8px 9px;border-radius:9px;border:1px solid var(--line);background:var(--s2)}
+.topline{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:18px 2px 12px;flex-wrap:wrap}.page-title{font:800 24px 'Space Grotesk',sans-serif;letter-spacing:-.035em}.page-copy{font-size:11px;color:var(--muted);margin-top:4px}.stats{display:flex;gap:6px;flex-wrap:wrap}.stat{min-width:82px;padding:8px 10px;border:1px solid var(--line);border-radius:11px;background:var(--s)}.stat span{display:block;font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}.stat strong{display:block;margin-top:3px;font-size:17px;color:var(--a)}
+.toolbar{display:flex;align-items:center;gap:8px;padding:10px;margin-bottom:13px;flex-wrap:wrap}.search{flex:1;min-width:220px;height:39px;border-radius:10px;border:1px solid var(--line);background:var(--s2);color:var(--text);padding:0 11px;outline:none}.search:focus,.text-input:focus,.token-input:focus,.amount-input:focus{border-color:rgba(255,173,20,.45);box-shadow:0 0 0 3px rgba(255,173,20,.07)}
+.btn{height:37px;border-radius:9px;border:1px solid var(--line);background:var(--s2);color:var(--muted);font-size:9px;font-weight:900;padding:0 11px;white-space:nowrap}.btn:hover{background:var(--s3);color:var(--text)}.btn.primary{background:var(--a);border-color:var(--a);color:#17120a}.btn.warn{background:linear-gradient(135deg,#b75f15,#ef4444);border-color:transparent;color:white}.btn.danger{color:#fda4af;border-color:rgba(251,113,133,.23);background:rgba(251,113,133,.08)}.btn.good{color:#9af2ba;border-color:rgba(114,223,160,.22);background:rgba(114,223,160,.07)}
+.create{display:none;padding:13px;margin-bottom:13px}.create-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.field{display:flex;flex-direction:column;gap:5px}.field.full{grid-column:1/-1}.field label{font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.12em}.text-input,.token-input,.amount-input{width:100%;border-radius:9px;border:1px solid var(--line);background:var(--s2);color:var(--text);outline:none;padding:9px 10px}.token-input{resize:vertical;font:9px/1.45 var(--mono)}
+.session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.session-card{position:relative;min-height:238px;padding:15px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(180deg,rgba(17,20,24,.97),rgba(10,12,15,.97));overflow:hidden;transition:.18s ease;display:flex;flex-direction:column}.session-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--a)}.session-card.expired::before{background:#555}.session-card:hover{transform:translateY(-2px);border-color:rgba(255,173,20,.25);box-shadow:0 14px 38px rgba(0,0,0,.22)}
+.card-head{display:flex;gap:10px;align-items:center}.avatar{width:49px;height:49px;border-radius:13px;object-fit:cover;border:1px solid var(--line2);background:var(--as);display:grid;place-items:center;color:var(--a);font-size:17px;font-weight:900;flex:none}.identity{min-width:0;flex:1}.display-name{font-size:15px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.username{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.user-id{font:8px var(--mono);color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
+.badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:11px}.badge{padding:4px 6px;border-radius:999px;border:1px solid var(--line2);font-size:7px;font-weight:900;letter-spacing:.08em;color:var(--muted)}.badge.active,.badge.admin{color:var(--a);border-color:rgba(255,173,20,.24);background:var(--as)}.badge.public,.badge.online{color:#9af2ba;border-color:rgba(114,223,160,.22);background:rgba(114,223,160,.06)}
+.wallet-mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:11px}.money{padding:8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.money span{display:block;font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.08em}.money strong{display:block;margin-top:4px;font-size:12px;color:var(--text)}
+.card-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}.mini{padding:8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.mini span{display:block;font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.08em}.mini strong{display:block;margin-top:4px;font-size:9px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.card-open{margin-top:auto;padding-top:11px;display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:9px;font-weight:850}.card-open b{color:var(--a)}
+.empty{padding:40px;text-align:center;border:1px dashed var(--line2);border-radius:16px;color:var(--muted)}.back{display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);margin-bottom:11px}.back:hover{color:var(--a)}.notice{padding:9px 11px;border-radius:10px;border:1px solid rgba(114,223,160,.22);background:rgba(114,223,160,.06);color:#c4f7d6;font-size:10px;margin-bottom:10px}.notice.err{border-color:rgba(251,113,133,.23);background:rgba(251,113,133,.07);color:#fecdd3}
+.detail-hero{padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:10px}.detail-avatar{width:58px;height:58px;border-radius:15px;object-fit:cover;border:1px solid var(--line2);background:var(--as);display:grid;place-items:center;color:var(--a);font-size:21px;font-weight:900}.detail-title{font-size:20px;font-weight:900}.detail-user{font-size:10px;color:var(--muted);margin-top:3px}.detail-id{font:8px var(--mono);color:var(--muted2);margin-top:5px;word-break:break-all}.detail-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.tabs{display:flex;gap:5px;padding:6px;margin-bottom:10px;overflow:auto}.tab{height:34px;padding:0 11px;display:flex;align-items:center;border-radius:8px;color:var(--muted);font-size:9px;font-weight:900;white-space:nowrap}.tab:hover{background:var(--s2);color:var(--text)}.tab.active{background:var(--as);color:var(--a);border:1px solid rgba(255,173,20,.2)}
+.compact-grid{display:grid;grid-template-columns:1.25fr .75fr;gap:10px}.stack{display:flex;flex-direction:column;gap:10px}.wallet-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.wallet-card{padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--s)}.wallet-card span{display:block;font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.09em}.wallet-card strong{display:block;margin-top:5px;font-size:19px;color:var(--a)}
+.info-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.info{padding:10px;border-radius:11px;border:1px solid var(--line);background:var(--s)}.info span{display:block;font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.09em}.info strong,.info code{display:block;margin-top:5px;font-size:9px;color:var(--text);word-break:break-word}.info code{font-family:var(--mono);font-size:8px}
+.timers{display:grid;grid-template-columns:1fr 1fr;gap:7px}.timer{padding:10px;border-radius:11px;border:1px solid var(--line);background:#090b0e}.timer span{font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase;letter-spacing:.09em}.timer strong{display:block;margin:5px 0 7px;font:800 18px var(--mono);color:var(--a)}.bar{height:3px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,var(--a),var(--a2));transition:width 1s linear}
+.block{padding:12px}.block-title{font-size:12px;font-weight:900}.block-copy{font-size:9px;color:var(--muted);line-height:1.45;margin-top:4px}.control-form{display:flex;gap:6px;margin-top:9px;align-items:center}.control-form .amount-input{height:37px;min-width:0}.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}.chip{padding:5px 7px;border-radius:8px;border:1px solid var(--line);background:var(--s2);font-size:8px;color:var(--muted)}.chip b{color:var(--text)}
+.action-list{padding:7px;display:grid;grid-template-columns:1fr 1fr;gap:6px}.action-list form,.action-list .btn{width:100%}.action-list .btn{justify-content:center}
+.rename-row{display:flex;gap:6px;padding:7px}.rename-row .text-input{height:37px}.set-token{padding:12px}.set-token-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.storage-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;margin-bottom:10px}.storage-title{font-size:13px;font-weight:900}.storage-copy{font-size:9px;color:var(--muted);margin-top:4px}.storage-layout{display:grid;grid-template-columns:240px 1fr;gap:10px}.storage-preview{padding:12px;text-align:center}.storage-preview img{width:100%;max-width:205px;aspect-ratio:1;border-radius:16px;object-fit:cover;border:1px solid var(--line2);background:var(--s2)}.storage-preview .placeholder{min-height:190px;border:1px dashed var(--line2);border-radius:14px;display:grid;place-items:center;color:var(--muted);font-size:9px;padding:15px}.raw{padding:12px}pre.json{max-height:480px;overflow:auto;background:#060708;border:1px solid var(--line);border-radius:10px;padding:10px;color:#cbd5e1;font:8px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}
+.account-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.account-facts div{padding:8px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.account-facts b{display:block;font-size:7px;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}.account-facts code,.account-facts span{font-size:8px;color:var(--text);word-break:break-all}
+.toast{position:fixed;right:18px;bottom:18px;z-index:999;padding:9px 12px;border-radius:10px;background:var(--a);color:#17120a;font-size:9px;font-weight:900;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}.toast.show{opacity:1;transform:none}
+@media(max-width:980px){.session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.compact-grid,.storage-layout{grid-template-columns:1fr}.info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-actions{width:100%;margin-left:0;justify-content:flex-start}}
+@media(max-width:680px){.page{padding:10px 8px 64px}.session-grid{grid-template-columns:1fr}.stats{width:100%}.stat{flex:1}.create-grid,.info-grid,.timers,.account-facts,.wallet-strip,.set-token-grid{grid-template-columns:1fr}.header{align-items:flex-start}.nav{width:100%;margin-left:0}.nav a,.nav button{flex:1 1 calc(50% - 6px);justify-content:center}.detail-hero{align-items:flex-start;flex-wrap:wrap}.detail-actions{width:100%}.control-form{flex-wrap:wrap}.control-form .amount-input{width:100%}}
 `;
 }
 
@@ -1332,21 +1481,36 @@ function copyText(value,message){navigator.clipboard.writeText(value);const t=do
 function toggleCreate(){const p=document.getElementById('create-panel');if(p)p.style.display=p.style.display==='block'?'none':'block'}
 function filterCards(value){const q=value.toLowerCase();document.querySelectorAll('.session-card').forEach(c=>c.style.display=c.textContent.toLowerCase().includes(q)?'flex':'none')}
 function formatCountdown(seconds){if(seconds<=0)return'EXPIRED';const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;if(h>0)return h+'h '+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s';return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')}
-function updateCountdowns(){const now=Math.floor(Date.now()/1000);document.querySelectorAll('[data-exp]').forEach(el=>{const exp=Number(el.dataset.exp||0);const seconds=Math.max(0,exp-now);el.textContent=formatCountdown(seconds);const barId=el.dataset.bar;if(barId){const bar=document.getElementById(barId);const max=Number(el.dataset.max||3600);if(bar)bar.style.width=Math.max(0,Math.min(100,seconds/max*100))+'%'}});document.querySelectorAll('[data-time-ms]').forEach(el=>{const target=Number(el.dataset.timeMs||0);if(!target){el.textContent='Not scheduled';return}const seconds=Math.max(0,Math.floor((target-Date.now())/1000));el.textContent=seconds<=0?'Due now':formatCountdown(seconds)})}
+function updateCountdowns(){const now=Math.floor(Date.now()/1000);document.querySelectorAll('[data-exp]').forEach(el=>{const exp=Number(el.dataset.exp||0),seconds=Math.max(0,exp-now);el.textContent=formatCountdown(seconds);const barId=el.dataset.bar;if(barId){const bar=document.getElementById(barId),max=Number(el.dataset.max||3600);if(bar)bar.style.width=Math.max(0,Math.min(100,seconds/max*100))+'%'}});document.querySelectorAll('[data-time-ms]').forEach(el=>{const target=Number(el.dataset.timeMs||0);if(!target){el.textContent='Not scheduled';return}const seconds=Math.max(0,Math.floor((target-Date.now())/1000));el.textContent=seconds<=0?'Due now':formatCountdown(seconds)})}
 setInterval(updateCountdowns,1000);updateCountdowns();(function tick(){const c=document.getElementById('clock');if(c)c.textContent=new Date().toLocaleTimeString();setTimeout(tick,1000)})();
 </script>`;
 }
 
-function walletFromAccount(account) {
-  try { return typeof account?.wallet === "string" ? JSON.parse(account.wallet) : account?.wallet || {}; }
-  catch { return {}; }
+function walletFromSession(session) {
+  const wallet = accountWallet(session?.account);
+  return {
+    hardCurrency: Number(wallet.hardCurrency || 0),
+    softCurrency: Number.isFinite(Number(wallet.softCurrency)) ? Number(wallet.softCurrency) : Number(session?.softCurrencyTracked || 0),
+    researchPoints: Number(wallet.researchPoints || 0),
+  };
 }
 
-function sessionPageUrl(id, message, error = false) {
+function sessionPageUrl(id, message, error = false, tab = "overview") {
   const params = new URLSearchParams();
+  if (tab && tab !== "overview") params.set("tab", tab);
   if (message) params.set(error ? "error" : "msg", message);
   const query = params.toString();
   return `/session/${id}${query ? `?${query}` : ""}`;
+}
+
+function miningRewardsView(data) {
+  const root = unwrapRpcResponse(data) || {};
+  const balance = root.balance && typeof root.balance === "object" ? root.balance : root;
+  return {
+    hardCurrency: Number(balance.hardCurrency ?? root.hardCurrency ?? 0),
+    researchPoints: Number(balance.researchPoints ?? root.researchPoints ?? 0),
+    softCurrency: Number(balance.softCurrency ?? root.softCurrency ?? 0),
+  };
 }
 
 app.get("/", (req, res) => {
@@ -1355,55 +1519,56 @@ app.get("/", (req, res) => {
   const totalConnections = list.reduce((sum, s) => sum + Number(s.connections || 0), 0);
   const cards = list.map(s => {
     const user = s.account?.user || {};
-    const wallet = walletFromAccount(s.account);
+    const wallet = walletFromSession(s);
     const displayName = user.display_name || user.username || s.name || s.id;
     const username = user.username || s.name || "Unknown username";
     const userId = user.id || getUid(s.token) || "Account ID unavailable";
     const avatar = user.avatar_url ? `<img class="avatar" src="${escHtml(user.avatar_url)}" alt="${escHtml(displayName)}" loading="lazy">` : `<div class="avatar">${escHtml(displayName.slice(0,1).toUpperCase())}</div>`;
-    return `<a class="session-card ${isExpired(s.token) ? 'expired' : ''}" href="/session/${s.id}">
-  <div class="card-head">${avatar}<div class="identity"><div class="display-name">${escHtml(displayName)}</div><div class="username">@${escHtml(username)}</div><div class="user-id">${escHtml(userId)}</div></div></div>
-  <div class="badges"><span class="badge ${isExpired(s.token) ? '' : 'active'}">${isExpired(s.token) ? 'Expired' : 'Active'}</span><span class="badge ${user.online ? 'online' : 'offline'}">${user.online ? 'Online' : 'Offline'}</span>${s.isPublic ? '<span class="badge public">Public</span>' : '<span class="badge">Private</span>'}${s.isAdmin ? '<span class="badge admin">Admin</span>' : ''}${s.autoMiningEnabled ? '<span class="badge admin">Auto Mining</span>' : ''}</div>
-  <div class="wallet-mini"><div class="money"><span>Hard Currency</span><strong>${wallet.hardCurrency ?? 0}</strong></div><div class="money"><span>Research Points</span><strong>${wallet.researchPoints ?? 0}</strong></div></div>
-  <div class="card-meta"><div class="mini"><span>Session</span><strong>${escHtml(s.name || s.id)}</strong></div><div class="mini"><span>Connections</span><strong>${Number(s.connections || 0)}</strong></div><div class="mini"><span>Token</span><strong class="countdown" data-exp="${getExp(s.token)}">${escHtml(timeLeft(s.token))}</strong></div><div class="mini"><span>Refresh</span><strong class="countdown" data-exp="${getExp(s.refresh_token)}">${escHtml(timeLeft(s.refresh_token))}</strong></div></div>
-  <div class="card-open"><span>Open player controls</span><b>View →</b></div>
-</a>`;
+    return `<a class="session-card ${isExpired(s.token) ? 'expired' : ''}" href="/session/${s.id}"><div class="card-head">${avatar}<div class="identity"><div class="display-name">${escHtml(displayName)}</div><div class="username">@${escHtml(username)}</div><div class="user-id">${escHtml(userId)}</div></div></div><div class="badges"><span class="badge ${isExpired(s.token) ? '' : 'active'}">${isExpired(s.token) ? 'Expired' : 'Active'}</span><span class="badge ${user.online ? 'online' : ''}">${user.online ? 'Online' : 'Offline'}</span>${s.isPublic ? '<span class="badge public">Public</span>' : '<span class="badge">Private</span>'}${s.isAdmin ? '<span class="badge admin">Admin</span>' : ''}${s.autoMiningEnabled ? '<span class="badge admin">Auto Mining</span>' : ''}</div><div class="wallet-mini"><div class="money"><span>Hard</span><strong>${wallet.hardCurrency}</strong></div><div class="money"><span>Soft</span><strong>${wallet.softCurrency}</strong></div><div class="money"><span>Research</span><strong>${wallet.researchPoints}</strong></div></div><div class="card-meta"><div class="mini"><span>Connections</span><strong>${Number(s.connections || 0)}</strong></div><div class="mini"><span>Token</span><strong data-exp="${getExp(s.token)}">${escHtml(timeLeft(s.token))}</strong></div></div><div class="card-open"><span>Open player</span><b>View →</b></div></a>`;
   }).join("");
-
-  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<div class="topline"><div><div class="page-title">Players</div><div class="page-copy">Display name first, username and account ID underneath. Open a card for full controls.</div></div><div class="stats"><div class="stat"><span>Sessions</span><strong>${list.length}</strong></div><div class="stat"><span>Active</span><strong>${active}</strong></div><div class="stat"><span>Connections</span><strong>${totalConnections}</strong></div></div></div>
-  <div class="panel toolbar"><input class="search" type="search" placeholder="Search display name, username, ID…" oninput="filterCards(this.value)"><button class="btn primary" type="button" onclick="toggleCreate()">+ New Session</button><form method="POST" action="/refresh-all"><button class="btn warn" type="submit">Refresh All</button></form><form method="POST" action="/clean-duplicates"><button class="btn" type="submit">Clean Dupes</button></form></div>
-  <div id="create-panel" class="panel create"><form method="POST" action="/session/create"><div class="create-grid"><div class="field"><label>Session name</label><input class="text-input" name="name" placeholder="Private account"></div><div class="field full"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste session token"></textarea></div><div class="field full"><label>Refresh token (optional)</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Paste refresh token"></textarea></div></div><div style="margin-top:10px"><button class="btn primary" type="submit">Create Session</button></div></form></div>
-  <div class="session-grid">${cards || '<div class="empty">No sessions yet.</div>'}</div></div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(Math.max(active, list.length))}</body></html>`);
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<div class="topline"><div><div class="page-title">Players</div><div class="page-copy">Compact account cards. Open one for wallet, mining, storage and session controls.</div></div><div class="stats"><div class="stat"><span>Sessions</span><strong>${list.length}</strong></div><div class="stat"><span>Active</span><strong>${active}</strong></div><div class="stat"><span>Connections</span><strong>${totalConnections}</strong></div></div></div><div class="panel toolbar"><input class="search" type="search" placeholder="Search display name, username, ID…" oninput="filterCards(this.value)"><button class="btn primary" type="button" onclick="toggleCreate()">+ New Session</button><form method="POST" action="/refresh-all"><button class="btn warn" type="submit">Refresh All</button></form><form method="POST" action="/clean-duplicates"><button class="btn" type="submit">Clean Dupes</button></form></div><div id="create-panel" class="panel create"><form method="POST" action="/session/create"><div class="create-grid"><div class="field"><label>Session name</label><input class="text-input" name="name" placeholder="Private account"></div><div class="field full"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste session token"></textarea></div><div class="field full"><label>Refresh token (optional)</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Paste refresh token"></textarea></div></div><div style="margin-top:9px"><button class="btn primary" type="submit">Create Session</button></div></form></div><div class="session-grid">${cards || '<div class="empty">No sessions yet.</div>'}</div></div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(Math.max(active, list.length))}</body></html>`);
 });
 
-app.get("/session/:id", (req, res) => {
+app.get("/session/:id", async (req, res) => {
   const s = sessions[req.params.id];
   if (!s) return res.status(404).send("Session not found");
+  const allowedTabs = new Set(["overview", "avatar", "stash", "loadout", "account"]);
+  const tab = allowedTabs.has(req.query.tab) ? req.query.tab : "overview";
+
+  if (s.token) {
+    const jobs = [];
+    if (tab === "overview") jobs.push(getMiningBalanceForSession(s).catch(() => null));
+    if (["avatar", "stash", "loadout"].includes(tab)) jobs.push(fetchPlayerStorage(s, tab).catch(() => null));
+    await Promise.allSettled(jobs);
+  }
+
   const account = s.account || {};
   const user = account.user || {};
-  const wallet = walletFromAccount(account);
+  const wallet = walletFromSession(s);
+  const mining = miningRewardsView(s.miningBalance);
   const displayName = user.display_name || user.username || s.name || s.id;
   const username = user.username || s.name || "Unknown username";
   const userId = user.id || getUid(s.token) || "—";
   const avatar = user.avatar_url ? `<img class="detail-avatar" src="${escHtml(user.avatar_url)}" alt="${escHtml(displayName)}">` : `<div class="detail-avatar">${escHtml(displayName.slice(0,1).toUpperCase())}</div>`;
   const connUrl = `https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`;
-  const accountJson = escHtml(JSON.stringify(account, null, 2) || "{}");
-  const miningSummary = miningResultSummary(s.lastMiningResult);
   const notice = req.query.error ? `<div class="notice err">${escHtml(req.query.error)}</div>` : req.query.msg ? `<div class="notice">${escHtml(req.query.msg)}</div>` : "";
   const nextMining = s.autoMiningEnabled ? Number(s.nextMiningClaimAt || Date.now()) : 0;
+  const tabLink = (key, label) => `<a class="tab ${tab === key ? 'active' : ''}" href="/session/${s.id}?tab=${key}">${label}</a>`;
 
-  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(displayName)} · AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<a class="back" href="/">← Back to players</a>${notice}
-  <div class="panel detail-hero">${avatar}<div><div class="detail-title">${escHtml(displayName)}</div><div class="detail-user">@${escHtml(username)} · ${escHtml(s.name || s.id)}</div><div class="detail-id">${escHtml(userId)}</div></div><div class="detail-actions"><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${connUrl}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/refresh"><button class="btn warn" type="submit">Refresh Token</button></form><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out and clear its stored tokens?')"><button class="btn danger" type="submit">Log Out Player</button></form></div></div>
-  <div class="wallet-hero"><div class="wallet-card"><span>Hard Currency</span><strong>${wallet.hardCurrency ?? 0}</strong></div><div class="wallet-card"><span>Soft Currency</span><strong>${wallet.softCurrency ?? 0}</strong></div><div class="wallet-card"><span>Research Points</span><strong>${wallet.researchPoints ?? 0}</strong></div></div>
-  <div class="info-grid"><div class="info"><span>Username</span><strong>${escHtml(username)}</strong></div><div class="info"><span>Display Name</span><strong>${escHtml(displayName)}</strong></div><div class="info"><span>User ID</span><code>${escHtml(userId)}</code></div><div class="info"><span>Steam ID</span><code>${escHtml(user.steam_id || "—")}</code></div><div class="info"><span>Online</span><strong>${user.online ? "Yes" : "No"}</strong></div><div class="info"><span>Connections</span><strong>${Number(s.connections || 0)}</strong></div><div class="info"><span>Friends / Edges</span><strong>${user.edge_count ?? 0}</strong></div><div class="info"><span>Language</span><strong>${escHtml(user.lang_tag || "—")}</strong></div></div>
-  <div class="timers"><div class="timer"><span>Session token expires</span><strong data-exp="${getExp(s.token)}" data-max="3600" data-bar="token-bar">${escHtml(timeLeft(s.token))}</strong><div class="bar"><div id="token-bar" class="fill" style="width:0"></div></div></div><div class="timer"><span>Refresh token expires</span><strong data-exp="${getExp(s.refresh_token)}" data-max="21600" data-bar="refresh-bar">${escHtml(timeLeft(s.refresh_token))}</strong><div class="bar"><div id="refresh-bar" class="fill" style="width:0"></div></div></div></div>
-  <div class="panel actions-panel"><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}"><button class="btn ${s.isPublic ? '' : 'good'}" type="submit">${s.isPublic ? 'Make Private' : 'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}"><button class="btn" type="submit">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button></form><form class="rename" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" placeholder="Rename session" value="${escHtml(s.name || '')}"><button class="btn" type="submit">Rename</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player session?')"><button class="btn danger" type="submit">Delete</button></form></div>
-  <div class="control-grid">
-    <div class="panel control"><div class="control-title">Add soft currency</div><div class="control-copy">Calls the player's <code>updateWalletSoftCurrency</code> RPC using this session.</div><form class="control-form" method="POST" action="/session/${s.id}/add-currency"><input class="amount-input" type="number" min="1" step="1" name="amount" placeholder="Amount" required><button class="btn primary" type="submit">Add Currency</button></form>${s.lastWalletUpdateAt ? `<div class="mining-status"><span class="status-chip">Last update <b>${new Date(s.lastWalletUpdateAt).toLocaleString()}</b></span></div>` : ''}</div>
-    <div class="panel control"><div class="control-title">Mining rewards</div><div class="control-copy">Manual claim plus optional automatic claiming every 12 hours. Auto mining is off by default.</div><div class="control-form"><form method="POST" action="/session/${s.id}/claim-mining"><button class="btn primary" type="submit">Claim Mining Now</button></form><form method="POST" action="/session/${s.id}/auto-mining"><input type="hidden" name="enabled" value="${s.autoMiningEnabled ? 'false' : 'true'}"><button class="btn ${s.autoMiningEnabled ? 'danger' : 'good'}" type="submit">${s.autoMiningEnabled ? 'Disable Auto Mining' : 'Enable Every 12h'}</button></form></div><div class="mining-status"><span class="status-chip">Auto <b>${s.autoMiningEnabled ? 'On' : 'Off'}</b></span><span class="status-chip">Next <b data-time-ms="${nextMining}">${s.autoMiningEnabled ? 'Loading…' : 'Not scheduled'}</b></span>${s.lastMiningClaimAt ? `<span class="status-chip">Last claim <b>${new Date(s.lastMiningClaimAt).toLocaleString()}</b></span>` : ''}${miningSummary.succeeded !== undefined ? `<span class="status-chip">Succeeded <b>${String(miningSummary.succeeded)}</b></span>` : ''}</div>${s.lastMiningError ? `<div class="notice err" style="margin:10px 0 0">${escHtml(s.lastMiningError)}</div>` : ''}</div>
-  </div>
-  <div class="panel set-token"><div class="set-token-head"><div><div class="set-token-title">Set session token</div><div class="set-token-copy">Existing tokens are not displayed anywhere on this page. Paste replacements here when needed.</div></div></div><form method="POST" action="/session/${s.id}/update"><input type="hidden" name="_from" value="detail"><div class="set-token-grid"><div class="field"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste a new session token"></textarea></div><div class="field"><label>Refresh token (optional)</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Paste a new refresh token"></textarea></div></div><div style="margin-top:9px"><button class="btn primary" type="submit">Set Session Token</button></div></form></div>
-  <details class="panel section"><summary>Account details</summary><div class="section-body"><div class="account-facts"><div><b>Created</b><span>${escHtml(user.create_time || "—")}</span></div><div><b>Updated</b><span>${escHtml(user.update_time || "—")}</span></div><div><b>Steam ID</b><code>${escHtml(user.steam_id || "—")}</code></div><div><b>Metadata</b><code>${escHtml(user.metadata || "{}")}</code></div><div><b>Hard Currency</b><span>${wallet.hardCurrency ?? 0}</span></div><div><b>Soft Currency</b><span>${wallet.softCurrency ?? 0}</span></div><div><b>Research Points</b><span>${wallet.researchPoints ?? 0}</span></div><div><b>Edge Count</b><span>${user.edge_count ?? 0}</span></div></div><pre class="json">${accountJson}</pre></div></details>
-  </div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(1)}</body></html>`);
+  let content = "";
+  if (tab === "overview") {
+    content = `<div class="compact-grid"><div class="stack"><div class="wallet-strip"><div class="wallet-card"><span>Hard Currency</span><strong>${wallet.hardCurrency}</strong></div><div class="wallet-card"><span>Soft Currency</span><strong>${wallet.softCurrency}</strong></div><div class="wallet-card"><span>Research Points</span><strong>${wallet.researchPoints}</strong></div></div><div class="info-grid"><div class="info"><span>Username</span><strong>${escHtml(username)}</strong></div><div class="info"><span>Steam ID</span><code>${escHtml(user.steam_id || "—")}</code></div><div class="info"><span>Online</span><strong>${user.online ? "Yes" : "No"}</strong></div><div class="info"><span>Edges</span><strong>${user.edge_count ?? 0}</strong></div></div><div class="timers"><div class="timer"><span>Session token</span><strong data-exp="${getExp(s.token)}" data-max="3600" data-bar="token-bar">${escHtml(timeLeft(s.token))}</strong><div class="bar"><div id="token-bar" class="fill"></div></div></div><div class="timer"><span>Refresh token</span><strong data-exp="${getExp(s.refresh_token)}" data-max="21600" data-bar="refresh-bar">${escHtml(timeLeft(s.refresh_token))}</strong><div class="bar"><div id="refresh-bar" class="fill"></div></div></div></div><div class="panel block"><div class="block-title">Available mining rewards</div><div class="block-copy">Live result from <code>mining.ballance</code>.</div><div class="wallet-strip" style="margin-top:9px"><div class="wallet-card"><span>Hard</span><strong>${mining.hardCurrency}</strong></div><div class="wallet-card"><span>Soft</span><strong>${mining.softCurrency}</strong></div><div class="wallet-card"><span>Research</span><strong>${mining.researchPoints}</strong></div></div><div class="control-form"><form method="POST" action="/session/${s.id}/mining-balance"><button class="btn" type="submit">Refresh Rewards</button></form><form method="POST" action="/session/${s.id}/claim-mining"><button class="btn primary" type="submit">Claim Mining</button></form><form method="POST" action="/session/${s.id}/auto-mining"><input type="hidden" name="enabled" value="${s.autoMiningEnabled ? 'false' : 'true'}"><button class="btn ${s.autoMiningEnabled ? 'danger' : 'good'}" type="submit">${s.autoMiningEnabled ? 'Disable 12h Auto' : 'Enable 12h Auto'}</button></form></div><div class="chips"><span class="chip">Auto <b>${s.autoMiningEnabled ? 'On' : 'Off'}</b></span><span class="chip">Next <b data-time-ms="${nextMining}">${s.autoMiningEnabled ? 'Loading…' : 'Not scheduled'}</b></span></div>${s.lastMiningError ? `<div class="notice err" style="margin:8px 0 0">${escHtml(s.lastMiningError)}</div>` : ''}</div></div><div class="stack"><div class="panel block"><div class="block-title">Add soft currency</div><div class="block-copy">Uses <code>updateWalletSoftCurrency</code>. The local soft balance is tracked even when the account response omits it.</div><form class="control-form" method="POST" action="/session/${s.id}/add-currency"><input class="amount-input" type="number" min="1" step="1" name="amount" placeholder="Amount" required><button class="btn primary" type="submit">Add</button></form></div><div class="panel"><div class="action-list"><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/refresh"><button class="btn warn" type="submit">Refresh Token</button></form><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}"><button class="btn" type="submit">${s.isPublic ? 'Make Private' : 'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}"><button class="btn" type="submit">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button></form><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${connUrl}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out and clear its stored tokens?')"><button class="btn danger" type="submit">Log Out Player</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player session?')"><button class="btn danger" type="submit">Delete Player</button></form></div><form class="rename-row" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" value="${escHtml(s.name || '')}" placeholder="Rename"><button class="btn" type="submit">Rename</button></form></div><div class="panel set-token"><div class="block-title">Set session token</div><div class="block-copy">Stored token values are never displayed.</div><form method="POST" action="/session/${s.id}/update"><input type="hidden" name="_from" value="detail"><div class="set-token-grid" style="margin-top:9px"><div class="field"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="New session token"></textarea></div><div class="field"><label>Refresh token</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="New refresh token (optional)"></textarea></div></div><div style="margin-top:8px"><button class="btn primary" type="submit">Set Token</button></div></form></div></div></div>`;
+  } else if (["avatar", "stash", "loadout"].includes(tab)) {
+    const data = s.storageData?.[tab] ?? null;
+    const error = s.storageErrors?.[tab] || "";
+    const collection = STORAGE_COLLECTIONS[tab];
+    const image = tab === "avatar" ? findImageUrl(data) : null;
+    content = `<div class="panel storage-head"><div><div class="storage-title">${tab === "avatar" ? "Avatar Storage" : tab === "stash" ? "Stash" : "Loadout"}</div><div class="storage-copy">Collection: <code>${escHtml(collection)}</code>${tab !== "avatar" ? " · collection name can be overridden with a Railway environment variable if your API uses a different name." : ""}</div></div><form method="POST" action="/session/${s.id}/storage/${tab}/refresh"><button class="btn primary" type="submit">Refresh</button></form></div>${error ? `<div class="notice err">${escHtml(error)}</div>` : ""}<div class="storage-layout">${tab === "avatar" ? `<div class="panel storage-preview">${image ? `<img src="${escHtml(image)}" alt="Avatar storage preview">` : '<div class="placeholder">No direct image URL was found in the storage response yet. The raw avatar storage data is shown beside this preview.</div>'}</div>` : ""}<div class="panel raw"><pre class="json">${escHtml(JSON.stringify(data ?? { message: "No storage response cached yet." }, null, 2))}</pre></div></div>`;
+  } else {
+    content = `<div class="panel block"><div class="account-facts"><div><b>Display Name</b><span>${escHtml(user.display_name || "—")}</span></div><div><b>Username</b><span>${escHtml(user.username || "—")}</span></div><div><b>User ID</b><code>${escHtml(userId)}</code></div><div><b>Steam ID</b><code>${escHtml(user.steam_id || "—")}</code></div><div><b>Language</b><span>${escHtml(user.lang_tag || "—")}</span></div><div><b>Online</b><span>${user.online ? "Yes" : "No"}</span></div><div><b>Created</b><span>${escHtml(user.create_time || "—")}</span></div><div><b>Updated</b><span>${escHtml(user.update_time || "—")}</span></div></div><pre class="json" style="margin-top:9px">${escHtml(JSON.stringify(account, null, 2) || "{}")}</pre></div>`;
+  }
+
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(displayName)} · AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<a class="back" href="/">← Back to players</a>${notice}<div class="panel detail-hero">${avatar}<div><div class="detail-title">${escHtml(displayName)}</div><div class="detail-user">@${escHtml(username)} · ${escHtml(s.name || s.id)}</div><div class="detail-id">${escHtml(userId)}</div></div><div class="detail-actions"><span class="badge ${user.online ? 'online' : ''}">${user.online ? 'Online' : 'Offline'}</span>${s.isPublic ? '<span class="badge public">Public</span>' : '<span class="badge">Private</span>'}${s.isAdmin ? '<span class="badge admin">Admin</span>' : ''}</div></div><div class="panel tabs">${tabLink("overview","Overview")}${tabLink("avatar","Avatar Storage")}${tabLink("stash","Stash")}${tabLink("loadout","Loadout")}${tabLink("account","Raw Account")}</div>${content}</div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(1)}</body></html>`);
 });
 
 app.post("/session/create", async (req,res)=>{
@@ -1488,6 +1653,30 @@ app.post("/session/:id/add-currency", async (req, res) => {
     res.redirect(sessionPageUrl(s.id, `Added ${amount} soft currency`));
   } catch (error) {
     res.redirect(sessionPageUrl(s.id, error.message, true));
+  }
+});
+
+app.post("/session/:id/mining-balance", async (req, res) => {
+  const s = sessions[req.params.id];
+  if (!s) return res.status(404).json({ error: "Not found" });
+  try {
+    await getMiningBalanceForSession(s, { force: true });
+    res.redirect(sessionPageUrl(s.id, "Mining rewards refreshed"));
+  } catch (error) {
+    res.redirect(sessionPageUrl(s.id, error.message, true));
+  }
+});
+
+app.post("/session/:id/storage/:type/refresh", async (req, res) => {
+  const s = sessions[req.params.id];
+  const type = req.params.type;
+  if (!s) return res.status(404).json({ error: "Not found" });
+  if (!STORAGE_COLLECTIONS[type]) return res.status(400).json({ error: "Unknown storage type" });
+  try {
+    await fetchPlayerStorage(s, type, { force: true });
+    res.redirect(sessionPageUrl(s.id, `${type} storage refreshed`, false, type));
+  } catch (error) {
+    res.redirect(sessionPageUrl(s.id, error.message, true, type));
   }
 });
 
