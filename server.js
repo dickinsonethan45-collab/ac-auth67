@@ -2,9 +2,129 @@ const express = require("express");
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
-const { createSessionStore, normalizeSession } = require("./lib/session-store");
-const { createSupporterNonceService } = require("./lib/supporter-nonce");
-const { fetchAccount, accountSummary } = require("./lib/nakama-account");
+// ── Self-contained helpers ────────────────────────────────────────────────────
+// Kept in this file so Railway only needs server.js; no ./lib files are required.
+function ensureParentDir(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function normalizeSession(id, raw = {}) {
+  return {
+    id,
+    name: raw.name || id,
+    token: raw.token || "",
+    refresh_token: raw.refresh_token || "",
+    connections: Number(raw.connections || 0),
+    isPublic: Boolean(raw.isPublic),
+    isAdmin: Boolean(raw.isAdmin),
+    account: raw.account && typeof raw.account === "object" ? raw.account : null,
+    accountUpdatedAt: Number(raw.accountUpdatedAt || 0),
+    createdAt: Number(raw.createdAt || Date.now()),
+    updatedAt: Number(raw.updatedAt || Date.now()),
+    lastRefresh: Number(raw.lastRefresh || 0),
+  };
+}
+
+function createSessionStore(filePath) {
+  let data = {};
+
+  function load() {
+    ensureParentDir(filePath);
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      const source = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      data = Object.fromEntries(
+        Object.entries(source).map(([id, session]) => [id, normalizeSession(id, session)])
+      );
+      console.log(`[Sessions] Loaded ${Object.keys(data).length} session(s) from ${filePath}`);
+    } catch (error) {
+      if (error.code !== "ENOENT") console.error(`[Sessions] Load failed: ${error.message}`);
+      data = {};
+      save();
+    }
+    return data;
+  }
+
+  function save() {
+    ensureParentDir(filePath);
+    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(tmpPath, filePath);
+  }
+
+  function touch(session) {
+    if (session) session.updatedAt = Date.now();
+  }
+
+  return { load, save, touch };
+}
+
+function createSupporterNonceService({ ttlMs = 10 * 60 * 1000 } = {}) {
+  const nonces = new Map();
+
+  function purge() {
+    const now = Date.now();
+    for (const [nonce, record] of nonces) {
+      if (record.expiresAt <= now) nonces.delete(nonce);
+    }
+  }
+
+  function issue({ supporterCode, ip }) {
+    purge();
+    const nonce = crypto.randomBytes(32).toString("base64url");
+    const issuedAt = Date.now();
+    const record = { supporterCode, ip, issuedAt, expiresAt: issuedAt + ttlMs };
+    nonces.set(nonce, record);
+    return { nonce, expiresAt: record.expiresAt, expiresIn: Math.ceil(ttlMs / 1000) };
+  }
+
+  function verify(nonce, { ip, consume = true } = {}) {
+    purge();
+    if (!nonce || typeof nonce !== "string") return { ok: false, error: "supporter_nonce_required" };
+    const record = nonces.get(nonce);
+    if (!record) return { ok: false, error: "supporter_nonce_invalid_or_expired" };
+    if (record.ip && ip && record.ip !== ip) return { ok: false, error: "supporter_nonce_ip_mismatch" };
+    if (consume) nonces.delete(nonce);
+    return { ok: true, record };
+  }
+
+  return { issue, verify, purge, ttlMs };
+}
+
+const NAKAMA_ACCOUNT_HEADERS = {
+  "User-Agent": "UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)",
+  "x-unity-version": "6000.3.12f1",
+};
+
+async function fetchAccount(nakamaServer, token) {
+  if (!token) throw new Error("Missing token");
+  const response = await fetch(`${nakamaServer}/v2/account`, {
+    headers: { ...NAKAMA_ACCOUNT_HEADERS, Authorization: `Bearer ${token}` },
+  });
+  const body = await response.text();
+  let data;
+  try { data = body ? JSON.parse(body) : {}; }
+  catch { data = { raw: body }; }
+  if (!response.ok) {
+    const error = new Error(`Nakama account request failed (${response.status})`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function accountSummary(account) {
+  const user = account?.user || {};
+  return {
+    user_id: user.id || null,
+    username: user.username || null,
+    display_name: user.display_name || null,
+    avatar_url: user.avatar_url || null,
+    online: Boolean(user.online),
+    custom_id: account?.custom_id || null,
+  };
+}
 let WebSocket;
 try { WebSocket = require("ws"); } catch (e) { WebSocket = null; console.log("[Presence] 'ws' package not installed — run `npm install ws` to enable online/room-code tracking."); }
 const app = express();
@@ -14,7 +134,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Supporter-Nonce, X-Auth-Nonce");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -160,9 +280,14 @@ function requestIp(req) {
 
 function getValidCodes() {
   try {
-    const filePath = path.join(DATA_DIR, "codes.txt");
-    if (!fs.existsSync(filePath)) {
-      console.error(`[SupporterCode] codes.txt not found at: ${filePath}`);
+    const candidates = [
+      path.join(DATA_DIR, "codes.txt"),
+      path.join(__dirname, "codes.txt"),
+      path.join(process.cwd(), "codes.txt"),
+    ];
+    const filePath = candidates.find(p => fs.existsSync(p));
+    if (!filePath) {
+      console.error(`[SupporterCode] codes.txt not found. Checked: ${candidates.join(", ")}`);
       return null;
     }
     return new Set(fs.readFileSync(filePath, "utf8").split(/\r?\n/).map(v => v.trim()).filter(Boolean));
@@ -1022,7 +1147,7 @@ app.post("/do-login", (req, res) => {
   if (username === LOGIN_USER && password === LOGIN_PASS) {
     const token = crypto.randomBytes(32).toString("hex");
     authSessions.add(token);
-    res.setHeader("Set-Cookie", `auth=${token}; Path=/; HttpOnly`);
+    res.setHeader("Set-Cookie", `auth=${token}; Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
     res.redirect("/");
   } else {
     res.redirect("/login?err=1");
