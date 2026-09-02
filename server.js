@@ -2331,36 +2331,93 @@ function customAuthNonce(req) {
   ).trim();
 }
 
+function normalizeCustomAuthId(value) {
+  let id = String(value || "").trim();
+  try { id = decodeURIComponent(id); } catch {}
+  return id.trim();
+}
+
 function findSessionForClient(clientId) {
-  return sessions[clientId] || Object.values(sessions).find(sess => getUid(sess.token) === clientId);
+  const wanted = normalizeCustomAuthId(clientId);
+  if (!wanted) return null;
+
+  if (sessions[wanted]) return sessions[wanted];
+
+  const lower = wanted.toLowerCase();
+  return Object.values(sessions).find(sess => {
+    const sessionId = String(sess.id || "").trim().toLowerCase();
+    const tokenUid = String(getUid(sess.token) || "").trim().toLowerCase();
+    const accountUserId = String(sess.account?.user?.id || "").trim().toLowerCase();
+    return sessionId === lower || tokenUid === lower || accountUserId === lower;
+  }) || null;
 }
 
 function verifyCustomAuthNonce(req, res) {
   const result = supporterNonces.verify(customAuthNonce(req), { ip: requestIp(req), consume: false });
   if (result.ok) return true;
+
+  const messages = {
+    supporter_nonce_required: "Supporter nonce required",
+    supporter_nonce_invalid_or_expired: "Supporter nonce invalid or expired",
+    supporter_nonce_ip_mismatch: "Supporter nonce belongs to a different IP",
+  };
+
   res.status(403).json({
+    valid: false,
     token: "",
     refresh_token: "",
     created: false,
     error: result.error,
-    hint: "Redeem a supporter code at /v2/supportercode first and pass supporter_nonce to custom auth.",
+    message: messages[result.error] || "Supporter nonce invalid",
+    hint: "Redeem a supporter code at /v2/supportercode first, then pass the returned supporter_nonce in X-Supporter-Nonce.",
   });
   return false;
 }
 
+function invalidCustomAuthId(res, clientId, method) {
+  console.log(`[Auth:${method}] ${clientId || "(empty)"} → invalid auth ID (${Object.keys(sessions).length} session(s) loaded)`);
+  return res.status(404).json({
+    valid: false,
+    error: "invalid_auth_id",
+    message: "Invalid Auth ID",
+    token: "",
+    refresh_token: "",
+    created: false,
+  });
+}
+
 app.get("/v2/account/authenticate/custom/:client",(req,res)=>{
   if (!verifyCustomAuthNonce(req,res)) return;
-  const clientId=req.params.client;
+  const clientId=normalizeCustomAuthId(req.params.client);
   const s=findSessionForClient(clientId);
-  if(s){console.log(`[Auth:GET] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
-  res.status(404).json({token:"",refresh_token:"",created:false});
+  if(!s) return invalidCustomAuthId(res, clientId, "GET");
+
+  console.log(`[Auth:GET] ${clientId} → ${s.name||s.id}`);
+  return res.json({
+    valid:true,
+    token:s.token,
+    refresh_token:s.refresh_token,
+    created:false
+  });
 });
+
 app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
   if (!verifyCustomAuthNonce(req,res)) return;
-  const clientId=req.params.client;
+  const clientId=normalizeCustomAuthId(req.params.client);
   const s=findSessionForClient(clientId);
-  if(s){s.connections=(s.connections||0)+1;sessionStore.touch(s);saveSessions();console.log(`[Auth] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
-  res.status(404).json({token:"",refresh_token:"",created:false});
+  if(!s) return invalidCustomAuthId(res, clientId, "POST");
+
+  s.connections=(s.connections||0)+1;
+  sessionStore.touch(s);
+  saveSessions();
+  console.log(`[Auth:POST] ${clientId} → ${s.name||s.id}`);
+
+  return res.json({
+    valid:true,
+    token:s.token,
+    refresh_token:s.refresh_token,
+    created:false
+  });
 });
 app.post("/v2/account/authenticate/refresh",(req,res)=>{
   const first=Object.values(sessions)[0];
