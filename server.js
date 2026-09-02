@@ -597,16 +597,36 @@ function requestIp(req) {
     || req.ip || req.socket?.remoteAddress || "unknown";
 }
 
+let lastCodesPathError = "";
+
 function getValidCodes() {
+  const candidates = [...new Set([
+    process.env.CODES_FILE,
+    path.join(__dirname, "codes.txt"),
+    path.join(process.cwd(), "codes.txt"),
+    path.join(DATA_DIR, "codes.txt"),
+  ].filter(Boolean))];
+
   try {
-    const filePath = path.join(DATA_DIR, "codes.txt");
-    if (!fs.existsSync(filePath)) {
-      console.error(`[SupporterCode] codes.txt not found at: ${filePath}`);
+    const filePath = candidates.find(candidate => fs.existsSync(candidate));
+    if (!filePath) {
+      const message = `[SupporterCode] codes.txt not found. Checked: ${candidates.join(", ")}`;
+      if (message !== lastCodesPathError) {
+        console.error(message);
+        lastCodesPathError = message;
+      }
       return null;
     }
-    return new Set(fs.readFileSync(filePath, "utf8").split(/\r?\n/).map(v => v.trim()).filter(Boolean));
+
+    lastCodesPathError = "";
+    return new Set(
+      fs.readFileSync(filePath, "utf8")
+        .split(/\r?\n/)
+        .map(value => value.trim())
+        .filter(Boolean)
+    );
   } catch (error) {
-    console.error("[SupporterCode] Failed to read codes.txt:", error);
+    console.error("[SupporterCode] Failed to read codes.txt:", error.message);
     return null;
   }
 }
@@ -1554,7 +1574,7 @@ a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}button{c
 .overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.info-panel,.timer-panel,.block,.settings-card,.raw{padding:11px}.info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.info{padding:8px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.info span{display:block;font-size:6px;color:var(--muted2);font-weight:900;text-transform:uppercase}.info strong,.info code{display:block;margin-top:4px;font-size:8px;color:var(--text);word-break:break-word}.info code{font-family:var(--mono)}
 .timer{margin-bottom:9px}.timer:last-child{margin-bottom:0}.timer-label{font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase}.timer-value{font:800 16px var(--mono);color:var(--a);margin:4px 0 6px}.bar{height:3px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,var(--a),var(--a2))}
 .block-title{font-size:12px;font-weight:900}.block-copy{font-size:9px;color:var(--muted);line-height:1.45;margin-top:4px}.form-row{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}.form-row .amount-input{height:35px;flex:1;min-width:150px}.mining-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}.mining-card{padding:9px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.mining-card span{display:block;font-size:6px;color:var(--muted2);font-weight:900;text-transform:uppercase}.mining-card strong{display:block;margin-top:4px;font-size:15px;color:var(--a)}.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.chip{padding:5px 6px;border:1px solid var(--line);border-radius:7px;background:var(--s2);font-size:7px;color:var(--muted)}.chip b{color:var(--text)}
-.friends-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}.friends-list{display:flex;flex-direction:column;gap:6px}.friend-row{padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.02);display:flex;align-items:center;gap:9px}.friend-main{min-width:0;flex:1}.friend-name{font-size:9px;font-weight:900;color:var(--text)}.friend-id{font:7px var(--mono);color:var(--muted2);margin-top:3px;word-break:break-all}.friend-state{font-size:7px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 6px}.friend-raw{margin-top:9px}
+.friends-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}.friends-list{display:flex;flex-direction:column;gap:6px}.friend-row{padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}.friend-main{min-width:0}.friend-name{font-size:10px;font-weight:900;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.friend-user{font-size:8px;color:var(--muted);margin-top:2px}.friend-id{font:7px var(--mono);color:var(--muted2);margin-top:3px;word-break:break-all}.friend-right{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}.presence{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border-radius:999px;border:1px solid var(--line);font-size:7px;font-weight:900;white-space:nowrap}.presence::before{content:'';width:6px;height:6px;border-radius:999px;background:#666}.presence.online{color:#9bf1ba;border-color:rgba(115,221,160,.24);background:rgba(115,221,160,.06)}.presence.online::before{background:#73dda0;box-shadow:0 0 7px rgba(115,221,160,.65)}.presence.hidden{color:#d8b4fe;border-color:rgba(192,132,252,.27);background:rgba(192,132,252,.08)}.presence.hidden::before{background:#c084fc;box-shadow:0 0 7px rgba(192,132,252,.65)}.presence.offline{color:#aaa}.room{display:inline-flex;align-items:center;gap:4px;padding:5px 7px;border-radius:8px;border:1px solid rgba(255,173,20,.2);background:var(--as);color:var(--a);font:800 7px var(--mono);white-space:nowrap}.room.stale{border-color:var(--line);background:var(--s2);color:var(--muted)}.friend-state{font-size:7px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 6px}.friends-note{font-size:8px;color:var(--muted);margin:0 0 8px}.friend-loading{padding:20px;text-align:center;color:var(--muted);font-size:9px}.friend-error{padding:9px 10px;border-radius:9px;background:rgba(251,113,133,.07);border:1px solid rgba(251,113,133,.22);color:#fecdd3;font-size:8px}
 .avatar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.avatar-part{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--s)}.avatar-part span{display:block;font-size:6px;color:var(--muted2);font-weight:900;text-transform:uppercase}.avatar-part code{display:block;margin-top:5px;font:8px var(--mono);color:var(--text);word-break:break-word}.empty-part{color:var(--muted2)!important}
 .settings{display:grid;grid-template-columns:1fr 1fr;gap:9px}.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:9px}.action-grid form,.action-grid .btn{width:100%}.rename-row{display:flex;gap:6px;margin-top:8px}.rename-row .text-input{height:35px}.set-token-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .token-overview{padding:11px;margin-top:9px}.token-overview-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.token-overview-title{font-size:11px;font-weight:900}.token-overview-copy{font-size:8px;color:var(--muted);margin-top:3px}.token-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.token-current{width:100%;min-height:58px;max-height:78px;resize:none;border:1px solid var(--line);border-radius:8px;background:#090b0e;color:#c8c5bd;padding:8px;font:8px/1.45 var(--mono);overflow:auto}.token-current[readonly]{opacity:.72}.token-save-row{display:none;gap:6px;margin-top:7px}.token-overview.editing .token-save-row{display:flex}.token-overview.editing .token-current{border-color:rgba(255,173,20,.3);background:var(--s2);color:var(--text)}
@@ -1575,6 +1595,64 @@ function uiScripts() {
 function copyText(v,m){navigator.clipboard.writeText(v);const t=document.getElementById('toast');if(!t)return;t.textContent=m||'Copied';t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1300)}
 function toggleCreate(){const p=document.getElementById('create-panel');if(p)p.style.display=p.style.display==='block'?'none':'block'}
 function filterCards(v){const q=v.toLowerCase();document.querySelectorAll('.session-card').forEach(c=>c.style.display=c.textContent.toLowerCase().includes(q)?'flex':'none')}
+function friendStateLabel(state){
+  const n=Number(state);
+  if(n===0)return'Friends';
+  if(n===1)return'Outgoing';
+  if(n===2)return'Incoming';
+  if(n===3)return'Blocked';
+  return 'State '+String(state ?? '—');
+}
+function roomAge(timestamp){
+  if(!timestamp)return'';
+  const seconds=Math.max(0,Math.floor((Date.now()-Number(timestamp))/1000));
+  if(seconds<60)return seconds+'s ago';
+  if(seconds<3600)return Math.floor(seconds/60)+'m ago';
+  if(seconds<86400)return Math.floor(seconds/3600)+'h ago';
+  return Math.floor(seconds/86400)+'d ago';
+}
+function escapeFriendHtml(value){
+  return String(value ?? '').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+async function loadFriends(force=false){
+  const list=document.getElementById('friends-list');
+  if(!list)return;
+  list.innerHTML='<div class="friend-loading">Loading friends…</div>';
+  try{
+    const response=await fetch(location.pathname+'/friends'+(force?'?refresh=1':''));
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'Could not load friends');
+    const friends=Array.isArray(data.friends)?data.friends:[];
+    if(!friends.length){
+      list.innerHTML='<div class="friend-loading">No friends found.</div>';
+      return;
+    }
+    list.innerHTML=friends.map(friend=>{
+      const user=friend.user||{};
+      const name=user.display_name||user.username||user.id||'Unknown';
+      const username=user.username||'';
+      const online=Boolean(friend.online);
+      const hidden=online&&Boolean(friend.appearingOffline);
+      const presenceClass=hidden?'hidden':online?'online':'offline';
+      const presenceLabel=hidden?'Appearing Offline':online?'Online':'Offline';
+      const roomCode=friend.roomCode||'';
+      const roomLive=Boolean(friend.roomIsLive);
+      const room=roomCode
+        ? '<span class="room '+(roomLive?'':'stale')+'">'+(roomLive?'Room ':'Last room ')+escapeFriendHtml(roomCode)+(roomLive?'':(' · '+roomAge(friend.roomLastSeen)))+'</span>'
+        : '<span class="room stale">No room</span>';
+      const mode=friend.gameMode!==null&&friend.gameMode!==undefined
+        ? '<span class="friend-state">Mode '+escapeFriendHtml(friend.gameMode)+'</span>'
+        : '';
+      return '<div class="friend-row"><div class="friend-main"><div class="friend-name">'+escapeFriendHtml(name)+'</div>'+
+        (username?'<div class="friend-user">@'+escapeFriendHtml(username)+'</div>':'')+
+        '<div class="friend-id">'+escapeFriendHtml(user.id||'')+'</div></div>'+
+        '<div class="friend-right"><span class="presence '+presenceClass+'">'+presenceLabel+'</span>'+room+mode+
+        '<span class="friend-state">'+friendStateLabel(friend.state ?? friend.friend?.state)+'</span></div></div>';
+    }).join('');
+  }catch(error){
+    list.innerHTML='<div class="friend-error">'+escapeFriendHtml(error.message||'Could not load friends')+'</div>';
+  }
+}
 function toggleTokenEdit(){
   const box=document.getElementById('token-overview');
   if(!box)return;
@@ -1593,6 +1671,7 @@ function toggleTokenEdit(){
 function fmt(s){if(s<=0)return'EXPIRED';const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;if(h)return h+'h '+String(m).padStart(2,'0')+'m '+String(x).padStart(2,'0')+'s';return String(m).padStart(2,'0')+':'+String(x).padStart(2,'0')}
 function tickTimers(){const now=Math.floor(Date.now()/1000);document.querySelectorAll('[data-exp]').forEach(el=>{const sec=Math.max(0,Number(el.dataset.exp||0)-now);el.textContent=fmt(sec);const id=el.dataset.bar,max=Number(el.dataset.max||3600),bar=id&&document.getElementById(id);if(bar)bar.style.width=Math.max(0,Math.min(100,sec/max*100))+'%'});document.querySelectorAll('[data-time-ms]').forEach(el=>{const ms=Number(el.dataset.timeMs||0);el.textContent=!ms?'Not scheduled':Math.max(0,ms-Date.now())<=0?'Due now':fmt(Math.floor((ms-Date.now())/1000))})}
 setInterval(tickTimers,1000);tickTimers();(function clock(){const c=document.getElementById('clock');if(c)c.textContent=new Date().toLocaleTimeString();setTimeout(clock,1000)})();
+if(document.getElementById('friends-list'))loadFriends();
 </script>`;
 }
 
@@ -1659,7 +1738,6 @@ app.get("/session/:id", async (req, res) => {
   const tab = tabs.has(req.query.tab) ? req.query.tab : "overview";
 
   if (s.token) {
-    if (tab === "friends") await fetchFriendsForSession(s).catch(() => null);
     if (tab === "mining") await getMiningBalanceForSession(s).catch(() => null);
     if (tab === "avatar") await fetchAvatarStorage(s).catch(() => null);
   }
@@ -1680,9 +1758,17 @@ app.get("/session/:id", async (req, res) => {
   if (tab === "overview") {
     content = `<div class="wallet-strip"><div class="wallet-card"><span>Hard Currency</span><strong>${wallet.hardCurrency}</strong></div><div class="wallet-card"><span>Soft Currency</span><strong>${wallet.softCurrency}</strong></div><div class="wallet-card"><span>Research Points</span><strong>${wallet.researchPoints}</strong></div></div><div class="overview-grid"><div class="panel info-panel"><div class="info-grid"><div class="info"><span>Username</span><strong>${escHtml(username)}</strong></div><div class="info"><span>User ID</span><code>${escHtml(userId)}</code></div><div class="info"><span>Steam ID</span><code>${escHtml(user.steam_id || "—")}</code></div><div class="info"><span>Online</span><strong>${user.online ? "Yes" : "No"}</strong></div></div></div><div class="panel timer-panel"><div class="timer"><div class="timer-label">Session token</div><div class="timer-value" data-exp="${getExp(s.token)}" data-max="3600" data-bar="token-bar">${escHtml(timeLeft(s.token))}</div><div class="bar"><div id="token-bar" class="fill"></div></div></div><div class="timer"><div class="timer-label">Refresh token</div><div class="timer-value" data-exp="${getExp(s.refresh_token)}" data-max="21600" data-bar="refresh-bar">${escHtml(timeLeft(s.refresh_token))}</div><div class="bar"><div id="refresh-bar" class="fill"></div></div></div><form method="POST" action="/session/${s.id}/refresh" style="margin-top:9px"><button class="btn warn" type="submit" style="width:100%">Refresh Token Now</button></form></div></div><div id="token-overview" class="panel token-overview"><div class="token-overview-head"><div><div class="token-overview-title">Current session tokens</div><div class="token-overview-copy">The saved values are loaded automatically. Click Change Tokens before editing.</div></div><button id="token-edit-button" class="btn" type="button" onclick="toggleTokenEdit()">Change Tokens</button></div><form method="POST" action="/session/${s.id}/update"><input type="hidden" name="_from" value="detail"><div class="token-fields"><div class="field"><label>Current session token</label><textarea id="current-token" class="token-current" name="token" readonly data-original="${escHtml(s.token || '')}">${escHtml(s.token || '')}</textarea></div><div class="field"><label>Current refresh token</label><textarea id="current-refresh-token" class="token-current" name="refresh_token" readonly data-original="${escHtml(s.refresh_token || '')}">${escHtml(s.refresh_token || '')}</textarea></div></div><div class="token-save-row"><button class="btn primary" type="submit">Save Token Changes</button><button class="btn" type="button" onclick="toggleTokenEdit()">Cancel</button></div></form></div>`;
   } else if (tab === "friends") {
-    const rawFriends = s.friendsData || {};
-    const rows = Array.isArray(rawFriends.friends) ? rawFriends.friends : [];
-    content = `<div class="panel block"><div class="friends-head"><div><div class="block-title">Friends</div><div class="block-copy">Loaded from <code>/v2/friend</code>. This is a basic view for now; send me the exact response and I'll make the layout match the real fields.</div></div><form method="POST" action="/session/${s.id}/friends/refresh"><button class="btn primary" type="submit">Refresh</button></form></div>${s.friendsError ? `<div class="notice err">${escHtml(s.friendsError)}</div>` : ""}${rows.length ? `<div class="friends-list">${rows.map(item => { const u=item.user||item; const state=item.state ?? item.friend?.state ?? "—"; return `<div class="friend-row"><div class="friend-main"><div class="friend-name">${escHtml(u.display_name || u.username || "Unknown friend")}</div><div class="friend-id">${escHtml(u.id || "No user ID")}</div></div><span class="friend-state">State ${escHtml(String(state))}</span></div>`; }).join("")}</div>` : '<div class="empty">No parsed friends yet. The raw response is below.</div>'}<div class="friend-raw"><pre class="json">${escHtml(JSON.stringify(rawFriends, null, 2) || "{}")}</pre></div></div>`;
+    content = `<div class="panel block">
+      <div class="friends-head">
+        <div>
+          <div class="block-title">Friends</div>
+          <div class="block-copy">Live presence, appearing-offline state and room data.</div>
+        </div>
+        <button class="btn primary" type="button" onclick="loadFriends(true)">Refresh</button>
+      </div>
+      <div class="friends-note">Room codes marked “last seen” are cached from a previous live presence.</div>
+      <div id="friends-list" class="friends-list"><div class="friend-loading">Loading friends…</div></div>
+    </div>`;
   } else if (tab === "mining") {
     content = `<div class="panel block"><div class="block-title">Mining</div><div class="block-copy">Available rewards from <code>mining.ballance</code>. Claim uses the exact request body from your Python API.</div><div class="mining-cards"><div class="mining-card"><span>Hard Currency</span><strong>${mining.hardCurrency}</strong></div><div class="mining-card"><span>Soft Currency</span><strong>${mining.softCurrency}</strong></div><div class="mining-card"><span>Research Points</span><strong>${mining.researchPoints}</strong></div></div><div class="form-row"><form method="POST" action="/session/${s.id}/mining-balance"><button class="btn" type="submit">Refresh Rewards</button></form><form method="POST" action="/session/${s.id}/claim-mining"><button class="btn primary" type="submit">Claim Mining</button></form><form method="POST" action="/session/${s.id}/auto-mining"><input type="hidden" name="enabled" value="${s.autoMiningEnabled ? 'false' : 'true'}"><button class="btn ${s.autoMiningEnabled ? 'danger' : 'good'}" type="submit">${s.autoMiningEnabled ? 'Disable 12h Auto' : 'Enable 12h Auto'}</button></form></div><div class="chips"><span class="chip">Auto <b>${s.autoMiningEnabled ? 'On' : 'Off'}</b></span><span class="chip">Next <b data-time-ms="${nextMining}">${s.autoMiningEnabled ? 'Loading…' : 'Not scheduled'}</b></span></div>${s.lastMiningError ? `<div class="notice err" style="margin-top:8px">${escHtml(s.lastMiningError)}</div>` : ''}</div>`;
   } else if (tab === "economy") {
