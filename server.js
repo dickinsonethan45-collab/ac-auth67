@@ -2,6 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
+const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 function ensureParentDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
@@ -413,7 +414,6 @@ function requireLogin(req, res, next) {
 app.use(requireLogin);
 
 const PORT = process.env.PORT || 3000;
-const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "6URuTSlDKKfYbuDW";
 
 function resolveStorageBackend() {
@@ -3343,23 +3343,11 @@ app.get("/api/public-auth-ids", (req, res) => {
 app.get("/api/admins", async (req, res) => {
   const admins = Object.values(sessions).filter(s => s.isAdmin);
   await Promise.all(admins.map(s => refreshSessionAccount(s).catch(() => null)));
-
-  res.json({
-    count: admins.length,
-    admins: admins.map(s => {
-      const user = s.account?.user || {};
-      return {
-        auth_id: s.id,
-        user_id: user.id || null,
-        id: user.id || null,
-        username: user.username || null,
-        display_name: user.display_name || null,
-        online: Boolean(user.online),
-        steam_id: user.steam_id || null,
-        custom_id: s.account?.custom_id || null,
-      };
-    }),
-  });
+  res.json(
+    admins
+      .map(s => s.account?.user?.id || null)
+      .filter(Boolean)
+  );
 });
 
 app.all("*",(req,res)=>{
