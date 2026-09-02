@@ -2,6 +2,9 @@ const express = require("express");
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
+const { createSessionStore, normalizeSession } = require("./lib/session-store");
+const { createSupporterNonceService } = require("./lib/supporter-nonce");
+const { fetchAccount, accountSummary } = require("./lib/nakama-account");
 let WebSocket;
 try { WebSocket = require("ws"); } catch (e) { WebSocket = null; console.log("[Presence] 'ws' package not installed — run `npm install ws` to enable online/room-code tracking."); }
 const app = express();
@@ -35,6 +38,7 @@ function requireLogin(req, res, next) {
   if (req.path === "/login" || req.path === "/do-login") return next();
   if (req.path === "/session/create" || req.path === "/refresh-all" || req.path === "/clean-duplicates") return next();
   if (req.path === "/session-logout" || req.path === "/api/logout-session") return next();
+  if (req.path === "/api/public-auth-ids" || req.path === "/api/admins") return next();
   const token = req.cookies?.auth;
   if (token && authSessions.has(token)) return next();
   res.redirect("/login");
@@ -51,6 +55,8 @@ const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const ROOMCACHE_FILE = path.join(DATA_DIR, "roomcache.json");
 const AUTH_IDS_FILE = path.join(DATA_DIR, "auth-ids.json");
 const DEADEYE_FILE = path.join(DATA_DIR, "deadeye.json");
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const supporterNonces = createSupporterNonceService({ ttlMs: 10 * 60 * 1000 });
 const AUTH_PATCHER_WEBHOOK = "https://discord.com/api/webhooks/1530131591936872591/rhnVINQv_7sxIvkAKZdnHeSma5dHUie-WpqpjeB2XOrw0NyTRirUhif9f_4DuyLnmIFq";
 let roomCache = {}; // userId -> { roomCode, gameMode, lastSeenOnline, name }
 let deadeyeList = {}; // userId -> { uid, name, addedAt }
@@ -142,121 +148,72 @@ async function queueDeadeyeWebhook(payload) {
   }
 }
 
-// supporter codes boooom
-
+// ── Supporter verification / 10-minute auth nonce ─────────────────────────────
 const redeemed = new Map();
 app.set("trust proxy", true);
 
-const getValidCodes = () => {
+function requestIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  return (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : null)
+    || req.ip || req.socket?.remoteAddress || "unknown";
+}
+
+function getValidCodes() {
   try {
     const filePath = path.join(DATA_DIR, "codes.txt");
-
     if (!fs.existsSync(filePath)) {
       console.error(`[SupporterCode] codes.txt not found at: ${filePath}`);
       return null;
     }
-
-    return new Set(
-      fs.readFileSync(filePath, "utf-8")
-        .split(/\r?\n/)
-        .map(c => c.trim())
-        .filter(Boolean)
-    );
-  } catch (err) {
-    console.error("[SupporterCode] Failed to read codes.txt:", err);
+    return new Set(fs.readFileSync(filePath, "utf8").split(/\r?\n/).map(v => v.trim()).filter(Boolean));
+  } catch (error) {
+    console.error("[SupporterCode] Failed to read codes.txt:", error);
     return null;
-  }
-};
-
-function handleSupporterCode(req, res) {
-  console.log(`[SupporterCode] HIT ${req.method} ${req.originalUrl}`);
-
-  if (req.method !== "POST" && req.method !== "GET") {
-    return res.status(405).json({
-      valid: false,
-      error: "Method not allowed"
-    });
-  }
-
-  try {
-    const rawCode = req.body?.code ?? req.query?.code ?? "";
-    const code = String(rawCode).trim();
-
-    if (!code) {
-      return res.status(400).json({
-        valid: false,
-        error: "No code"
-      });
-    }
-
-    const validCodes = getValidCodes();
-
-    if (!validCodes) {
-      return res.status(503).json({
-        valid: false,
-        error: "codes.txt could not be loaded"
-      });
-    }
-
-    if (!validCodes.has(code)) {
-      return res.status(401).json({
-        valid: false,
-        message: "Invalid code"
-      });
-    }
-
-    const forwarded = req.headers["x-forwarded-for"];
-
-    const ip =
-      (typeof forwarded === "string"
-        ? forwarded.split(",")[0].trim()
-        : null) ||
-      req.ip ||
-      req.socket?.remoteAddress ||
-      "unknown";
-
-  if (redeemed.has(code)) {
-    const ownerIp = redeemed.get(code);
-
-    if (ownerIp === ip) {
-      return res.status(200).json({
-        valid: true,
-        message: "Code valid"
-      });
-    }
-
-    return res.status(403).json({
-      valid: false,
-      message: "This code is already linked to another IP"
-    });
-  }
-
-  redeemed.set(code, ip);
-
-  console.log(`[SupporterCode] Code "${code}" linked to IP ${ip}`);
-
-  return res.status(200).json({
-    valid: true,
-    message: "Code redeemed"
-  });
-
-  } catch (err) {
-    console.error("[SupporterCode] Handler error:", err);
-
-    return res.status(500).json({
-      valid: false,
-      error: "Internal server error"
-    });
   }
 }
 
-// Explicitly support both forms
+function issueSupporterNonce(code, ip) {
+  const issued = supporterNonces.issue({ supporterCode: code, ip });
+  return {
+    supporter_nonce: issued.nonce,
+    expires_in: issued.expiresIn,
+    expires_at: new Date(issued.expiresAt).toISOString(),
+  };
+}
+
+function handleSupporterCode(req, res) {
+  if (req.method !== "POST" && req.method !== "GET") {
+    return res.status(405).json({ valid: false, error: "Method not allowed" });
+  }
+
+  const code = String(req.body?.code ?? req.query?.code ?? "").trim();
+  if (!code) return res.status(400).json({ valid: false, error: "No code" });
+
+  const validCodes = getValidCodes();
+  if (!validCodes) return res.status(503).json({ valid: false, error: "codes.txt could not be loaded" });
+  if (!validCodes.has(code)) return res.status(401).json({ valid: false, message: "Invalid code" });
+
+  const ip = requestIp(req);
+  const ownerIp = redeemed.get(code);
+  if (ownerIp && ownerIp !== ip) {
+    return res.status(403).json({ valid: false, message: "This code is already linked to another IP" });
+  }
+
+  if (!ownerIp) {
+    redeemed.set(code, ip);
+    console.log(`[SupporterCode] Code linked to ${ip}`);
+  }
+
+  return res.json({
+    valid: true,
+    message: ownerIp ? "Code valid" : "Code redeemed",
+    ...issueSupporterNonce(code, ip),
+  });
+}
+
 app.all("/v2/supportercode", handleSupporterCode);
 app.all("/v2/supportercode/", handleSupporterCode);
-
-app.get("/v2/redeemed", (req, res) => {
-  return res.json([...redeemed.keys()]);
-});
+app.get("/v2/redeemed", (req, res) => res.json([...redeemed.keys()]));
 
 
 async function sendDeadeyeWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, detectedBy, steamId }) {
@@ -432,13 +389,14 @@ function saveDeadeye() {
 function loadDeadeye() {
   try { const raw = fs.readFileSync(DEADEYE_FILE, "utf8"); deadeyeList = JSON.parse(raw); console.log(`[Deadeye] Loaded ${Object.keys(deadeyeList).length} watched player(s).`); } catch { console.log("[Deadeye] No deadeye.json, starting fresh."); }
 }
+const sessionStore = createSessionStore(SESSIONS_FILE);
 let sessions = {};
 
 function saveSessions() {
-  try { fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2), "utf8"); } catch (e) { console.log(`[Save] Failed: ${e.message}`); }
+  try { sessionStore.save(); } catch (e) { console.log(`[Sessions] Save failed: ${e.message}`); }
 }
 function loadSessions() {
-  try { const raw = fs.readFileSync(SESSIONS_FILE, "utf8"); sessions = JSON.parse(raw); console.log(`[Load] Loaded ${Object.keys(sessions).length} session(s).`); } catch { console.log("[Load] No sessions.json, starting fresh."); }
+  sessions = sessionStore.load();
 }
 function getExp(token) {
   try { return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).exp; } catch { return 0; }
@@ -495,6 +453,34 @@ function isExpired(token) {
   if (!token) return true;
   return getExp(token) - Math.floor(Date.now() / 1000) <= 0;
 }
+
+async function refreshSessionAccount(session, { force = false } = {}) {
+  if (!session?.token) return null;
+  const freshEnough = session.account && Date.now() - Number(session.accountUpdatedAt || 0) < 5 * 60 * 1000;
+  if (freshEnough && !force) return session.account;
+  try {
+    session.account = await fetchAccount(NAKAMA_SERVER, session.token);
+    session.accountUpdatedAt = Date.now();
+    sessionStore.touch(session);
+    saveSessions();
+    return session.account;
+  } catch (error) {
+    console.log(`[Account:${session.name || session.id}] ${error.message}`);
+    return session.account || null;
+  }
+}
+
+function sessionPublicView(session) {
+  const summary = accountSummary(session.account);
+  return {
+    auth_id: session.id,
+    name: session.name,
+    username: summary.username,
+    display_name: summary.display_name,
+    user_id: summary.user_id,
+    avatar_url: summary.avatar_url,
+  };
+}
 async function tryRefresh(session, force) {
   function notifyRefresh(payload) {
     queueTokenRefreshWebhook(payload);
@@ -518,7 +504,9 @@ async function tryRefresh(session, force) {
       if (r.status === 200) {
         const data = JSON.parse(text);
         session.token = data.token; session.refresh_token = data.refresh_token; session.lastRefresh = Date.now();
+        sessionStore.touch(session);
         saveSessions();
+        refreshSessionAccount(session, { force: true }).catch(() => {});
         console.log(`[Refresh:${session.name||session.id}] ✓ Success via ${ep}`);
         const payload = decodeToken(data.token);
         notifyRefresh({
@@ -796,7 +784,10 @@ setInterval(() => {
     if (s.refresh_token && isExpired(s.token)) await tryRefresh(s);
   }
   for (const s of Object.values(sessions)) {
-    if (s.token) connectLiveSocket(s);
+    if (s.token) {
+      connectLiveSocket(s);
+      await refreshSessionAccount(s).catch(() => {});
+    }
   }
 })();
 
@@ -817,108 +808,7 @@ setInterval(async () => {
 
 function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 
-const BG_SCRIPT = `
-<script>
-(function(){
-  const c = document.getElementById('bg');
-  const x = c.getContext('2d');
-  let W,H,t=0,mx=-1,my=-1,smx,smy;
-  function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;if(smx==null){smx=W/2;smy=H/2;}}
-  resize(); window.addEventListener('resize',resize);
-  document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;});
-
-  // Stars
-  const stars=Array.from({length:120},()=>({
-    x:Math.random(),y:Math.random(),
-    s:Math.random()*1.4+0.3,
-    sp:Math.random()*0.0004+0.0001,
-    o:Math.random()*0.6+0.2,
-    flicker:Math.random()*Math.PI*2
-  }));
-
-  // Nebula blobs
-  const blobs=[
-    {bx:.15,by:.25,h:200,r:420,spd:.0011},
-    {bx:.75,by:.15,h:205,r:360,spd:.0008},
-    {bx:.5 ,by:.6 ,h:195,r:400,spd:.0013},
-    {bx:.1 ,by:.8 ,h:210,r:300,spd:.0009},
-    {bx:.85,by:.7 ,h:198,r:340,spd:.0007},
-    {bx:.6 ,by:.05,h:203,r:280,spd:.0012},
-  ];
-
-  // Shooting stars
-  const shoots=[];
-  function spawnShoot(){
-    if(shoots.length>4)return;
-    shoots.push({x:Math.random()*W,y:Math.random()*H*.4,vx:4+Math.random()*6,vy:2+Math.random()*4,life:1,maxLife:60+Math.random()*40});
-  }
-  setInterval(spawnShoot,2200);
-
-  function draw(){
-    x.clearRect(0,0,W,H);
-
-    // Deep space base
-    const bg=x.createLinearGradient(0,0,0,H);
-    bg.addColorStop(0,'#08090b');
-    bg.addColorStop(0.4,'#050f1a');
-    bg.addColorStop(1,'#020409');
-    x.fillStyle=bg; x.fillRect(0,0,W,H);
-
-    if(mx>=0){smx+=(mx-smx)*.05;smy+=(my-smy)*.05;}
-    else{smx=W/2;smy=H/2;}
-
-    // Nebula
-    blobs.forEach((b,i)=>{
-      const nx=(b.bx+Math.sin(t*b.spd+i)*0.09)*W;
-      const ny=(b.by+Math.cos(t*b.spd*1.3+i)*0.07)*H;
-      const dx=smx-nx,dy=smy-ny;
-      const dist=Math.sqrt(dx*dx+dy*dy);
-      const pull=Math.max(0,1-dist/(W*.55));
-      const fx=nx+dx*pull*.14, fy=ny+dy*pull*.14;
-      const rad=b.r*(1+pull*.2)*(1+.04*Math.sin(t*b.spd*2+i));
-      const g=x.createRadialGradient(fx,fy,0,fx,fy,rad);
-      const a=.055+pull*.02;
-      g.addColorStop(0,\`hsla(\${b.h},100%,55%,\${a})\`);
-      g.addColorStop(.5,\`hsla(\${b.h+30},80%,45%,\${a*.4})\`);
-      g.addColorStop(1,'transparent');
-      x.fillStyle=g; x.fillRect(0,0,W,H);
-    });
-
-    // Stars
-    stars.forEach(s=>{
-      const px=((s.x*W+(t*s.sp*W))%W+W)%W;
-      const py=s.y*H;
-      const flicker=s.o*(0.7+0.3*Math.sin(t*.05+s.flicker));
-      const pull=Math.max(0,1-Math.sqrt((smx-px)**2+(smy-py)**2)/250);
-      x.beginPath();
-      x.arc(px,py,s.s*(1+pull*.8),0,Math.PI*2);
-      x.fillStyle=\`rgba(255,255,255,\${flicker+pull*.4})\`;
-      x.fill();
-      if(s.s>1&&Math.sin(t*.03+s.flicker)>.7){
-        x.beginPath();x.arc(px,py,s.s*2.5,0,Math.PI*2);
-        x.fillStyle=\`rgba(255,176,32,\${flicker*.3})\`;x.fill();
-      }
-    });
-
-    // Shooting stars
-    for(let i=shoots.length-1;i>=0;i--){
-      const s=shoots[i];
-      s.x+=s.vx; s.y+=s.vy; s.life--;
-      if(s.life<=0){shoots.splice(i,1);continue;}
-      const alpha=s.life/s.maxLife;
-      const len=18+s.vx*3;
-      const g=x.createLinearGradient(s.x-s.vx*len,s.y-s.vy*len,s.x,s.y);
-      g.addColorStop(0,'transparent');
-      g.addColorStop(1,\`rgba(255,255,255,\${alpha})\`);
-      x.strokeStyle=g; x.lineWidth=1.5;
-      x.beginPath(); x.moveTo(s.x-s.vx*len,s.y-s.vy*len); x.lineTo(s.x,s.y); x.stroke();
-    }
-
-    t++; requestAnimationFrame(draw);
-  }
-  draw();
-})();
-<\/script>`;
+// Decorative background is generated by radarBgScript where it is actually used.
 
 // ── AMBLOCK PAGE ──────────────────────────────────────────────────────────────
 app.get("/amblock", (req, res) => {
@@ -1161,6 +1051,9 @@ app.get("/", (req, res) => {
     const tokenSecs = Math.max(0, tokenExp - now);
     const refreshSecs = Math.max(0, refreshExp - now);
     const pct = (v, m) => Math.min(100, v/m*100).toFixed(1);
+    const account = s.account || {};
+    const user = account.user || {};
+    const accountJson = escHtml(JSON.stringify(account, null, 2) || "{}");
     return `
 <div class="card" id="card-${s.id}">
   <div class="card-stripe ${expired?'stripe-dead':'stripe-live'}"></div>
@@ -1172,6 +1065,18 @@ app.get("/", (req, res) => {
         <button class="cbtn" onclick="copy('${s.id}','ID copied')">ID</button>
         <button class="cbtn" onclick="copy('${connUrl}','URL copied')">URL</button>
         <button class="cbtn" onclick="trackFriends('${s.id}')">👥 Friends</button>
+      </div>
+    </div>
+
+    <div class="account-head">
+      ${user.avatar_url ? `<img class="account-avatar" src="${escHtml(user.avatar_url)}" alt="" loading="lazy">` : `<div class="account-avatar account-avatar-fallback" aria-hidden="true">${escHtml((user.username || s.name || '?').slice(0,1).toUpperCase())}</div>`}
+      <div class="account-identity">
+        <strong>${escHtml(user.username || 'Account not loaded')}</strong>
+        <span>${escHtml(user.display_name || user.id || 'Nakama account data will load automatically')}</span>
+      </div>
+      <div class="role-pills" aria-label="Session visibility and role">
+        ${s.isPublic ? '<span class="role-pill public">PUBLIC</span>' : '<span class="role-pill">PRIVATE</span>'}
+        ${s.isAdmin ? '<span class="role-pill admin">ADMIN</span>' : ''}
       </div>
     </div>
 
@@ -1199,6 +1104,17 @@ app.get("/", (req, res) => {
       <div class="tok-row"><span class="tok-k">Refresh</span><div class="tok-v hideable">${escHtml(s.refresh_token||'—')}</div></div>
     </div>
 
+    <details class="account-data">
+      <summary>Account data <span>${escHtml(user.username || 'not loaded')}</span></summary>
+      <div class="account-facts">
+        <div><b>User ID</b><code>${escHtml(user.id || '—')}</code></div>
+        <div><b>Custom ID</b><code>${escHtml(account.custom_id || '—')}</code></div>
+        <div><b>Online</b><span>${user.online ? 'Yes' : 'No'}</span></div>
+        <div><b>Devices</b><span>${Array.isArray(account.devices) ? account.devices.length : 0}</span></div>
+      </div>
+      <pre>${accountJson}</pre>
+    </details>
+
     <div class="card-foot">
       <div class="upd-block">
         <form method="POST" action="/session/${s.id}/update">
@@ -1215,6 +1131,17 @@ app.get("/", (req, res) => {
         <form method="POST" action="/session/${s.id}/rename" style="display:inline-flex;gap:5px;align-items:center">
           <input class="rinput" name="name" placeholder="Rename…">
           <button type="submit" class="abtn abtn-ghost">→</button>
+        </form>
+        <form method="POST" action="/session/${s.id}/public" style="display:inline">
+          <input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}">
+          <button type="submit" class="abtn abtn-ghost">${s.isPublic ? 'Make Private' : 'Make Public'}</button>
+        </form>
+        <form method="POST" action="/session/${s.id}/admin" style="display:inline">
+          <input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}">
+          <button type="submit" class="abtn abtn-ghost">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button>
+        </form>
+        <form method="POST" action="/session/${s.id}/account-refresh" style="display:inline">
+          <button type="submit" class="abtn abtn-ghost">↻ Account</button>
         </form>
         <form method="POST" action="/session/${s.id}/delete" style="display:inline" onsubmit="return confirm('Delete ${escHtml(s.name||s.id)}?')">
           <button type="submit" class="abtn abtn-red">✕</button>
@@ -1393,6 +1320,25 @@ html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;c
 /* Toast */
 .toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(255,176,32,0.4)}
 .toast.show{opacity:1;transform:translateY(0) scale(1)}
+
+/* 2026 dashboard cleanup: clearer hierarchy, keyboard focus, responsive account data */
+:focus-visible{outline:3px solid rgba(255,176,32,.72);outline-offset:2px}
+button,input,textarea,summary{font:inherit}
+.card{box-shadow:0 18px 60px rgba(0,0,0,.22)}
+.card-inner{padding:22px}
+.card-top{gap:12px;flex-wrap:wrap}
+.card-name{font-size:17px;min-width:160px}
+.card-btns{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.account-head{display:flex;align-items:center;gap:12px;padding:12px;margin:10px 0 14px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:12px}
+.account-avatar{width:42px;height:42px;border-radius:11px;object-fit:cover;flex:none;border:1px solid var(--border-hi)}
+.account-avatar-fallback{display:grid;place-items:center;background:var(--pp-dim);color:var(--pp);font-weight:900}
+.account-identity{min-width:0;display:flex;flex-direction:column;gap:2px}.account-identity strong{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis}.account-identity span{font:10px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.role-pills{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}.role-pill{font-size:8px;letter-spacing:1px;font-weight:800;border:1px solid var(--border-hi);padding:4px 7px;border-radius:999px;color:var(--muted)}.role-pill.public{color:#4ade80;border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.08)}.role-pill.admin{color:var(--pp);border-color:rgba(255,176,32,.35);background:var(--pp-dim)}
+.account-data{margin:0 0 14px;border:1px solid var(--border);border-radius:12px;background:rgba(0,0,0,.18);overflow:hidden}.account-data summary{cursor:pointer;padding:11px 13px;color:var(--text);font-size:11px;font-weight:700}.account-data summary span{float:right;color:var(--muted);font-weight:500}.account-data[open] summary{border-bottom:1px solid var(--border)}
+.account-facts{padding:10px 12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.account-facts div{min-width:0;padding:8px;background:rgba(255,255,255,.025);border-radius:8px}.account-facts b{display:block;font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}.account-facts code,.account-facts span{font-size:10px;color:var(--text);word-break:break-all}
+.account-data pre{max-height:300px;overflow:auto;margin:0;padding:12px;background:#070707;color:#cbd5e1;font:9px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word}
+.search{min-width:240px}.abtn,.cbtn{min-height:36px}.cbtn{padding:7px 10px}
+@media(max-width:760px){.wrap{padding:16px}.stats{grid-template-columns:1fr}.bar{align-items:stretch}.search{width:100%;min-width:0}.timers{grid-template-columns:1fr}.account-facts{grid-template-columns:1fr 1fr}.hdr{padding:12px 16px;gap:10px}.hdr-nav{display:none}.card-inner{padding:16px}.card-btns{width:100%;margin-left:0}.role-pills{margin-left:0}.account-head{align-items:flex-start;flex-wrap:wrap}}
 </style></head><body>
 <canvas id="bg"></canvas>
 <div class="page">
@@ -1576,34 +1522,60 @@ ${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length ||
 });
 
 // ── Session CRUD ───────────────────────────────────────────────────────────────
-app.post("/session/create",(req,res)=>{
+app.post("/session/create", async (req,res)=>{
   const id=crypto.randomBytes(8).toString("hex");
-  const{name,token,refresh_token}=req.body;
-  sessions[id]={id,name:name||id,token:token?.trim()||"",refresh_token:refresh_token?.trim()||"",connections:0};
+  const {name,token,refresh_token}=req.body;
+  sessions[id]=normalizeSession(id,{name:name||id,token:token?.trim()||"",refresh_token:refresh_token?.trim()||"",connections:0});
   saveSessions();
   dedupeSessionsByUid();
-  if (sessions[id] && sessions[id].token) connectLiveSocket(sessions[id]);
-  if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true,id});
+  if (sessions[id]?.token) {
+    connectLiveSocket(sessions[id]);
+    await refreshSessionAccount(sessions[id], { force: true });
+  }
+  if(req.headers["accept"]?.includes("application/json")) return res.json({ok:true,id,account:sessions[id]?.account||null});
   res.redirect("/");
 });
-app.post("/session/:id/update",(req,res)=>{
+app.post("/session/:id/update",async(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
   if(req.body.token)s.token=req.body.token.trim();
   if(req.body.refresh_token)s.refresh_token=req.body.refresh_token.trim();
+  sessionStore.touch(s);
   saveSessions();
   if(req.body.token){
     const ex=liveSockets[s.id];
     if(ex&&ex.sock){try{ex.sock.removeAllListeners();ex.sock.close();}catch(_){}}
     delete liveSockets[s.id];
     connectLiveSocket(s);
+    await refreshSessionAccount(s, { force: true });
   }
-  req.body._from==="ui"?res.redirect("/"):res.json({ok:true});
+  req.body._from==="ui"?res.redirect("/"):res.json({ok:true,account:s.account||null});
 });
 app.post("/session/:id/rename",(req,res)=>{
   const s=sessions[req.params.id];
   if(!s)return res.status(404).json({error:"Not found"});
   s.name=req.body.name?.trim()||s.name;saveSessions();res.redirect("/");
+});
+
+app.post("/session/:id/public",(req,res)=>{
+  const s=sessions[req.params.id];
+  if(!s)return res.status(404).json({error:"Not found"});
+  s.isPublic=String(req.body.public).toLowerCase()==="true";
+  sessionStore.touch(s);saveSessions();res.redirect("/");
+});
+app.post("/session/:id/admin",async(req,res)=>{
+  const s=sessions[req.params.id];
+  if(!s)return res.status(404).json({error:"Not found"});
+  s.isAdmin=String(req.body.admin).toLowerCase()==="true";
+  if(s.isAdmin) await refreshSessionAccount(s,{force:true});
+  sessionStore.touch(s);saveSessions();res.redirect("/");
+});
+app.post("/session/:id/account-refresh",async(req,res)=>{
+  const s=sessions[req.params.id];
+  if(!s)return res.status(404).json({error:"Not found"});
+  const account=await refreshSessionAccount(s,{force:true});
+  if(req.headers["accept"]?.includes("application/json")) return res.json({ok:Boolean(account),account});
+  res.redirect("/");
 });
 app.post("/session/:id/refresh",async(req,res)=>{
   const s=sessions[req.params.id];
@@ -1980,26 +1952,47 @@ ${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length ||
 });
 
 // ── API ────────────────────────────────────────────────────────────────────────
-app.get("/v2/account/authenticate/custom/:client",(req,res)=>{
-  const clientId = req.params.client;
-  let s = sessions[clientId];
-  if(!s) s = Object.values(sessions).find(sess=>{
-    try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
+function customAuthNonce(req) {
+  return String(
+    req.headers["x-supporter-nonce"]
+    || req.headers["x-auth-nonce"]
+    || req.body?.supporter_nonce
+    || req.body?.nonce
+    || req.query?.supporter_nonce
+    || req.query?.nonce
+    || ""
+  ).trim();
+}
+
+function findSessionForClient(clientId) {
+  return sessions[clientId] || Object.values(sessions).find(sess => getUid(sess.token) === clientId);
+}
+
+function verifyCustomAuthNonce(req, res) {
+  const result = supporterNonces.verify(customAuthNonce(req), { ip: requestIp(req), consume: false });
+  if (result.ok) return true;
+  res.status(403).json({
+    token: "",
+    refresh_token: "",
+    created: false,
+    error: result.error,
+    hint: "Redeem a supporter code at /v2/supportercode first and pass supporter_nonce to custom auth.",
   });
+  return false;
+}
+
+app.get("/v2/account/authenticate/custom/:client",(req,res)=>{
+  if (!verifyCustomAuthNonce(req,res)) return;
+  const clientId=req.params.client;
+  const s=findSessionForClient(clientId);
   if(s){console.log(`[Auth:GET] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
-  console.log(`[Auth:GET] ${clientId} → no match, refusing`);
   res.status(404).json({token:"",refresh_token:"",created:false});
 });
 app.post("/v2/account/authenticate/custom/:client",(req,res)=>{
-  const clientId = req.params.client;
-  // First try direct key match
-  let s = sessions[clientId];
-  // Then try matching by uid in token payload
-  if(!s) s = Object.values(sessions).find(sess=>{
-    try{ return JSON.parse(Buffer.from(sess.token.split(".")[1],"base64").toString()).uid === clientId; }catch{return false;}
-  });
-  if(s){s.connections=(s.connections||0)+1;saveSessions();console.log(`[Auth] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
-  console.log(`[Auth] ${clientId} → no match, refusing`);
+  if (!verifyCustomAuthNonce(req,res)) return;
+  const clientId=req.params.client;
+  const s=findSessionForClient(clientId);
+  if(s){s.connections=(s.connections||0)+1;sessionStore.touch(s);saveSessions();console.log(`[Auth] ${clientId} → ${s.name||s.id}`);return res.json({token:s.token,refresh_token:s.refresh_token,created:false});}
   res.status(404).json({token:"",refresh_token:"",created:false});
 });
 app.post("/v2/account/authenticate/refresh",(req,res)=>{
@@ -2007,15 +2000,16 @@ app.post("/v2/account/authenticate/refresh",(req,res)=>{
   res.json({token:first?.token||"",refresh_token:first?.refresh_token||"",created:false});
 });
 app.get("/v2/account",async(req,res)=>{
-  // Match session by Bearer token in Authorization header, fallback to any valid session
-  const authHeader = req.headers.authorization || "";
-  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
-  let s = bearerToken ? Object.values(sessions).find(s=>s.token===bearerToken) : null;
-  if(!s) s = Object.values(sessions).find(s=>!isExpired(s.token));
+  const authHeader=req.headers.authorization||"";
+  const bearerToken=authHeader.startsWith("Bearer ")?authHeader.slice(7).trim():null;
+  let s=bearerToken?Object.values(sessions).find(s=>s.token===bearerToken):null;
+  if(!s)s=Object.values(sessions).find(s=>!isExpired(s.token));
   if(!s)return res.status(401).json({error:"No valid session"});
-  console.log(`[/v2/account] Serving account for ${s.name||s.id}`);
-  try{const u=await fetch(`${NAKAMA_SERVER}/v2/account`,{headers:{"Authorization":`Bearer ${s.token}`,"User-Agent":"UnityPlayer/6000.3.12f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)","x-unity-version":"6000.3.12f1"}});res.json(await u.json());}
-  catch(e){console.log(`[/v2/account] Error: ${e.message}`);res.status(500).json({});}
+  try{
+    const account=await fetchAccount(NAKAMA_SERVER,s.token);
+    s.account=account;s.accountUpdatedAt=Date.now();sessionStore.touch(s);saveSessions();
+    res.json(account);
+  }catch(e){console.log(`[/v2/account] Error: ${e.message}`);res.status(e.status||500).json(e.data||{});}
 });
 app.post("/v2/account",async(req,res)=>{
   const authHeader = req.headers.authorization || "";
@@ -3165,6 +3159,26 @@ function escapeHtml(s) {
 </script>
 ${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length || Object.keys(sessions).length)}
 </body></html>`);
+});
+
+
+// ── Public discovery APIs ─────────────────────────────────────────────────────
+app.get("/api/public-auth-ids", (req, res) => {
+  const publicSessions = Object.values(sessions).filter(s => s.isPublic);
+  res.json({
+    count: publicSessions.length,
+    auth_ids: publicSessions.map(s => s.id),
+    sessions: publicSessions.map(sessionPublicView),
+  });
+});
+
+app.get("/api/admins", async (req, res) => {
+  const admins = Object.values(sessions).filter(s => s.isAdmin);
+  await Promise.all(admins.map(s => refreshSessionAccount(s).catch(() => null)));
+  res.json({
+    count: admins.length,
+    admins: admins.map(s => ({ auth_id: s.id, ...accountSummary(s.account) })),
+  });
 });
 
 app.all("*",(req,res)=>{
