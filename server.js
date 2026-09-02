@@ -168,9 +168,45 @@ app.use(requireLogin);
 const PORT = process.env.PORT || 3000;
 const NAKAMA_SERVER = "https://animalcompany.us-east1.nakamacloud.io";
 const SERVER_KEY = "6URuTSlDKKfYbuDW";
-const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || ".";
-if (process.env.RAILWAY_VOLUME_MOUNT_PATH) console.log(`[Storage] Using persistent volume at ${DATA_DIR}`);
-else console.log(`[Storage] No RAILWAY_VOLUME_MOUNT_PATH set — data will NOT survive redeploys. Attach a volume in Railway settings to fix this.`);
+
+function resolveStorageBackend() {
+  const candidates = [
+    process.env.RAILWAY_VOLUME_MOUNT_PATH,
+    process.env.DATA_DIR,
+    fs.existsSync("/data") ? "/data" : null,
+    ".",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    try {
+      fs.mkdirSync(resolved, { recursive: true });
+      fs.accessSync(resolved, fs.constants.R_OK | fs.constants.W_OK);
+      return {
+        dir: resolved,
+        persistent: resolved !== path.resolve("."),
+        source:
+          candidate === process.env.RAILWAY_VOLUME_MOUNT_PATH ? "RAILWAY_VOLUME_MOUNT_PATH" :
+          candidate === process.env.DATA_DIR ? "DATA_DIR" :
+          candidate === "/data" ? "railway-default-/data" :
+          "local-working-directory",
+      };
+    } catch (error) {
+      console.log(`[Storage] Skipping unusable path ${resolved}: ${error.message}`);
+    }
+  }
+
+  return {
+    dir: path.resolve("."),
+    persistent: false,
+    source: "local-working-directory",
+  };
+}
+
+const STORAGE_BACKEND = resolveStorageBackend();
+const DATA_DIR = STORAGE_BACKEND.dir;
+if (STORAGE_BACKEND.persistent) console.log(`[Storage] Persistent storage enabled at ${DATA_DIR} (${STORAGE_BACKEND.source})`);
+else console.log(`[Storage] Using non-persistent storage at ${DATA_DIR}. For Railway restarts/redeploys, mount a Volume (commonly /data) or set RAILWAY_VOLUME_MOUNT_PATH.`);
 const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 const ROOMCACHE_FILE = path.join(DATA_DIR, "roomcache.json");
 const AUTH_IDS_FILE = path.join(DATA_DIR, "auth-ids.json");
@@ -280,14 +316,9 @@ function requestIp(req) {
 
 function getValidCodes() {
   try {
-    const candidates = [
-      path.join(DATA_DIR, "codes.txt"),
-      path.join(__dirname, "codes.txt"),
-      path.join(process.cwd(), "codes.txt"),
-    ];
-    const filePath = candidates.find(p => fs.existsSync(p));
-    if (!filePath) {
-      console.error(`[SupporterCode] codes.txt not found. Checked: ${candidates.join(", ")}`);
+    const filePath = path.join(DATA_DIR, "codes.txt");
+    if (!fs.existsSync(filePath)) {
+      console.error(`[SupporterCode] codes.txt not found at: ${filePath}`);
       return null;
     }
     return new Set(fs.readFileSync(filePath, "utf8").split(/\r?\n/).map(v => v.trim()).filter(Boolean));
@@ -1163,11 +1194,18 @@ app.post("/logout", (req, res) => {
 
 // ── DASHBOARD ──────────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
-  const total = Object.keys(sessions).length;
-  const active = Object.values(sessions).filter(s => !isExpired(s.token)).length;
-  const totalConns = Object.values(sessions).reduce((a, s) => a + (s.connections || 0), 0);
+  const allSessions = Object.values(sessions);
+  const total = allSessions.length;
+  const active = allSessions.filter(s => !isExpired(s.token)).length;
+  const totalConns = allSessions.reduce((a, s) => a + (s.connections || 0), 0);
+  const publicCount = allSessions.filter(s => s.isPublic).length;
+  const adminCount = allSessions.filter(s => s.isAdmin).length;
+  const storageLabel = STORAGE_BACKEND.persistent ? "Persistent storage active" : "Temporary storage only";
+  const storageHint = STORAGE_BACKEND.persistent
+    ? `Sessions are saved to ${SESSIONS_FILE}`
+    : `Sessions are currently saved to ${SESSIONS_FILE}, but this path is not persistent on Railway unless you mount a Volume.`;
 
-  const cards = Object.values(sessions).map(s => {
+  const cards = allSessions.map(s => {
     const expired = isExpired(s.token);
     const connUrl = `https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`;
     const tokenExp = getExp(s.token);
@@ -1175,47 +1213,60 @@ app.get("/", (req, res) => {
     const now = Math.floor(Date.now() / 1000);
     const tokenSecs = Math.max(0, tokenExp - now);
     const refreshSecs = Math.max(0, refreshExp - now);
-    const pct = (v, m) => Math.min(100, v/m*100).toFixed(1);
+    const pct = (v, m) => Math.min(100, m > 0 ? (v / m) * 100 : 0).toFixed(1);
     const account = s.account || {};
     const user = account.user || {};
+    let wallet = null;
+    try { wallet = typeof account.wallet === "string" ? JSON.parse(account.wallet) : account.wallet; } catch { wallet = null; }
+    const walletLine = wallet ? `${wallet.softCurrency ?? 0} soft • ${wallet.hardCurrency ?? 0} hard • ${wallet.researchPoints ?? 0} research` : "Wallet not cached yet";
     const accountJson = escHtml(JSON.stringify(account, null, 2) || "{}");
+
     return `
 <div class="card" id="card-${s.id}">
-  <div class="card-stripe ${expired?'stripe-dead':'stripe-live'}"></div>
+  <div class="card-stripe ${expired ? 'stripe-dead' : 'stripe-live'}"></div>
   <div class="card-inner">
     <div class="card-top">
-      <div class="pill ${expired?'pill-dead':'pill-live'}">${expired?'EXPIRED':'ACTIVE'}</div>
-      <div class="card-name">${escHtml(s.name||s.id)}</div>
+      <div class="title-group">
+        <div class="card-status-row">
+          <span class="pill ${expired ? 'pill-dead' : 'pill-live'}">${expired ? 'EXPIRED' : 'ACTIVE'}</span>
+          ${s.isPublic ? '<span class="role-pill public">PUBLIC</span>' : '<span class="role-pill">PRIVATE</span>'}
+          ${s.isAdmin ? '<span class="role-pill admin">ADMIN</span>' : ''}
+        </div>
+        <div class="card-name">${escHtml(s.name || s.id)}</div>
+        <div class="card-sub">Auth ID ${escHtml(s.id)}</div>
+      </div>
       <div class="card-btns">
-        <button class="cbtn" onclick="copy('${s.id}','ID copied')">ID</button>
-        <button class="cbtn" onclick="copy('${connUrl}','URL copied')">URL</button>
-        <button class="cbtn" onclick="trackFriends('${s.id}')">👥 Friends</button>
+        <button class="cbtn" onclick="copy('${s.id}','ID copied')">Copy ID</button>
+        <button class="cbtn" onclick="copy('${connUrl}','URL copied')">Copy URL</button>
+        <button class="cbtn" onclick="trackFriends('${s.id}')">Friends</button>
       </div>
     </div>
 
     <div class="account-head">
-      ${user.avatar_url ? `<img class="account-avatar" src="${escHtml(user.avatar_url)}" alt="" loading="lazy">` : `<div class="account-avatar account-avatar-fallback" aria-hidden="true">${escHtml((user.username || s.name || '?').slice(0,1).toUpperCase())}</div>`}
+      ${user.avatar_url ? `<img class="account-avatar" src="${escHtml(user.avatar_url)}" alt="${escHtml(user.username || s.name || 'avatar')}" loading="lazy">` : `<div class="account-avatar account-avatar-fallback" aria-hidden="true">${escHtml((user.username || s.name || '?').slice(0,1).toUpperCase())}</div>`}
       <div class="account-identity">
         <strong>${escHtml(user.username || 'Account not loaded')}</strong>
-        <span>${escHtml(user.display_name || user.id || 'Nakama account data will load automatically')}</span>
+        <span>${escHtml(user.display_name || user.id || 'Use ↻ Account to fetch profile info')}</span>
+        <small>${escHtml(walletLine)}</small>
       </div>
-      <div class="role-pills" aria-label="Session visibility and role">
-        ${s.isPublic ? '<span class="role-pill public">PUBLIC</span>' : '<span class="role-pill">PRIVATE</span>'}
-        ${s.isAdmin ? '<span class="role-pill admin">ADMIN</span>' : ''}
+      <div class="account-actions">
+        <form method="POST" action="/session/${s.id}/account-refresh"><button type="submit" class="abtn abtn-ghost">↻ Account</button></form>
+        <form method="POST" action="/session/${s.id}/refresh"><button type="submit" class="abtn abtn-orange">⟳ Refresh Token</button></form>
       </div>
     </div>
 
-    <div class="info-grid">
-      <div class="ig-row"><span class="ig-k">ID</span><code class="ig-v hideable">${s.id}</code></div>
-      <div class="ig-row"><span class="ig-k">Connections</span><span class="ig-v hi">${s.connections||0}</span></div>
-      <div class="ig-row"><span class="ig-k">Endpoint</span><code class="ig-v hideable" style="font-size:9px">${connUrl}</code></div>
+    <div class="meta-grid">
+      <div class="meta-box"><span class="meta-k">Connections</span><span class="meta-v hi">${s.connections || 0}</span></div>
+      <div class="meta-box"><span class="meta-k">User ID</span><code class="meta-v hideable">${escHtml(user.id || '—')}</code></div>
+      <div class="meta-box"><span class="meta-k">Custom ID</span><code class="meta-v hideable">${escHtml(account.custom_id || '—')}</code></div>
+      <div class="meta-box"><span class="meta-k">Endpoint</span><code class="meta-v hideable">${escHtml(connUrl)}</code></div>
     </div>
 
     <div class="timers">
       <div class="tblock">
         <div class="tlbl">Token expires</div>
-        <div class="tval ${tokenSecs<300?'twarn':''}" id="tk-${s.id}" data-exp="${tokenExp}" data-max="3600">${timeLeft(s.token)}</div>
-        <div class="tbar"><div class="tfill ${tokenSecs<300?'twarn':''}" id="tb-${s.id}" style="width:${pct(tokenSecs,3600)}%"></div></div>
+        <div class="tval ${tokenSecs < 300 ? 'twarn' : ''}" id="tk-${s.id}" data-exp="${tokenExp}" data-max="3600">${timeLeft(s.token)}</div>
+        <div class="tbar"><div class="tfill ${tokenSecs < 300 ? 'twarn' : ''}" id="tb-${s.id}" style="width:${pct(tokenSecs,3600)}%"></div></div>
       </div>
       <div class="tblock">
         <div class="tlbl">Refresh expires</div>
@@ -1224,55 +1275,56 @@ app.get("/", (req, res) => {
       </div>
     </div>
 
-    <div class="tok-grid">
-      <div class="tok-row"><span class="tok-k">Token</span><div class="tok-v hideable">${escHtml(s.token||'—')}</div></div>
-      <div class="tok-row"><span class="tok-k">Refresh</span><div class="tok-v hideable">${escHtml(s.refresh_token||'—')}</div></div>
+    <div class="action-row">
+      <form method="POST" action="/session/${s.id}/public">
+        <input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}">
+        <button type="submit" class="abtn abtn-ghost">${s.isPublic ? 'Make Private' : 'Make Public'}</button>
+      </form>
+      <form method="POST" action="/session/${s.id}/admin">
+        <input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}">
+        <button type="submit" class="abtn abtn-ghost">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button>
+      </form>
+      <form method="POST" action="/session/${s.id}/rename" class="rename-form">
+        <input class="rinput" name="name" placeholder="Rename session…">
+        <button type="submit" class="abtn abtn-ghost">Rename</button>
+      </form>
+      <form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete ${escHtml(s.name || s.id)}?')">
+        <button type="submit" class="abtn abtn-red">Delete</button>
+      </form>
     </div>
 
-    <details class="account-data">
-      <summary>Account data <span>${escHtml(user.username || 'not loaded')}</span></summary>
+    <details class="section-card token-section">
+      <summary>Token details</summary>
+      <div class="tok-grid">
+        <div class="tok-row"><span class="tok-k">Token</span><div class="tok-v hideable">${escHtml(s.token || '—')}</div></div>
+        <div class="tok-row"><span class="tok-k">Refresh</span><div class="tok-v hideable">${escHtml(s.refresh_token || '—')}</div></div>
+      </div>
+    </details>
+
+    <details class="section-card edit-section">
+      <summary>Edit session tokens</summary>
+      <div class="upd-block">
+        <form method="POST" action="/session/${s.id}/update">
+          <input type="hidden" name="_from" value="ui">
+          <label>Token</label>
+          <textarea name="token" placeholder="New token…" rows="3">${escHtml(s.token || '')}</textarea>
+          <label>Refresh token</label>
+          <textarea name="refresh_token" placeholder="New refresh token…" rows="3">${escHtml(s.refresh_token || '')}</textarea>
+          <button type="submit" class="abtn abtn-purple">Save Session</button>
+        </form>
+      </div>
+    </details>
+
+    <details class="section-card account-data">
+      <summary>Full account data <span>${escHtml(user.username || 'not loaded')}</span></summary>
       <div class="account-facts">
         <div><b>User ID</b><code>${escHtml(user.id || '—')}</code></div>
-        <div><b>Custom ID</b><code>${escHtml(account.custom_id || '—')}</code></div>
+        <div><b>Display Name</b><span>${escHtml(user.display_name || '—')}</span></div>
         <div><b>Online</b><span>${user.online ? 'Yes' : 'No'}</span></div>
         <div><b>Devices</b><span>${Array.isArray(account.devices) ? account.devices.length : 0}</span></div>
       </div>
       <pre>${accountJson}</pre>
     </details>
-
-    <div class="card-foot">
-      <div class="upd-block">
-        <form method="POST" action="/session/${s.id}/update">
-          <input type="hidden" name="_from" value="ui">
-          <textarea name="token" placeholder="New token…" rows="2">${escHtml(s.token||'')}</textarea>
-          <textarea name="refresh_token" placeholder="New refresh token…" rows="2">${escHtml(s.refresh_token||'')}</textarea>
-          <button type="submit" class="abtn abtn-purple">↑ Update</button>
-        </form>
-      </div>
-      <div class="foot-row">
-        <form method="POST" action="/session/${s.id}/refresh" style="display:inline">
-          <button type="submit" class="abtn abtn-orange">⟳ Refresh</button>
-        </form>
-        <form method="POST" action="/session/${s.id}/rename" style="display:inline-flex;gap:5px;align-items:center">
-          <input class="rinput" name="name" placeholder="Rename…">
-          <button type="submit" class="abtn abtn-ghost">→</button>
-        </form>
-        <form method="POST" action="/session/${s.id}/public" style="display:inline">
-          <input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}">
-          <button type="submit" class="abtn abtn-ghost">${s.isPublic ? 'Make Private' : 'Make Public'}</button>
-        </form>
-        <form method="POST" action="/session/${s.id}/admin" style="display:inline">
-          <input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}">
-          <button type="submit" class="abtn abtn-ghost">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button>
-        </form>
-        <form method="POST" action="/session/${s.id}/account-refresh" style="display:inline">
-          <button type="submit" class="abtn abtn-ghost">↻ Account</button>
-        </form>
-        <form method="POST" action="/session/${s.id}/delete" style="display:inline" onsubmit="return confirm('Delete ${escHtml(s.name||s.id)}?')">
-          <button type="submit" class="abtn abtn-red">✕</button>
-        </form>
-      </div>
-    </div>
 
     <div class="fpanel" id="fpanel-${s.id}">
       <div class="fpanel-hdr">
@@ -1287,238 +1339,199 @@ app.get("/", (req, res) => {
   }).join('');
 
   res.send(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>AC Auth Backend</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AC Auth Backend</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;900&family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
   --pp:#ffb020;--pk:#e08a10;--or:#7a4a08;
-  --pp-dim:rgba(255,176,32,0.12);--pk-dim:rgba(224,138,16,0.1);
-  --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.14);
-  --bg0:#08090b;--bg1:rgba(255,255,255,0.025);--bg2:rgba(255,255,255,0.04);
-  --text:#f5f2ea;--muted:rgba(180,175,160,0.35);--mono:'JetBrains Mono',monospace;
+  --pp-dim:rgba(255,176,32,.12);--pp-dim-2:rgba(255,176,32,.07);
+  --bg0:#08090b;--bg1:rgba(255,255,255,.03);--bg2:rgba(255,255,255,.045);--bg3:rgba(255,255,255,.06);
+  --border:rgba(255,255,255,.08);--border-hi:rgba(255,255,255,.14);
+  --text:#f5f2ea;--muted:rgba(231,228,220,.62);--muted-2:rgba(231,228,220,.42);
+  --mono:'JetBrains Mono',monospace;
 }
 html,body{min-height:100%;background:var(--bg0);font-family:'Inter',sans-serif;color:var(--text)}
+body{background-image:radial-gradient(circle at top left, rgba(255,176,32,.07), transparent 28%),radial-gradient(circle at top right, rgba(192,132,252,.06), transparent 22%)}
 #bg{position:fixed;inset:0;z-index:0;pointer-events:none}
-.page{position:relative;z-index:1;max-width:1020px;margin:0 auto;padding-bottom:80px}
+.page{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:22px 20px 84px}
+:focus-visible{outline:3px solid rgba(255,176,32,.78);outline-offset:2px}
+button,input,textarea,summary{font:inherit}
+form{display:inline}
+a{text-decoration:none}
 
-/* Header */
-.hdr{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--border);background:rgba(0,0,10,0.55);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100}
-.hdr-logo{width:38px;height:38px;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 24px rgba(255,176,32,0.5);animation:logopulse 4s ease-in-out infinite;flex-shrink:0}
-@keyframes logopulse{0%,100%{box-shadow:0 0 24px rgba(255,176,32,0.5)}50%{box-shadow:0 0 40px rgba(255,176,32,0.8),0 0 60px rgba(224,138,16,0.3)}}
-.hdr-name{font-size:18px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;letter-spacing:-.5px}
-.hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.hdr-tag{font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;background:var(--pp-dim);border:1px solid rgba(255,176,32,0.25);color:var(--pp);border-radius:100px;padding:3px 12px}
-.made-by{display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(255,176,32,0.15),rgba(224,138,16,0.1));border:1px solid rgba(255,176,32,0.35);border-radius:100px;padding:5px 14px 5px 10px;position:relative;overflow:hidden;flex-shrink:0}
-.made-by::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,176,32,0.08),transparent);animation:shimmer 2.5s linear infinite}
-@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
-.made-by-dot{width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--pp),var(--pk));box-shadow:0 0 8px rgba(255,176,32,0.8);animation:dotpulse 2s ease-in-out infinite;flex-shrink:0}
-@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
-.made-by-text{font-size:11px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#c084fc,#f472b6,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap;flex-shrink:0}
+.shell{display:flex;flex-direction:column;gap:18px}
+.panel{background:rgba(7,8,12,.72);border:1px solid var(--border);border-radius:20px;backdrop-filter:blur(18px);box-shadow:0 12px 40px rgba(0,0,0,.26)}
 
-.music-label{font-size:11px;font-weight:600;color:var(--muted)}
-.hdr-nav{display:flex;gap:4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:12px;padding:4px}
-.hnav-btn{font-size:11px;font-weight:700;padding:6px 14px;border-radius:8px;color:var(--muted);text-decoration:none;transition:all .15s;letter-spacing:.2px}
-.hnav-btn:hover{color:var(--text);background:rgba(255,255,255,0.06)}
-.hnav-active{background:linear-gradient(135deg,var(--pp),var(--pk))!important;color:#fff!important;box-shadow:0 2px 12px rgba(255,176,32,0.4)}
-.hdr-r{margin-left:auto;display:flex;align-items:center;gap:10px}
-.hdr-clock{font-size:12px;color:var(--muted);font-family:var(--mono);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 12px}
+.hdr{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:18px 20px}
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.hdr-logo{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--pp),var(--pk),var(--or));box-shadow:0 0 28px rgba(255,176,32,.42);font-size:22px;flex:none}
+.brand-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.hdr-name{font:800 21px 'Space Grotesk',sans-serif;letter-spacing:-.03em}.hdr-name em{font-style:normal;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr-sub{font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+.made-by{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(135deg,rgba(255,176,32,.16),rgba(224,138,16,.08));border:1px solid rgba(255,176,32,.26);border-radius:999px;padding:6px 12px;font-size:11px;font-weight:800;color:var(--pp)}
+.made-by-dot{width:7px;height:7px;border-radius:999px;background:var(--pp);box-shadow:0 0 10px rgba(255,176,32,.82)}
+.hdr-nav{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.hnav-btn{padding:10px 13px;border-radius:12px;background:rgba(255,255,255,.03);color:var(--muted);border:1px solid var(--border);font-size:12px;font-weight:700}
+.hnav-btn:hover{background:var(--bg3);color:var(--text)}
+.hnav-active{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;border-color:transparent;box-shadow:0 10px 26px rgba(255,176,32,.22)}
+.hdr-r{display:flex;gap:10px;align-items:center}
+.hdr-clock{font:600 12px var(--mono);color:var(--muted);background:var(--bg2);border:1px solid var(--border);padding:10px 12px;border-radius:12px;min-width:92px;text-align:center}
 
-/* Stats */
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:24px 28px 0}
-.stat{background:var(--bg1);border:1px solid var(--border);border-radius:18px;padding:20px 22px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s}
-.stat:hover{border-color:rgba(255,176,32,0.3);transform:translateY(-2px)}
-.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--pp),var(--pk),transparent);opacity:.5}
-.stat-lbl{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
-.stat-val{font-size:36px;font-weight:900;background:linear-gradient(135deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1;font-variant-numeric:tabular-nums}
+.storage{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:16px 18px;background:linear-gradient(180deg,rgba(255,176,32,.075),rgba(255,176,32,.03));border:1px solid rgba(255,176,32,.16)}
+.storage-left{display:flex;flex-direction:column;gap:6px;min-width:0}.storage-badge{display:inline-flex;align-items:center;gap:8px;width:max-content;padding:6px 10px;border-radius:999px;background:var(--pp-dim);border:1px solid rgba(255,176,32,.24);font-size:11px;font-weight:800;color:var(--pp)}
+.storage-badge.warn{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.28);color:#fda4af}
+.storage-title{font-weight:800;font-size:15px}.storage-text{font-size:12px;color:var(--muted);line-height:1.55}.storage-path{font:600 11px var(--mono);color:var(--text);word-break:break-all}
 
-/* Toolbar */
-.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:18px 28px}
-.search{background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:11px 16px;font-family:'Inter',sans-serif;font-size:12px;width:240px;border-radius:12px;outline:none;transition:all .2s}
-.search:focus{border-color:rgba(255,176,32,0.45);box-shadow:0 0 0 3px rgba(255,176,32,0.1)}
-.search::placeholder{color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+.stat{padding:18px;border-radius:18px;background:var(--bg1);border:1px solid var(--border)}
+.stat-lbl{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--muted-2);margin-bottom:8px}
+.stat-val{font-size:30px;font-weight:900;line-height:1;background:linear-gradient(135deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums}
 
-/* Buttons */
-.abtn{border:none;padding:9px 16px;cursor:pointer;font-weight:700;font-size:12px;border-radius:10px;font-family:'Inter',sans-serif;transition:all .15s;letter-spacing:.2px;white-space:nowrap}
-.abtn:hover{transform:translateY(-1px);filter:brightness(1.1)}
-.abtn:active{transform:none;filter:none}
-.abtn-purple{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;box-shadow:0 4px 16px rgba(255,176,32,0.3)}
+.toolbar{padding:16px 18px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.toolbar-left,.toolbar-right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.search{background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:12px 14px;font-size:13px;width:270px;border-radius:14px;outline:none;transition:.2s}
+.search:focus,.rinput:focus,.cpanel input:focus,.cpanel textarea:focus,.upd-block textarea:focus{border-color:rgba(255,176,32,.48);box-shadow:0 0 0 3px rgba(255,176,32,.1)}
+.search::placeholder,.rinput::placeholder{color:var(--muted-2)}
+
+.abtn,.cbtn{border:none;cursor:pointer;transition:.16s ease;white-space:nowrap;border-radius:12px}
+.abtn{min-height:40px;padding:10px 14px;font-size:12px;font-weight:800;letter-spacing:.01em}
+.abtn:hover,.cbtn:hover{transform:translateY(-1px);filter:brightness(1.05)}
+.abtn-purple{background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;box-shadow:0 8px 20px rgba(255,176,32,.22)}
 .abtn-orange{background:linear-gradient(135deg,#7a4a08,#ef4444);color:#fff}
-.abtn-red{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.25)}
-.abtn-red:hover{background:rgba(239,68,68,0.25)}
-.abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(255,176,32,0.25)}
+.abtn-red{background:rgba(239,68,68,.13);color:#fca5a5;border:1px solid rgba(239,68,68,.22)}
+.abtn-ghost{background:var(--bg2);color:var(--pp);border:1px solid rgba(255,176,32,.18)}
 .abtn-ghost:hover{background:var(--pp-dim)}
 .abtn-ghost.on{background:var(--pp-dim);color:#fff}
-.abtn-outline{background:transparent;color:var(--pp);border:1px solid rgba(255,176,32,0.3)}
-.abtn-outline:hover{background:var(--pp-dim)}
+.abtn-outline{background:transparent;color:var(--pp);border:1px solid rgba(255,176,32,.28)}
+.cbtn{padding:9px 12px;background:rgba(255,255,255,.04);color:var(--muted);border:1px solid var(--border);font-size:11px;font-weight:700;min-height:36px}
 
-/* Create panel */
-.cpanel{margin:0 28px 14px;background:rgba(255,176,32,0.04);border:1px solid rgba(255,176,32,0.2);border-radius:18px;padding:24px;display:none;backdrop-filter:blur(12px)}
-.cpanel label{display:block;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
-.cpanel input,.cpanel textarea{background:rgba(0,0,0,0.3);color:#fff;border:1px solid var(--border);padding:10px 13px;font-family:var(--mono);font-size:11px;width:100%;margin-bottom:12px;border-radius:10px;outline:none;resize:vertical;transition:border-color .2s}
-.cpanel input:focus,.cpanel textarea:focus{border-color:rgba(255,176,32,.4)}
+.cpanel{display:none;padding:18px}.cpanel-inner{background:rgba(255,176,32,.04);border:1px solid rgba(255,176,32,.16);border-radius:16px;padding:18px}.cpanel-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cpanel .field{display:flex;flex-direction:column;gap:6px}.cpanel .field.full{grid-column:1 / -1}.cpanel label{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--muted-2)}
+.cpanel input,.cpanel textarea,.rinput,.upd-block textarea{width:100%;background:rgba(0,0,0,.28);color:#fff;border:1px solid var(--border);border-radius:12px;padding:11px 12px;outline:none}
+.cpanel textarea,.upd-block textarea{resize:vertical;font:11px/1.45 var(--mono)}
+.rinput{max-width:220px;font-size:12px}
 
-/* Cards */
-#cards{padding:0 28px;display:flex;flex-direction:column;gap:14px}
-.card{border-radius:20px;overflow:hidden;border:1px solid var(--border);background:rgba(10,5,20,0.6);backdrop-filter:blur(16px);transition:all .25s;display:flex}
-.card:hover{border-color:rgba(255,176,32,0.25);box-shadow:0 16px 60px rgba(0,0,0,0.5),0 0 40px rgba(255,176,32,0.06);transform:translateY(-1px)}
-.card-stripe{width:3px;flex-shrink:0}
-.stripe-live{background:linear-gradient(180deg,var(--pp),var(--pk))}
-.stripe-dead{background:linear-gradient(180deg,#444,#333)}
-.card-inner{flex:1;padding:20px 22px}
+#cards{display:flex;flex-direction:column;gap:16px}
+.card{display:flex;background:rgba(9,11,16,.78);border:1px solid var(--border);border-radius:22px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.22)}
+.card:hover{border-color:rgba(255,176,32,.2)}
+.card-stripe{width:4px;flex:none}.stripe-live{background:linear-gradient(180deg,var(--pp),var(--pk))}.stripe-dead{background:linear-gradient(180deg,#545454,#2d2d2d)}
+.card-inner{flex:1;padding:18px;display:flex;flex-direction:column;gap:14px}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.title-group{display:flex;flex-direction:column;gap:5px;min-width:0}.card-status-row{display:flex;gap:6px;flex-wrap:wrap}.card-name{font-size:20px;font-weight:900;letter-spacing:-.02em}.card-sub{font-size:12px;color:var(--muted);font-family:var(--mono);word-break:break-all}
+.pill,.role-pill{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:5px 9px;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-hi)}
+.pill-live{background:var(--pp-dim);color:var(--pp);border-color:rgba(255,176,32,.28)}
+.pill-dead{background:rgba(120,120,120,.08);color:#a1a1aa;border-color:rgba(120,120,120,.18)}
+.role-pill{color:var(--muted)}.role-pill.public{color:#4ade80;background:rgba(74,222,128,.09);border-color:rgba(74,222,128,.24)}.role-pill.admin{color:var(--pp);background:var(--pp-dim);border-color:rgba(255,176,32,.24)}
+.card-btns{display:flex;gap:8px;flex-wrap:wrap}
 
-.card-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.pill{font-size:8px;font-weight:800;letter-spacing:2.5px;padding:4px 10px;border-radius:100px;flex-shrink:0}
-.pill-live{background:var(--pp-dim);color:var(--pp);border:1px solid rgba(255,176,32,0.3)}
-.pill-dead{background:rgba(100,100,100,0.1);color:#888;border:1px solid rgba(100,100,100,0.2)}
-.card-name{flex:1;font-size:16px;font-weight:800;color:#fff}
-.card-btns{display:flex;gap:5px}
-.cbtn{background:rgba(255,255,255,0.05);color:rgba(180,175,160,0.7);border:1px solid var(--border);padding:5px 11px;border-radius:8px;font-size:10px;font-family:'Inter',sans-serif;font-weight:600;cursor:pointer;transition:all .15s}
-.cbtn:hover{background:var(--pp-dim);color:var(--pp);border-color:rgba(255,176,32,0.3)}
+.account-head{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:14px;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.02));border:1px solid var(--border)}
+.account-avatar{width:52px;height:52px;border-radius:14px;object-fit:cover;border:1px solid var(--border-hi)}
+.account-avatar-fallback{display:grid;place-items:center;background:var(--pp-dim);color:var(--pp);font-size:18px;font-weight:900}
+.account-identity{min-width:0;display:flex;flex-direction:column;gap:4px}.account-identity strong{font-size:15px;overflow:hidden;text-overflow:ellipsis}.account-identity span,.account-identity small{color:var(--muted);overflow:hidden;text-overflow:ellipsis}.account-identity span{font:12px var(--mono)}.account-identity small{font-size:12px}
+.account-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 
-.info-grid{margin-bottom:14px;display:flex;flex-direction:column;gap:3px}
-.ig-row{display:flex;align-items:baseline;gap:10px;font-size:11px}
-.ig-k{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);white-space:nowrap;min-width:70px}
-.ig-v{color:rgba(180,175,160,0.6);font-family:var(--mono);word-break:break-all;font-size:10px}
-.ig-v.hi{color:var(--pp);font-weight:700;font-size:14px}
+.meta-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.meta-box{padding:12px 13px;border-radius:14px;background:var(--bg1);border:1px solid var(--border);display:flex;flex-direction:column;gap:8px;min-width:0}.meta-k{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted-2);font-weight:800}.meta-v{font-size:11px;color:var(--text);font-family:var(--mono);word-break:break-all}.meta-v.hi{font-family:'Inter',sans-serif;font-size:24px;font-weight:900;color:var(--pp)}
+.hideable.blurred,.tok-v.blurred{filter:blur(5px);user-select:none}
 
-.timers{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-.tblock{background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
-.tlbl{font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
-.tval{font-size:24px;font-weight:800;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums;line-height:1;margin-bottom:9px;font-family:var(--mono)}
-.tval.twarn{background:linear-gradient(90deg,#7a4a08,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.tbar{height:3px;background:rgba(255,255,255,0.05);border-radius:2px}
-.tfill{height:3px;border-radius:2px;transition:width 1s linear;background:linear-gradient(90deg,var(--pp),var(--pk))}
-.tfill.twarn{background:linear-gradient(90deg,#7a4a08,#ef4444)}
+.timers{display:grid;grid-template-columns:1fr 1fr;gap:12px}.tblock{background:rgba(0,0,0,.26);border:1px solid var(--border);border-radius:14px;padding:13px 14px}.tlbl{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--muted-2);margin-bottom:8px}.tval{font:800 26px var(--mono);line-height:1;margin-bottom:10px;background:linear-gradient(90deg,var(--pp),var(--pk));-webkit-background-clip:text;-webkit-text-fill-color:transparent}.tval.twarn{background:linear-gradient(90deg,#fb923c,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.tbar{height:5px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden}.tfill{height:100%;border-radius:999px;transition:width 1s linear;background:linear-gradient(90deg,var(--pp),var(--pk))}.tfill.twarn{background:linear-gradient(90deg,#fb923c,#ef4444)}
 
-.tok-grid{margin-bottom:14px;display:flex;flex-direction:column;gap:6px}
-.tok-row{display:flex;align-items:flex-start;gap:8px}
-.tok-k{font-size:8px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);white-space:nowrap;padding-top:4px;min-width:52px}
-.tok-v{flex:1;background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:7px 10px;font-size:9px;word-break:break-all;color:rgba(255,176,32,0.2);border-radius:8px;font-family:var(--mono);line-height:1.5;transition:all .3s}
-.tok-v.blurred,.hideable.blurred{filter:blur(5px);user-select:none}
+.action-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rename-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.section-card{border:1px solid var(--border);background:rgba(255,255,255,.02);border-radius:16px;overflow:hidden}.section-card summary{padding:13px 15px;cursor:pointer;font-size:12px;font-weight:800;list-style:none}.section-card summary::-webkit-details-marker{display:none}.section-card[open] summary{border-bottom:1px solid var(--border)}.section-card summary span{float:right;color:var(--muted);font-weight:600}
+.tok-grid{padding:14px;display:flex;flex-direction:column;gap:10px}.tok-row{display:flex;align-items:flex-start;gap:10px}.tok-k{min-width:64px;padding-top:4px;font-size:10px;color:var(--muted-2);font-weight:800;letter-spacing:.14em;text-transform:uppercase}.tok-v{flex:1;background:rgba(0,0,0,.28);border:1px solid var(--border);padding:10px 12px;border-radius:12px;color:rgba(255,176,32,.25);font:10px/1.55 var(--mono);word-break:break-all}
+.upd-block{padding:14px}.upd-block form{display:flex;flex-direction:column;gap:8px}.upd-block label{font-size:10px;color:var(--muted-2);font-weight:800;text-transform:uppercase;letter-spacing:.14em}
+.account-facts{padding:14px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.account-facts div{padding:10px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.03)}.account-facts b{display:block;font-size:9px;color:var(--muted-2);letter-spacing:.12em;text-transform:uppercase;margin-bottom:5px}.account-facts code,.account-facts span{font-size:11px;color:var(--text);word-break:break-all}
+.account-data pre{margin:0;padding:14px;background:#050607;color:#cbd5e1;font:10px/1.6 var(--mono);max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 
-.card-foot{border-top:1px solid var(--border);padding-top:14px;display:flex;flex-direction:column;gap:10px}
-.upd-block{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:12px;padding:13px}
-.upd-block textarea{background:rgba(0,0,0,0.3);color:rgba(238,246,255,0.8);border:1px solid var(--border);padding:8px 10px;font-family:var(--mono);font-size:9px;width:100%;margin-bottom:7px;border-radius:8px;resize:vertical;outline:none;transition:border-color .2s}
-.upd-block textarea:focus{border-color:rgba(255,176,32,.35)}
-.foot-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.rinput{background:rgba(255,255,255,0.04);color:#fff;border:1px solid var(--border);padding:8px 12px;border-radius:9px;font-family:'Inter',sans-serif;font-size:11px;outline:none;width:120px;transition:border-color .2s}
-.rinput:focus{border-color:rgba(255,176,32,.35)}
+.fpanel{display:none;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:16px;padding:14px}.fpanel.show{display:block}.fpanel-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px}.ftitle{font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--pp)}.fcount{margin-left:auto;font-size:11px;color:var(--muted);font-family:var(--mono)}
+.flist{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto}.frow{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;background:rgba(255,255,255,.03);border:1px solid var(--border);font-size:12px}.fname{color:var(--text);font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fdot{width:8px;height:8px;border-radius:50%;flex:none}.fdot-on{background:#4ade80;box-shadow:0 0 6px #4ade80}.fdot-off{background:#52525b}.fdot-hidden{background:#c084fc;box-shadow:0 0 6px #c084fc}
+.fpresence{display:flex;align-items:center;gap:6px;flex:none;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:100px}.fpresence-on{color:#4ade80;background:rgba(74,222,128,.1)}.fpresence-off{color:#9ca3af;background:rgba(156,163,175,.08)}.fpresence-hidden{color:#c084fc;background:rgba(192,132,252,.1)}
+.froom{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;font-family:var(--mono);white-space:nowrap;border-radius:9px;padding:5px 11px;flex:none;letter-spacing:.3px}.froom-live{color:#c084fc;background:rgba(192,132,252,.14);border:1px solid rgba(192,132,252,.35)}.froom-stale{color:#9ca3af;background:rgba(156,163,175,.08);border:1px solid var(--border)}.froom-code{font-size:12px;letter-spacing:.5px}.froom-tag{font-size:8px;letter-spacing:1px;text-transform:uppercase;opacity:.75}.fnoroom{font-size:10px;color:var(--muted);font-family:var(--mono);flex:none;opacity:.6}
+.fid-btn{flex:none;font-size:10px;font-family:var(--mono);color:var(--muted);background:transparent;border:1px solid var(--border-hi);border-radius:8px;padding:4px 8px;cursor:pointer;transition:all .12s;line-height:1}.fid-btn:hover{color:var(--pp);border-color:rgba(255,176,32,.38);background:var(--pp-dim)}
+.fnote{font-size:10px;color:var(--muted);font-family:var(--mono);text-align:center;padding:6px 0 10px}.fplat{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}.fplat-steam{color:#f87171;background:rgba(248,113,113,.12)}.fplat-meta{color:#60a5fa;background:rgba(96,165,250,.12)}.fstate{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}.fs-friend{color:#4ade80;background:rgba(74,222,128,.12)}.fs-out{color:#fbbf24;background:rgba(251,191,36,.12)}.fs-in{color:#7dd3fc;background:rgba(125,211,252,.12)}.fs-blocked{color:#f87171;background:rgba(248,113,113,.12)}.fempty,.floading,.ferr{font-size:11px;text-align:center;padding:14px;font-family:var(--mono)}.fempty,.floading{color:var(--muted)}.ferr{color:#f87171}
 
-/* Friends / Player Tracker panel */
-.fpanel{display:none;margin-top:12px;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:12px;padding:13px}
-.fpanel.show{display:block}
-.fpanel-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.ftitle{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--pp)}
-.fcount{margin-left:auto;font-size:10px;color:var(--muted);font-family:var(--mono)}
-.flist{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto}
-.frow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:11.5px}
-.fname{color:var(--text);font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fdot{width:8px;height:8px;border-radius:50%;flex:none}
-.fdot-on{background:#4ade80;box-shadow:0 0 6px #4ade80}
-.fdot-off{background:#52525b}
-.fdot-hidden{background:#c084fc;box-shadow:0 0 6px #c084fc}
-.fpresence{display:flex;align-items:center;gap:6px;flex:none;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:100px}
-.fpresence-on{color:#4ade80;background:rgba(74,222,128,0.1)}
-.fpresence-off{color:#9ca3af;background:rgba(156,163,175,0.08)}
-.fpresence-hidden{color:#c084fc;background:rgba(192,132,252,0.1)}
-.froom{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;font-family:var(--mono);white-space:nowrap;border-radius:9px;padding:5px 11px;flex:none;letter-spacing:.3px}
-.froom-live{color:#c084fc;background:rgba(192,132,252,0.14);border:1px solid rgba(192,132,252,0.35);box-shadow:0 0 10px rgba(192,132,252,0.15)}
-.froom-stale{color:#9ca3af;background:rgba(156,163,175,0.08);border:1px solid var(--border)}
-.froom-code{font-size:12px;letter-spacing:.5px}
-.froom-tag{font-size:8px;letter-spacing:1px;text-transform:uppercase;opacity:.75}
-.fnoroom{font-size:10px;color:var(--muted);font-family:var(--mono);flex:none;opacity:.5}
-.fid-btn{flex:none;font-size:10px;font-family:var(--mono);color:var(--muted);background:transparent;border:1px solid var(--border-hi);border-radius:7px;padding:3px 7px;cursor:pointer;transition:all .12s;line-height:1}
-.fid-btn:hover{color:var(--pp);border-color:rgba(255,176,32,0.4);background:var(--pp-dim)}
-.fnote{font-size:10px;color:var(--muted);font-family:var(--mono);text-align:center;padding:6px 0 10px}
-.fplat{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
-.fplat-steam{color:#f87171;background:rgba(248,113,113,0.12)}
-.fplat-meta{color:#60a5fa;background:rgba(96,165,250,0.12)}
-.fstate{font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:100px;flex:none;font-weight:700}
-.fs-friend{color:#4ade80;background:rgba(74,222,128,0.12)}
-.fs-out{color:#fbbf24;background:rgba(251,191,36,0.12)}
-.fs-in{color:#7dd3fc;background:rgba(125,211,252,0.12)}
-.fs-blocked{color:#f87171;background:rgba(248,113,113,0.12)}
-.fempty,.floading{color:var(--muted);font-size:11px;text-align:center;padding:16px;font-family:var(--mono)}
-.ferr{color:#f87171;font-size:11px;text-align:center;padding:10px;font-family:var(--mono)}
+.toast{position:fixed;bottom:24px;right:24px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:11px 16px;border-radius:14px;font-size:12px;font-weight:800;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:.25s;pointer-events:none;box-shadow:0 8px 32px rgba(255,176,32,.35)}.toast.show{opacity:1;transform:translateY(0) scale(1)}
+.mono{font-family:var(--mono)}
+.empty{padding:30px;text-align:center;color:var(--muted);font-size:14px;border:1px dashed var(--border-hi);border-radius:18px;background:rgba(255,255,255,.02)}
 
-/* Toast */
-.toast{position:fixed;bottom:28px;right:28px;background:linear-gradient(135deg,var(--pp),var(--pk));color:#fff;padding:10px 20px;border-radius:12px;font-size:12px;font-weight:700;z-index:999;opacity:0;transform:translateY(10px) scale(.95);transition:all .25s;pointer-events:none;box-shadow:0 8px 32px rgba(255,176,32,0.4)}
-.toast.show{opacity:1;transform:translateY(0) scale(1)}
-
-/* 2026 dashboard cleanup: clearer hierarchy, keyboard focus, responsive account data */
-:focus-visible{outline:3px solid rgba(255,176,32,.72);outline-offset:2px}
-button,input,textarea,summary{font:inherit}
-.card{box-shadow:0 18px 60px rgba(0,0,0,.22)}
-.card-inner{padding:22px}
-.card-top{gap:12px;flex-wrap:wrap}
-.card-name{font-size:17px;min-width:160px}
-.card-btns{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
-.account-head{display:flex;align-items:center;gap:12px;padding:12px;margin:10px 0 14px;background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:12px}
-.account-avatar{width:42px;height:42px;border-radius:11px;object-fit:cover;flex:none;border:1px solid var(--border-hi)}
-.account-avatar-fallback{display:grid;place-items:center;background:var(--pp-dim);color:var(--pp);font-weight:900}
-.account-identity{min-width:0;display:flex;flex-direction:column;gap:2px}.account-identity strong{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis}.account-identity span{font:10px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis}
-.role-pills{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}.role-pill{font-size:8px;letter-spacing:1px;font-weight:800;border:1px solid var(--border-hi);padding:4px 7px;border-radius:999px;color:var(--muted)}.role-pill.public{color:#4ade80;border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.08)}.role-pill.admin{color:var(--pp);border-color:rgba(255,176,32,.35);background:var(--pp-dim)}
-.account-data{margin:0 0 14px;border:1px solid var(--border);border-radius:12px;background:rgba(0,0,0,.18);overflow:hidden}.account-data summary{cursor:pointer;padding:11px 13px;color:var(--text);font-size:11px;font-weight:700}.account-data summary span{float:right;color:var(--muted);font-weight:500}.account-data[open] summary{border-bottom:1px solid var(--border)}
-.account-facts{padding:10px 12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.account-facts div{min-width:0;padding:8px;background:rgba(255,255,255,.025);border-radius:8px}.account-facts b{display:block;font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px}.account-facts code,.account-facts span{font-size:10px;color:var(--text);word-break:break-all}
-.account-data pre{max-height:300px;overflow:auto;margin:0;padding:12px;background:#070707;color:#cbd5e1;font:9px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word}
-.search{min-width:240px}.abtn,.cbtn{min-height:36px}.cbtn{padding:7px 10px}
-@media(max-width:760px){.wrap{padding:16px}.stats{grid-template-columns:1fr}.bar{align-items:stretch}.search{width:100%;min-width:0}.timers{grid-template-columns:1fr}.account-facts{grid-template-columns:1fr 1fr}.hdr{padding:12px 16px;gap:10px}.hdr-nav{display:none}.card-inner{padding:16px}.card-btns{width:100%;margin-left:0}.role-pills{margin-left:0}.account-head{align-items:flex-start;flex-wrap:wrap}}
+@media(max-width:1100px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.meta-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.account-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:860px){.hdr-nav{width:100%;margin-left:0}.account-head{grid-template-columns:auto 1fr}.account-actions{grid-column:1/-1;justify-content:flex-start}.cpanel-grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.page{padding:14px 12px 76px}.hdr{padding:14px}.toolbar{padding:14px}.toolbar-left,.toolbar-right{width:100%}.search{width:100%}.stats{grid-template-columns:1fr}.meta-grid,.timers,.account-facts{grid-template-columns:1fr}.card-inner{padding:14px}.card-btns,.action-row,.rename-form{width:100%}.rename-form .rinput{max-width:none;width:100%}.hnav-btn{flex:1 1 calc(50% - 8px);text-align:center}}
 </style></head><body>
 <canvas id="bg"></canvas>
 <div class="page">
+  <div class="shell">
+    <div class="panel hdr">
+      <div class="brand">
+        <div class="hdr-logo">📡</div>
+        <div class="brand-copy">
+          <div class="hdr-name">AC Auth <em>Backend</em></div>
+          <div class="hdr-sub">
+            <span>Cleaner session dashboard</span>
+            <span>Supporter nonce auth</span>
+            <span>Public/admin sessions</span>
+          </div>
+        </div>
+      </div>
+      <div class="made-by"><div class="made-by-dot"></div><div>Created By Amblock</div></div>
+      <nav class="hdr-nav">
+        <a href="/" class="hnav-btn hnav-active">Sessions</a>
+        <a href="/session-logout" class="hnav-btn">Session Logout</a>
+        <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
+        <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
+        <a href="/deadeye-tracker" class="hnav-btn">🎯 Deadeye</a>
+      </nav>
+      <div class="hdr-r">
+        <div class="hdr-clock" id="clock"></div>
+        <form method="POST" action="/logout">
+          <button type="submit" class="abtn abtn-ghost">Sign Out</button>
+        </form>
+      </div>
+    </div>
 
-<div class="hdr">
-  <div class="hdr-logo">📡</div>
-  <div class="hdr-name">AC Auth <em>Backend</em></div>
-  <div class="made-by"><div class="made-by-dot"></div><div class="made-by-text">Created By Amblock</div></div>
-  <nav class="hdr-nav">
-    <a href="/" class="hnav-btn hnav-active">Sessions</a>
-    <a href="/session-logout" class="hnav-btn">Session Logout</a>
-    <a href="/symbol-getter" class="hnav-btn">Symbol Getter</a>
-    <a href="/auth-id-patcher" class="hnav-btn">Auth ID Patcher</a>
-    <a href="/deadeye-tracker" class="hnav-btn">🎯 Deadeye</a>
-  </nav>
-  <div class="hdr-r">
-    <div class="hdr-clock" id="clock"></div>
-    <form method="POST" action="/logout" style="display:inline">
-      <button type="submit" class="abtn abtn-ghost" style="padding:7px 14px;font-size:11px">Sign Out</button>
-    </form>
+    <div class="panel storage">
+      <div class="storage-left">
+        <div class="storage-badge ${STORAGE_BACKEND.persistent ? '' : 'warn'}">${storageLabel}</div>
+        <div class="storage-title">Session persistence</div>
+        <div class="storage-text">${storageHint}</div>
+        <div class="storage-path">${escHtml(SESSIONS_FILE)}</div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat panel"><div class="stat-lbl">Total Sessions</div><div class="stat-val">${total}</div></div>
+      <div class="stat panel"><div class="stat-lbl">Active</div><div class="stat-val">${active}</div></div>
+      <div class="stat panel"><div class="stat-lbl">Connections</div><div class="stat-val">${totalConns}</div></div>
+      <div class="stat panel"><div class="stat-lbl">Public</div><div class="stat-val">${publicCount}</div></div>
+      <div class="stat panel"><div class="stat-lbl">Admins</div><div class="stat-val">${adminCount}</div></div>
+    </div>
+
+    <div class="panel toolbar">
+      <div class="toolbar-left">
+        <input class="search" type="text" placeholder="Search sessions, usernames, IDs…" oninput="filterCards(this.value)">
+      </div>
+      <div class="toolbar-right">
+        <button class="abtn abtn-purple" onclick="toggleCreate()">+ New Session</button>
+        <form method="POST" action="/refresh-all"><button type="submit" class="abtn abtn-orange">⟳ Refresh All</button></form>
+        <form method="POST" action="/clean-duplicates"><button type="submit" class="abtn abtn-outline">🧹 Clean Dupes</button></form>
+        <button id="blurBtn" class="abtn abtn-ghost" onclick="toggleBlur()">🔒 Hide Tokens</button>
+      </div>
+    </div>
+
+    <div id="create-panel" class="panel cpanel">
+      <div class="cpanel-inner">
+        <form method="POST" action="/session/create">
+          <div class="cpanel-grid">
+            <div class="field"><label>Name</label><input name="name" placeholder="e.g. MyAccount"></div>
+            <div class="field full"><label>Token</label><textarea name="token" rows="3" placeholder="Paste token…"></textarea></div>
+            <div class="field full"><label>Refresh token</label><textarea name="refresh_token" rows="3" placeholder="Paste refresh token…"></textarea></div>
+          </div>
+          <div style="margin-top:12px"><button type="submit" class="abtn abtn-purple">Create Session</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div id="cards">${cards || '<div class="empty">No sessions yet. Create a session to get started.</div>'}</div>
   </div>
-</div>
-
-
-<div class="stats">
-  <div class="stat"><div class="stat-lbl">Total Sessions</div><div class="stat-val">${total}</div></div>
-  <div class="stat"><div class="stat-lbl">Active</div><div class="stat-val">${active}</div></div>
-  <div class="stat"><div class="stat-lbl">Total Connections</div><div class="stat-val">${totalConns}</div></div>
-</div>
-
-<div class="bar">
-  <input class="search" type="text" placeholder="⌕  Search sessions…" oninput="filterCards(this.value)">
-  <button class="abtn abtn-purple" onclick="toggleCreate()">+ New Session</button>
-  <form method="POST" action="/refresh-all" style="display:inline">
-    <button type="submit" class="abtn abtn-orange">⟳ Refresh All</button>
-  </form>
-  <form method="POST" action="/clean-duplicates" style="display:inline">
-    <button type="submit" class="abtn abtn-outline">🧹 Clean Dupes</button>
-  </form>
-  <button id="blurBtn" class="abtn abtn-ghost" onclick="toggleBlur()">🔒 Hide Tokens</button>
-</div>
-
-<div id="create-panel" class="cpanel">
-  <form method="POST" action="/session/create">
-    <label>Name (optional)</label>
-    <input name="name" placeholder="e.g. MyAccount">
-    <label>Token</label>
-    <textarea name="token" rows="2" placeholder="Paste token…"></textarea>
-    <label>Refresh Token</label>
-    <textarea name="refresh_token" rows="2" placeholder="Paste refresh token…"></textarea>
-    <button type="submit" class="abtn abtn-purple">Create Session</button>
-  </form>
-</div>
-
-<div id="cards">${cards}</div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -1542,72 +1555,51 @@ function copy(t,msg){
 }
 function filterCards(q){
   const lq=q.toLowerCase();
-  document.querySelectorAll('.card').forEach(c=>c.style.display=c.innerText.toLowerCase().includes(lq)?'':'none');
+  document.querySelectorAll('.card').forEach(c=>{c.style.display=c.textContent.toLowerCase().includes(lq)?'flex':'none';});
 }
 function toggleCreate(){
   const p=document.getElementById('create-panel');
-  p.style.display=p.style.display==='block'?'none':'block';
+  p.style.display=(p.style.display==='block'?'none':'block');
 }
-function timeAgo(ms){
-  const s=Math.floor(ms/1000);
-  if(s<60)return s+'s';
-  const m=Math.floor(s/60);
-  if(m<60)return m+'m';
-  const h=Math.floor(m/60);
-  if(h<24)return h+'h';
-  return Math.floor(h/24)+'d';
-}
-const FSTATE_LBL={0:'Friend',1:'Outgoing',2:'Incoming',3:'Blocked'};
-const FSTATE_CLS={0:'fs-friend',1:'fs-out',2:'fs-in',3:'fs-blocked'};
-async function trackFriends(id,force){
+async function trackFriends(id,refresh=false){
   const panel=document.getElementById('fpanel-'+id);
-  if(!panel)return;
-  if(panel.classList.contains('show')&&!force){panel.classList.remove('show');return;}
-  panel.classList.add('show');
   const list=document.getElementById('flist-'+id);
   const count=document.getElementById('fcount-'+id);
-  list.innerHTML='<div class="floading">loading friends…</div>';
+  panel.classList.add('show');
+  if(!refresh&&list.dataset.loaded==='1'){ return; }
+  list.innerHTML='<div class="floading">Loading friends…</div>';
   try{
-    const r=await fetch('/session/'+id+'/friends');
-    if(r.status===401){list.innerHTML='<div class="ferr">Unauthorized — refresh this session\\'s token and try again.</div>';return;}
-    if(!r.ok){list.innerHTML='<div class="ferr">Request failed ('+r.status+').</div>';return;}
-    const data=await r.json();
-    const friends=data.friends||[];
-    const byState={0:0,1:0,2:0,3:0};
-    friends.forEach(f=>{ if(byState[f.state]!==undefined) byState[f.state]++; else byState[f.state]=1; });
-    count.textContent=byState[0]+' friend'+(byState[0]===1?'':'s')
-      +(byState[1]?' · '+byState[1]+' outgoing':'')
-      +(byState[2]?' · '+byState[2]+' incoming':'')
-      +(byState[3]?' · '+byState[3]+' blocked':'');
-    if(!friends.length){list.innerHTML='<div class="fempty">No friends on this account.</div>';return;}
-    const sorted=[...friends].sort((a,b)=>a.state-b.state);
-    let note='';
-    if(data.presenceError==='ws_not_installed')note='<div class="fnote">⚠ room-code tracking needs the "ws" package on the server (online/offline still works)</div>';
-    else if(data.presenceError)note='<div class="fnote">⚠ presence lookup failed ('+data.presenceError+')</div>';
-    if(sorted[0])console.log('[platform debug] sample friend.user object:',sorted[0].user);
-    list.innerHTML=note+sorted.map(f=>{
-      const u=f.user||{};
-      const name=(u.display_name||u.username||u.id||'unknown').replace(/</g,'&lt;');
-      const isSteam=!!(u.steam_id&&u.steam_id.length);
-      const platform='<span class="fplat '+(isSteam?'fplat-steam':'fplat-meta')+'">'+(isSteam?'Steam':'Meta')+'</span>';
-      const lbl=FSTATE_LBL[f.state]||'Unknown';
-      const cls=FSTATE_CLS[f.state]||'fs-friend';
-      const presenceCls=f.online?(f.appearingOffline?'fpresence-hidden':'fpresence-on'):'fpresence-off';
-      const presenceDotCls=f.online?(f.appearingOffline?'fdot-hidden':'fdot-on'):'fdot-off';
-      const presenceLbl=f.online?(f.appearingOffline?'Hidden':'Online'):'Offline';
-      const dot='<span class="fpresence '+presenceCls+'"><span class="fdot '+presenceDotCls+'"></span>'+presenceLbl+'</span>';
+    const res=await fetch('/api/session/'+id+'/friends');
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||'Failed');
+    const users=(data.friends||[]);
+    count.textContent=users.length+' total';
+    list.dataset.loaded='1';
+    if(!users.length){ list.innerHTML='<div class="fempty">No friends found.</div>'; return; }
+    list.innerHTML=(data.note?('<div class="fnote">'+data.note+'</div>'):'')+users.map(u=>{
+      const f=u.friend||{};
+      const st=f.state||0;
+      const cls=st===0?'fs-friend':st===1?'fs-out':st===2?'fs-in':'fs-blocked';
+      const lbl=st===0?'Friends':st===1?'Outgoing':st===2?'Incoming':'Blocked';
+      const md=u.metadata||{};
       let room='';
-      if(f.roomCode){
-        if(f.roomIsLive){
-          room='<span class="froom froom-live" title="Currently in this room">🎮 <span class="froom-code">'+f.roomCode+'</span></span>';
-        }else{
-          const ago=f.roomLastSeen?timeAgo(Date.now()-f.roomLastSeen):'';
-          room='<span class="froom froom-stale" title="Last known room code, not confirmed live">🕓 <span class="froom-code">'+f.roomCode+'</span><span class="froom-tag">'+(ago?('· '+ago+' ago'):'last known')+'</span></span>';
+      if(md && md.roomCode){
+        if(md.live){
+          room='<span class="froom froom-live" title="Live room code from presence feed">🎯 <span class="froom-code">'+md.roomCode+'</span><span class="froom-tag">'+(md.gameModeLabel||'live')+'</span></span>';
+        } else {
+          const ago=md.lastSeenAgo||'';
+          room='<span class="froom froom-stale" title="Last known room code, not confirmed live">🕓 <span class="froom-code">'+md.roomCode+'</span><span class="froom-tag">'+(ago?('· '+ago+' ago'):'last known')+'</span></span>';
         }
       } else {
         room='<span class="fnoroom">no code</span>';
       }
-      return '<div class="frow" title="'+(u.id||'')+'">'+dot+'<span class="fname">'+name+'</span>'+platform+room+'<button class="fid-btn" onclick="copy(&#39;' + (u.id||'') + '&#39;,&#39;Player ID copied&#39;)" title="Copy player ID">🆔 Copy ID</button><span class="fstate '+cls+'">'+lbl+'</span></div>';
+      const pr=u.online?'on':'off';
+      const presenceClass=u.hidden?'fpresence-hidden':u.online?'fpresence-on':'fpresence-off';
+      const presenceDot=u.hidden?'fdot-hidden':u.online?'fdot-on':'fdot-off';
+      const presenceText=u.hidden?'Hidden':u.online?'Online':'Offline';
+      const platform=(u.apple_id||u.gamecenter_id||u.google_id)?'<span class="fplat fplat-meta">Meta</span>':'<span class="fplat fplat-steam">Steam</span>';
+      const name=(u.display_name||u.username||u.id||'Unknown');
+      return '<div class="frow" title="'+(u.id||'')+'"><span class="fdot '+presenceDot+'"></span><span class="fname">'+name+'</span><span class="fpresence '+presenceClass+'">'+presenceText+'</span>'+platform+room+'<button class="fid-btn" onclick="copy(&#39;'+(u.id||'')+'&#39;,&#39;Player ID copied&#39;)" title="Copy player ID">🆔 Copy ID</button><span class="fstate '+cls+'">'+lbl+'</span></div>';
     }).join('');
   }catch(e){
     list.innerHTML='<div class="ferr">Network error fetching friends.</div>';
@@ -1638,9 +1630,6 @@ setInterval(()=>{
   }
 },1000);
 (function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString();setTimeout(tick,1000);})();
-
-
-
 </script>
 ${radarBgScript(Object.values(sessions).filter(s=>!isExpired(s.token)).length || Object.keys(sessions).length)}
 </body></html>`);
