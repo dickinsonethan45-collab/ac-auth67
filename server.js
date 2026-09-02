@@ -35,6 +35,9 @@ function normalizeSession(id, raw = {}) {
     storageData: raw.storageData && typeof raw.storageData === "object" ? raw.storageData : {},
     storageUpdatedAt: raw.storageUpdatedAt && typeof raw.storageUpdatedAt === "object" ? raw.storageUpdatedAt : {},
     storageErrors: raw.storageErrors && typeof raw.storageErrors === "object" ? raw.storageErrors : {},
+    friendsData: raw.friendsData && typeof raw.friendsData === "object" ? raw.friendsData : null,
+    friendsUpdatedAt: Number(raw.friendsUpdatedAt || 0),
+    friendsError: raw.friendsError || "",
   };
 }
 
@@ -111,6 +114,7 @@ const MINING_COLLECT_URL = `${NAKAMA_SERVER}/v2/rpc/mining.collect`;
 const MINING_BALANCE_URL = `${NAKAMA_SERVER}/v2/rpc/mining.ballance`;
 const SOFT_CURRENCY_URL = `${NAKAMA_SERVER}/v2/rpc/updateWalletSoftCurrency`;
 const AVATAR_STORAGE_URL = `${NAKAMA_SERVER}/v2/storage/user_avatar`;
+const FRIENDS_URL = `${NAKAMA_SERVER}/v2/friend`;
 const miningClaimsInFlight = new Set();
 
 function bearerHeader(token) {
@@ -335,6 +339,43 @@ async function fetchAvatarStorage(session, { force = false } = {}) {
   sessionStore.touch(session);
   saveSessions();
   return data;
+}
+
+async function fetchFriendsForSession(session, { force = false } = {}) {
+  if (!session?.token) throw new Error("Session token is not set");
+
+  if (
+    !force &&
+    session.friendsData &&
+    Date.now() - Number(session.friendsUpdatedAt || 0) < 60000
+  ) {
+    return session.friendsData;
+  }
+
+  const response = await fetch(FRIENDS_URL, {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      "Authorization": bearerHeader(session.token),
+      "Accept": "application/json",
+    },
+  });
+
+  const data = await readResponse(response);
+
+  if (!response.ok) {
+    const error = responseError("Friends", response, data);
+    session.friendsError = error.message;
+    sessionStore.touch(session);
+    saveSessions();
+    throw error;
+  }
+
+  session.friendsData = data && typeof data === "object" ? data : { data };
+  session.friendsUpdatedAt = Date.now();
+  session.friendsError = "";
+  sessionStore.touch(session);
+  saveSessions();
+  return session.friendsData;
 }
 
 async function logoutPlayerSession(session) {
@@ -1513,6 +1554,7 @@ a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}button{c
 .overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.info-panel,.timer-panel,.block,.settings-card,.raw{padding:11px}.info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.info{padding:8px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.info span{display:block;font-size:6px;color:var(--muted2);font-weight:900;text-transform:uppercase}.info strong,.info code{display:block;margin-top:4px;font-size:8px;color:var(--text);word-break:break-word}.info code{font-family:var(--mono)}
 .timer{margin-bottom:9px}.timer:last-child{margin-bottom:0}.timer-label{font-size:7px;color:var(--muted2);font-weight:900;text-transform:uppercase}.timer-value{font:800 16px var(--mono);color:var(--a);margin:4px 0 6px}.bar{height:3px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,var(--a),var(--a2))}
 .block-title{font-size:12px;font-weight:900}.block-copy{font-size:9px;color:var(--muted);line-height:1.45;margin-top:4px}.form-row{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}.form-row .amount-input{height:35px;flex:1;min-width:150px}.mining-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}.mining-card{padding:9px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.02)}.mining-card span{display:block;font-size:6px;color:var(--muted2);font-weight:900;text-transform:uppercase}.mining-card strong{display:block;margin-top:4px;font-size:15px;color:var(--a)}.chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.chip{padding:5px 6px;border:1px solid var(--line);border-radius:7px;background:var(--s2);font-size:7px;color:var(--muted)}.chip b{color:var(--text)}
+.friends-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}.friends-list{display:flex;flex-direction:column;gap:6px}.friend-row{padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.02);display:flex;align-items:center;gap:9px}.friend-main{min-width:0;flex:1}.friend-name{font-size:9px;font-weight:900;color:var(--text)}.friend-id{font:7px var(--mono);color:var(--muted2);margin-top:3px;word-break:break-all}.friend-state{font-size:7px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 6px}.friend-raw{margin-top:9px}
 .avatar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.avatar-part{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--s)}.avatar-part span{display:block;font-size:6px;color:var(--muted2);font-weight:900;text-transform:uppercase}.avatar-part code{display:block;margin-top:5px;font:8px var(--mono);color:var(--text);word-break:break-word}.empty-part{color:var(--muted2)!important}
 .settings{display:grid;grid-template-columns:1fr 1fr;gap:9px}.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:9px}.action-grid form,.action-grid .btn{width:100%}.rename-row{display:flex;gap:6px;margin-top:8px}.rename-row .text-input{height:35px}.set-token-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .token-overview{padding:11px;margin-top:9px}.token-overview-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.token-overview-title{font-size:11px;font-weight:900}.token-overview-copy{font-size:8px;color:var(--muted);margin-top:3px}.token-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.token-current{width:100%;min-height:58px;max-height:78px;resize:none;border:1px solid var(--line);border-radius:8px;background:#090b0e;color:#c8c5bd;padding:8px;font:8px/1.45 var(--mono);overflow:auto}.token-current[readonly]{opacity:.72}.token-save-row{display:none;gap:6px;margin-top:7px}.token-overview.editing .token-save-row{display:flex}.token-overview.editing .token-current{border-color:rgba(255,173,20,.3);background:var(--s2);color:var(--text)}
@@ -1613,10 +1655,11 @@ app.get("/session/:id", async (req, res) => {
   const s = sessions[req.params.id];
   if (!s) return res.status(404).send("Session not found");
 
-  const tabs = new Set(["overview","mining","economy","avatar","settings","account"]);
+  const tabs = new Set(["overview","friends","mining","economy","avatar","settings","account"]);
   const tab = tabs.has(req.query.tab) ? req.query.tab : "overview";
 
   if (s.token) {
+    if (tab === "friends") await fetchFriendsForSession(s).catch(() => null);
     if (tab === "mining") await getMiningBalanceForSession(s).catch(() => null);
     if (tab === "avatar") await fetchAvatarStorage(s).catch(() => null);
   }
@@ -1636,6 +1679,10 @@ app.get("/session/:id", async (req, res) => {
 
   if (tab === "overview") {
     content = `<div class="wallet-strip"><div class="wallet-card"><span>Hard Currency</span><strong>${wallet.hardCurrency}</strong></div><div class="wallet-card"><span>Soft Currency</span><strong>${wallet.softCurrency}</strong></div><div class="wallet-card"><span>Research Points</span><strong>${wallet.researchPoints}</strong></div></div><div class="overview-grid"><div class="panel info-panel"><div class="info-grid"><div class="info"><span>Username</span><strong>${escHtml(username)}</strong></div><div class="info"><span>User ID</span><code>${escHtml(userId)}</code></div><div class="info"><span>Steam ID</span><code>${escHtml(user.steam_id || "—")}</code></div><div class="info"><span>Online</span><strong>${user.online ? "Yes" : "No"}</strong></div></div></div><div class="panel timer-panel"><div class="timer"><div class="timer-label">Session token</div><div class="timer-value" data-exp="${getExp(s.token)}" data-max="3600" data-bar="token-bar">${escHtml(timeLeft(s.token))}</div><div class="bar"><div id="token-bar" class="fill"></div></div></div><div class="timer"><div class="timer-label">Refresh token</div><div class="timer-value" data-exp="${getExp(s.refresh_token)}" data-max="21600" data-bar="refresh-bar">${escHtml(timeLeft(s.refresh_token))}</div><div class="bar"><div id="refresh-bar" class="fill"></div></div></div><form method="POST" action="/session/${s.id}/refresh" style="margin-top:9px"><button class="btn warn" type="submit" style="width:100%">Refresh Token Now</button></form></div></div><div id="token-overview" class="panel token-overview"><div class="token-overview-head"><div><div class="token-overview-title">Current session tokens</div><div class="token-overview-copy">The saved values are loaded automatically. Click Change Tokens before editing.</div></div><button id="token-edit-button" class="btn" type="button" onclick="toggleTokenEdit()">Change Tokens</button></div><form method="POST" action="/session/${s.id}/update"><input type="hidden" name="_from" value="detail"><div class="token-fields"><div class="field"><label>Current session token</label><textarea id="current-token" class="token-current" name="token" readonly data-original="${escHtml(s.token || '')}">${escHtml(s.token || '')}</textarea></div><div class="field"><label>Current refresh token</label><textarea id="current-refresh-token" class="token-current" name="refresh_token" readonly data-original="${escHtml(s.refresh_token || '')}">${escHtml(s.refresh_token || '')}</textarea></div></div><div class="token-save-row"><button class="btn primary" type="submit">Save Token Changes</button><button class="btn" type="button" onclick="toggleTokenEdit()">Cancel</button></div></form></div>`;
+  } else if (tab === "friends") {
+    const rawFriends = s.friendsData || {};
+    const rows = Array.isArray(rawFriends.friends) ? rawFriends.friends : [];
+    content = `<div class="panel block"><div class="friends-head"><div><div class="block-title">Friends</div><div class="block-copy">Loaded from <code>/v2/friend</code>. This is a basic view for now; send me the exact response and I'll make the layout match the real fields.</div></div><form method="POST" action="/session/${s.id}/friends/refresh"><button class="btn primary" type="submit">Refresh</button></form></div>${s.friendsError ? `<div class="notice err">${escHtml(s.friendsError)}</div>` : ""}${rows.length ? `<div class="friends-list">${rows.map(item => { const u=item.user||item; const state=item.state ?? item.friend?.state ?? "—"; return `<div class="friend-row"><div class="friend-main"><div class="friend-name">${escHtml(u.display_name || u.username || "Unknown friend")}</div><div class="friend-id">${escHtml(u.id || "No user ID")}</div></div><span class="friend-state">State ${escHtml(String(state))}</span></div>`; }).join("")}</div>` : '<div class="empty">No parsed friends yet. The raw response is below.</div>'}<div class="friend-raw"><pre class="json">${escHtml(JSON.stringify(rawFriends, null, 2) || "{}")}</pre></div></div>`;
   } else if (tab === "mining") {
     content = `<div class="panel block"><div class="block-title">Mining</div><div class="block-copy">Available rewards from <code>mining.ballance</code>. Claim uses the exact request body from your Python API.</div><div class="mining-cards"><div class="mining-card"><span>Hard Currency</span><strong>${mining.hardCurrency}</strong></div><div class="mining-card"><span>Soft Currency</span><strong>${mining.softCurrency}</strong></div><div class="mining-card"><span>Research Points</span><strong>${mining.researchPoints}</strong></div></div><div class="form-row"><form method="POST" action="/session/${s.id}/mining-balance"><button class="btn" type="submit">Refresh Rewards</button></form><form method="POST" action="/session/${s.id}/claim-mining"><button class="btn primary" type="submit">Claim Mining</button></form><form method="POST" action="/session/${s.id}/auto-mining"><input type="hidden" name="enabled" value="${s.autoMiningEnabled ? 'false' : 'true'}"><button class="btn ${s.autoMiningEnabled ? 'danger' : 'good'}" type="submit">${s.autoMiningEnabled ? 'Disable 12h Auto' : 'Enable 12h Auto'}</button></form></div><div class="chips"><span class="chip">Auto <b>${s.autoMiningEnabled ? 'On' : 'Off'}</b></span><span class="chip">Next <b data-time-ms="${nextMining}">${s.autoMiningEnabled ? 'Loading…' : 'Not scheduled'}</b></span></div>${s.lastMiningError ? `<div class="notice err" style="margin-top:8px">${escHtml(s.lastMiningError)}</div>` : ''}</div>`;
   } else if (tab === "economy") {
@@ -1654,7 +1701,7 @@ app.get("/session/:id", async (req, res) => {
     content = `<div class="panel raw"><pre class="json">${escHtml(JSON.stringify(account,null,2)||"{}")}</pre></div>`;
   }
 
-  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(displayName)} · AC Auth</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<a class="back" href="/">← Back to players</a>${notice}<div class="panel hero"><div class="hero-main"><div class="hero-title">${escHtml(displayName)}</div><div class="hero-sub">@${escHtml(username)} · ${escHtml(s.name||s.id)}</div><div class="auth-id"><span class="auth-label">Auth ID</span><code class="auth-code">${escHtml(s.id)}</code><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy</button></div></div><div class="hero-badges">${user.online?'<span class="badge online">Online</span>':'<span class="badge">Offline</span>'}${s.isPublic?'<span class="badge public">Public</span>':'<span class="badge">Private</span>'}${s.isAdmin?'<span class="badge admin">Admin</span>':''}</div></div><div class="panel tabs">${link('overview','Overview')}${link('mining','Mining')}${link('economy','Economy')}${link('avatar','Avatar')}${link('settings','Settings')}${link('account','Raw Account')}</div>${content}</div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(1)}</body></html>`);
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(displayName)} · AC Auth</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${uiCss()}</style></head><body><div class="page">${topNav('sessions')}<a class="back" href="/">← Back to players</a>${notice}<div class="panel hero"><div class="hero-main"><div class="hero-title">${escHtml(displayName)}</div><div class="hero-sub">@${escHtml(username)} · ${escHtml(s.name||s.id)}</div><div class="auth-id"><span class="auth-label">Auth ID</span><code class="auth-code">${escHtml(s.id)}</code><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy</button></div></div><div class="hero-badges">${user.online?'<span class="badge online">Online</span>':'<span class="badge">Offline</span>'}${s.isPublic?'<span class="badge public">Public</span>':'<span class="badge">Private</span>'}${s.isAdmin?'<span class="badge admin">Admin</span>':''}</div></div><div class="panel tabs">${link('overview','Overview')}${link('friends','Friends')}${link('mining','Mining')}${link('economy','Economy')}${link('avatar','Avatar')}${link('settings','Settings')}${link('account','Raw Account')}</div>${content}</div><div class="toast" id="toast"></div>${uiScripts()}${radarBgScript(1)}</body></html>`);
 });
 
 app.post("/session/create", async (req,res)=>{
@@ -1739,6 +1786,18 @@ app.post("/session/:id/add-currency", async (req, res) => {
     res.redirect(sessionPageUrl(s.id, `Added ${amount} soft currency`));
   } catch (error) {
     res.redirect(sessionPageUrl(s.id, error.message, true));
+  }
+});
+
+app.post("/session/:id/friends/refresh", async (req, res) => {
+  const s = sessions[req.params.id];
+  if (!s) return res.status(404).json({ error: "Not found" });
+
+  try {
+    await fetchFriendsForSession(s, { force: true });
+    res.redirect(sessionPageUrl(s.id, "Friends refreshed", false, "friends"));
+  } catch (error) {
+    res.redirect(sessionPageUrl(s.id, error.message, true, "friends"));
   }
 });
 
