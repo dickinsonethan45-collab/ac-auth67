@@ -1202,7 +1202,29 @@ function findQuantumTrackedSessionByUid(uid) {
   return null;
 }
 
-function handlePresenceBatch(session, state, presences, isLive) {
+// state.byId is a snapshot taken when the socket connected — if a friend was added,
+// renamed, or simply missed on that first fetch, later presence events for them
+// have nothing to look their name up against and fall back to showing the raw uid.
+// This refetches the friend list on demand (once per miss, shared across a batch)
+// and updates state.byId in place so the name resolves correctly.
+function ensureByIdFresh(session, state) {
+  if (state.byIdRefreshPromise) return state.byIdRefreshPromise;
+  state.byIdRefreshPromise = (async () => {
+    try {
+      const friends = await fetchAllFriends(session.token);
+      const byId = {};
+      friends.forEach(f => { if (f.user && f.user.id) byId[f.user.id] = f.user; });
+      state.byId = byId;
+    } catch (e) {
+      console.log(`[Live:${session.name || session.id}] Friend refresh for name lookup failed: ${e.message}`);
+    } finally {
+      state.byIdRefreshPromise = null;
+    }
+  })();
+  return state.byIdRefreshPromise;
+}
+
+async function handlePresenceBatch(session, state, presences, isLive) {
   let dirty = false;
   for (const p of presences) {
     const uid = p.user_id;
@@ -1210,8 +1232,12 @@ function handlePresenceBatch(session, state, presences, isLive) {
     let parsed = {};
     try { parsed = JSON.parse(p.status || "{}"); } catch (_) {}
     if (!parsed.roomCode) continue; // left / no room — nothing to cache or notify
-    const u = state.byId[uid];
-    const name = (u && (u.display_name || u.username)) || uid;
+    let u = state.byId[uid];
+    if (!u || (!u.display_name && !u.username)) {
+      await ensureByIdFresh(session, state);
+      u = state.byId[uid] || u;
+    }
+    const name = (u && (u.display_name || u.username)) || (roomCache[uid] && roomCache[uid].name) || uid;
     const prev = roomCache[uid];
     const changed = !prev || prev.roomCode !== parsed.roomCode;
     roomCache[uid] = { roomCode: parsed.roomCode, gameMode: parsed.gameMode, lastSeenOnline: Date.now(), name, steamId: u && u.steam_id };
@@ -1265,7 +1291,7 @@ async function requestFreshPresence(session, userIds, timeoutMs = 4000) {
         done = true;
         sock.removeListener("message", onMsg);
         clearTimeout(timer);
-        handlePresenceBatch(session, state, msg.status.presences, false);
+        handlePresenceBatch(session, state, msg.status.presences, false).catch(() => {});
         resolve(true);
       }
     };
@@ -1333,9 +1359,9 @@ async function connectLiveSocket(session) {
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch (_) { return; }
     if (msg.status && Array.isArray(msg.status.presences)) {
-      handlePresenceBatch(session, state, msg.status.presences, false); // initial snapshot from status_follow ack
+      handlePresenceBatch(session, state, msg.status.presences, false).catch(() => {}); // initial snapshot from status_follow ack
     } else if (msg.status_presence_event && Array.isArray(msg.status_presence_event.joins)) {
-      handlePresenceBatch(session, state, msg.status_presence_event.joins, true); // live push
+      handlePresenceBatch(session, state, msg.status_presence_event.joins, true).catch(() => {}); // live push
     }
   });
   sock.on("unexpected-response", (req, res) => {
