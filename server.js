@@ -1190,6 +1190,18 @@ function scheduleReconnect(session, delayMs) {
   setTimeout(() => connectLiveSocket(session), delayMs);
 }
 
+function resolveSessionOwnUid(s) {
+  return (s && (s.account?.user?.id || getUid(s.token))) || null;
+}
+
+function findQuantumTrackedSessionByUid(uid) {
+  if (!uid) return null;
+  for (const s of Object.values(sessions)) {
+    if (s.quantumUserTrackerEnabled && resolveSessionOwnUid(s) === uid) return s;
+  }
+  return null;
+}
+
 function handlePresenceBatch(session, state, presences, isLive) {
   let dirty = false;
   for (const p of presences) {
@@ -1219,7 +1231,7 @@ function handlePresenceBatch(session, state, presences, isLive) {
         console.log(`[Tracker:${session.name || session.id}] Suppressed own user ID ${uid}`);
       }
 
-      if (session.quantumUserTrackerEnabled && ownUserId && uid === ownUserId) {
+      if (findQuantumTrackedSessionByUid(uid)) {
         sendQuantumUserTrackerWebhook({
           name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
           appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
