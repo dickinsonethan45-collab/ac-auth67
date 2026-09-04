@@ -39,6 +39,7 @@ function normalizeSession(id, raw = {}) {
     friendsUpdatedAt: Number(raw.friendsUpdatedAt || 0),
     friendsError: raw.friendsError || "",
     suppressOwnTrackerWebhook: Boolean(raw.suppressOwnTrackerWebhook),
+    quantumUserTrackerEnabled: Boolean(raw.quantumUserTrackerEnabled),
   };
 }
 
@@ -519,6 +520,7 @@ let deadeyeList = {}; // userId -> { uid, name, addedAt }
 const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1543982756151828531/gw5YR6oVMIx2XGgYNuF3rRBK260IOAtbscBWqod_EkpuiJuOt17ZOjhDLO-FIFk6Tlx7";
 const DISCORD_CHANNEL_ID = "1529062858967482510";
 const DEADEYE_WEBHOOK_URL = "https://discord.com/api/webhooks/1532462341936119959/PUTES3FfeP5xz3RBSY_475f7aQtWfqsTb8AWZejI0lrezYNP5b82eYOGmt0YP8dWzTfy";
+const QUANTUM_USER_TRACKER_WEBHOOK_URL = "https://discord.com/api/webhooks/1545268871936868392/1xOvrC6MslrWbvVNqluvUMUoWVqQqATDz2DDcpbrQpa1XIU3m49U_UyKgKG_NAH4Lwaw";
 const GAME_MODE_LABELS = { 0: "Adventure", 1: "Arena", 2: "Hardcore", 3: "DevSandbox" };
 const GAME_MODE_EMOJI = { 0: "🗺️", 1: "⚔️", 2: "💀", 3: "🧪" };
 
@@ -750,6 +752,40 @@ async function sendRoomJoinWebhook({ name, uid, roomCode, gameMode, appearingOff
     if (!res.ok) console.log(`[Webhook] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
   } catch (e) {
     console.log(`[Webhook] Failed: ${e.message}`);
+  }
+}
+
+async function sendQuantumUserTrackerWebhook({ name, uid, roomCode, gameMode, appearingOffline, clientVersion, avatarUrl, steamId }) {
+  if (!QUANTUM_USER_TRACKER_WEBHOOK_URL) return;
+  const gm = GAME_MODE_LABELS[gameMode] || "Unknown";
+  const gmEmoji = GAME_MODE_EMOJI[gameMode] || "🎮";
+  const color = EMBED_COLOR;
+  const imageRef = `attachment://${GORILLA_IMAGE_FILENAME}`;
+  const appearingLabel = appearingOffline ? "🟣 Hidden" : "🟢 Online";
+  const platformLabel = (steamId && String(steamId).length) ? "🔴 Steam" : "🔵 Meta";
+  const embed = {
+    author: { name: "Quantum User Tracker", icon_url: imageRef },
+    title: `📡 ${name} joined a room`,
+    description: `A tracked player has entered a new session.\n\n🔑 **Room Code**\n# \`${roomCode}\``,
+    color,
+    thumbnail: { url: imageRef },
+    fields: [
+      { name: `${gmEmoji} Game Mode`, value: gm, inline: true },
+      { name: "👁️ Appearing", value: appearingLabel, inline: true },
+      { name: "📱 Client Version", value: clientVersion || "Unknown", inline: true },
+      { name: "🎮 Platform", value: platformLabel, inline: true },
+    ],
+    footer: { text: "Quantum User Tracker" },
+    timestamp: new Date().toISOString()
+  };
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({ username: "Quantum User Tracker", embeds: [embed] }));
+    form.append("files[0]", new Blob([GORILLA_IMAGE_BUFFER], { type: "image/png" }), GORILLA_IMAGE_FILENAME);
+    const res = await fetch(QUANTUM_USER_TRACKER_WEBHOOK_URL, { method: "POST", body: form });
+    if (!res.ok) console.log(`[QuantumUserTracker] Discord returned ${res.status}: ${(await res.text()).slice(0,200)}`);
+  } catch (e) {
+    console.log(`[QuantumUserTracker] Webhook failed: ${e.message}`);
   }
 }
 
@@ -1182,6 +1218,13 @@ function handlePresenceBatch(session, state, presences, isLive) {
       } else {
         console.log(`[Tracker:${session.name || session.id}] Suppressed own user ID ${uid}`);
       }
+    }
+    if (isLive && state.warm && changed && session.quantumUserTrackerEnabled) {
+      sendQuantumUserTrackerWebhook({
+        name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
+        appearingOffline: !!parsed.appearOffline, clientVersion: parsed.clientVersion,
+        avatarUrl: u && u.avatar_url, steamId: u && u.steam_id
+      }).catch(() => {});
     }
     if (isLive && state.warm && changed && deadeyeList[uid]) {
       queueDeadeyeWebhook({
@@ -1790,7 +1833,7 @@ app.get("/session/:id", async (req, res) => {
     ];
     content = `<div class="panel block"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div class="block-title">Avatar Storage</div><div class="block-copy">Parsed from <code>/v2/storage/user_avatar</code>. No fake avatar image is shown.</div></div><form method="POST" action="/session/${s.id}/storage/avatar/refresh"><button class="btn primary" type="submit">Refresh</button></form></div><div class="avatar-grid" style="margin-top:10px">${parts.map(([label,key])=>`<div class="avatar-part"><span>${label}</span><code class="${avatarPart(avatar[key])==='None'?'empty-part':''}">${escHtml(avatarPart(avatar[key]))}</code></div>`).join("")}</div>${s.storageErrors?.avatar ? `<div class="notice err" style="margin-top:8px">${escHtml(s.storageErrors.avatar)}</div>` : ''}</div>`;
   } else if (tab === "settings") {
-    content = `<div class="panel settings-card"><div class="block-title">Player actions</div><div class="action-grid"><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic?'false':'true'}"><button class="btn" type="submit">${s.isPublic?'Make Private':'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin?'false':'true'}"><button class="btn" type="submit">${s.isAdmin?'Remove Admin':'Make Admin'}</button></form><form method="POST" action="/session/${s.id}/tracker-privacy"><input type="hidden" name="enabled" value="${s.suppressOwnTrackerWebhook?'false':'true'}"><button class="btn ${s.suppressOwnTrackerWebhook?'good':''}" type="submit">${s.suppressOwnTrackerWebhook?'Own ID Hidden':'Hide Own ID From Tracker'}</button></form><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${`https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out?')"><button class="btn danger" type="submit">Log Out Player</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player?')"><button class="btn danger" type="submit">Delete Player</button></form></div><form class="rename-row" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" value="${escHtml(s.name||'')}" placeholder="Rename"><button class="btn" type="submit">Rename</button></form></div>`;
+    content = `<div class="panel settings-card"><div class="block-title">Player actions</div><div class="action-grid"><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic?'false':'true'}"><button class="btn" type="submit">${s.isPublic?'Make Private':'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin?'false':'true'}"><button class="btn" type="submit">${s.isAdmin?'Remove Admin':'Make Admin'}</button></form><form method="POST" action="/session/${s.id}/tracker-privacy"><input type="hidden" name="enabled" value="${s.suppressOwnTrackerWebhook?'false':'true'}"><button class="btn ${s.suppressOwnTrackerWebhook?'good':''}" type="submit">${s.suppressOwnTrackerWebhook?'Own ID Hidden':'Hide Own ID From Tracker'}</button></form><form method="POST" action="/session/${s.id}/quantum-tracker"><input type="hidden" name="enabled" value="${s.quantumUserTrackerEnabled?'false':'true'}"><button class="btn ${s.quantumUserTrackerEnabled?'good':''}" type="submit">${s.quantumUserTrackerEnabled?'Quantum User Tracker: On':'Quantum User Tracker: Off'}</button></form><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${`https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out?')"><button class="btn danger" type="submit">Log Out Player</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player?')"><button class="btn danger" type="submit">Delete Player</button></form></div><form class="rename-row" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" value="${escHtml(s.name||'')}" placeholder="Rename"><button class="btn" type="submit">Rename</button></form></div>`;
   } else {
     content = `<div class="panel raw"><pre class="json">${escHtml(JSON.stringify(account,null,2)||"{}")}</pre></div>`;
   }
@@ -1859,6 +1902,22 @@ app.post("/session/:id/tracker-privacy",(req,res)=>{
     s.suppressOwnTrackerWebhook
       ? "Your own user ID will no longer trigger the Player Tracker webhook."
       : "Your own user ID can trigger the Player Tracker webhook again.",
+    false,
+    "settings"
+  ));
+});
+
+app.post("/session/:id/quantum-tracker",(req,res)=>{
+  const s=sessions[req.params.id];
+  if(!s)return res.status(404).json({error:"Not found"});
+  s.quantumUserTrackerEnabled=String(req.body.enabled).toLowerCase()==="true";
+  sessionStore.touch(s);
+  saveSessions();
+  res.redirect(sessionPageUrl(
+    s.id,
+    s.quantumUserTrackerEnabled
+      ? "Quantum User Tracker enabled for this account."
+      : "Quantum User Tracker disabled for this account.",
     false,
     "settings"
   ));
