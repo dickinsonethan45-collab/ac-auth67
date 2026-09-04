@@ -765,8 +765,8 @@ async function sendQuantumUserTrackerWebhook({ name, uid, roomCode, gameMode, ap
   const platformLabel = (steamId && String(steamId).length) ? "🔴 Steam" : "🔵 Meta";
   const embed = {
     author: { name: "Quantum User Tracker", icon_url: imageRef },
-    title: `📡 Joined a Room`,
-    description: `# ${name}\nA tracked player has entered a new session.\n\n🔑 **Room Code**\n# \`${roomCode}\``,
+    title: `📡 ${name} joined a room`,
+    description: `A tracked player has entered a new session.\n\n🔑 **Room Code**\n# \`${roomCode}\``,
     color,
     thumbnail: { url: imageRef },
     fields: [
