@@ -1205,8 +1205,6 @@ function findQuantumTrackedSessionByUid(uid) {
 // state.byId is a snapshot taken when the socket connected — if a friend was added,
 // renamed, or simply missed on that first fetch, later presence events for them
 // have nothing to look their name up against and fall back to showing the raw uid.
-// This refetches the friend list on demand (once per miss, shared across a batch)
-// and updates state.byId in place so the name resolves correctly.
 function ensureByIdFresh(session, state) {
   if (state.byIdRefreshPromise) return state.byIdRefreshPromise;
   state.byIdRefreshPromise = (async () => {
@@ -1224,6 +1222,25 @@ function ensureByIdFresh(session, state) {
   return state.byIdRefreshPromise;
 }
 
+// Precise, single-user lookup via Nakama's /v2/user endpoint — this doesn't
+// depend on the friends-list snapshot at all, so it catches cases where that
+// snapshot is stale or simply never had full profile data for this uid.
+async function resolveMissingName(session, state, uid) {
+  try {
+    const users = await fetchUserInfoByIds(session.token, [uid]);
+    const info = users && users[0];
+    if (info && (info.display_name || info.username)) {
+      state.byId[uid] = { ...(state.byId[uid] || {}), ...info };
+      return state.byId[uid];
+    }
+  } catch (_) {}
+
+  // Direct lookup didn't pan out (rate limit, transient error, etc) — fall back
+  // to refreshing the whole friends list as a last resort.
+  await ensureByIdFresh(session, state);
+  return state.byId[uid] || null;
+}
+
 async function handlePresenceBatch(session, state, presences, isLive) {
   let dirty = false;
   for (const p of presences) {
@@ -1234,8 +1251,8 @@ async function handlePresenceBatch(session, state, presences, isLive) {
     if (!parsed.roomCode) continue; // left / no room — nothing to cache or notify
     let u = state.byId[uid];
     if (!u || (!u.display_name && !u.username)) {
-      await ensureByIdFresh(session, state);
-      u = state.byId[uid] || u;
+      const resolved = await resolveMissingName(session, state, uid);
+      if (resolved) u = resolved;
     }
     const name = (u && (u.display_name || u.username)) || (roomCache[uid] && roomCache[uid].name) || uid;
     const prev = roomCache[uid];
