@@ -3592,27 +3592,46 @@ var ACAuth;
         const wanted = normalizeCustomAuthId(clientId);
         if (!wanted)
             return null;
+        // The public auth ID is the session key, so keep the fastest/exact lookup first.
         if (ACAuth.sessions[wanted])
             return ACAuth.sessions[wanted];
         const lower = wanted.toLowerCase();
-        return Object.values(ACAuth.sessions).find(sess => {
+        const allSessions = Object.values(ACAuth.sessions);
+        // Prefer identifiers that are expected to be globally unique.
+        const strongMatch = allSessions.find(sess => {
             const sessionId = String(sess.id || "").trim().toLowerCase();
             const tokenUid = String(ACAuth.getUid(sess.token) || "").trim().toLowerCase();
             const accountUserId = String(sess.account?.user?.id || "").trim().toLowerCase();
-            return sessionId === lower || tokenUid === lower || accountUserId === lower;
-        }) || null;
+            const accountCustomId = String(sess.account?.custom_id || "").trim().toLowerCase();
+            return sessionId === lower
+                || tokenUid === lower
+                || accountUserId === lower
+                || accountCustomId === lower;
+        });
+        if (strongMatch)
+            return strongMatch;
+        // Compatibility fallback: accept the dashboard's custom session name only
+        // when exactly one session has that name.
+        const nameMatches = allSessions.filter(sess => String(sess.name || "").trim().toLowerCase() === lower);
+        return nameMatches.length === 1 ? nameMatches[0] : null;
     }
     ACAuth.findSessionForClient = findSessionForClient;
     function verifyCustomAuthNonce(req, res) {
-        const result = ACAuth.supporterNonces.verify(customAuthNonce(req), { ip: ACAuth.requestIp(req), consume: false });
+        const nonce = customAuthNonce(req);
+        // A supporter nonce is already proof that /v2/supportercode succeeded. Do not
+        // bind the nonce to a second request IP check: mobile networks/proxies can
+        // legitimately change the observed address between redemption and custom auth.
+        // Resetting a supporter code still revokes every outstanding nonce for it.
+        const result = ACAuth.supporterNonces.verify(nonce, { consume: false });
         if (result.ok)
             return true;
+        console.log(`[Auth:Nonce] Rejected custom auth nonce: ${result.error || "invalid"}`);
         res.status(403).json({
             valid: false,
             token: "",
             refresh_token: "",
             created: false,
-            error: result.error === "supporter_nonce_required" ? "nonce_required" : "invalid_auth",
+            error: result.error === "supporter_nonce_required" ? "nonce_required" : "invalid_nonce",
         });
         return false;
     }
