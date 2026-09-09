@@ -861,11 +861,14 @@ var ACAuth;
         // itself require an already-authenticated supporter code.
         if (isSupporterCodeRedemptionPath(req))
             return next();
-        // Custom account auth is intentionally nonce-only.
+        // Match the known-working legacy auth flow exactly for these endpoints:
+        // custom auth is nonce-only, while GET/POST /v2/account performs its own
+        // bearer/session selection without an extra supporter-code gate.
         if (isCustomAuthPath(req))
             return next();
-        // Game/app client endpoints authenticate with a supporter code, not with
-        // the dashboard cookie.
+        if (req.path === "/v2/account" || req.path === "/v2/account/")
+            return next();
+        // Other game/app client endpoints authenticate with a supporter code.
         if (isSupporterCodeClientRoute(req))
             return ACAuth.requireSupporterCode(req, res, next);
         // Everything else is a dashboard page/control and requires dashboard auth.
@@ -1193,29 +1196,30 @@ var ACAuth;
     ACAuth.requireSupporterCode = requireSupporterCode;
     function handleSupporterCode(req, res) {
         if (req.method !== "POST" && req.method !== "GET") {
-            return res.status(405).json({ error: "method_not_allowed" });
+            return res.status(405).json({ valid: false, error: "Method not allowed" });
         }
         const code = String(req.body?.code ?? req.query?.code ?? "").trim();
         if (!code)
-            return res.status(400).json({ error: "supporter_code_required" });
+            return res.status(400).json({ valid: false, error: "No code" });
+        const validCodes = getValidCodes();
+        if (!validCodes)
+            return res.status(503).json({ valid: false, error: "codes.txt could not be loaded" });
+        if (!validCodes.has(code))
+            return res.status(401).json({ valid: false, message: "Invalid code" });
         const ip = requestIp(req);
-        const ownerIpBefore = ACAuth.redeemed.get(code);
-        const result = validateSupporterCodeForIp(code, ip, { bindIfUnused: true });
-        if (!result.ok) {
-            if (result.error === "supporter_codes_unavailable") {
-                return res.status(503).json({ error: "auth_unavailable" });
-            }
-            if (result.error === "invalid_supporter_code") {
-                return res.status(401).json({ error: "invalid_supporter_code" });
-            }
-            if (result.error === "supporter_code_ip_mismatch") {
-                return res.status(403).json({ error: "invalid_supporter_code" });
-            }
-            return res.status(result.status || 400).json({ error: "invalid_supporter_code" });
+        const ownerIp = ACAuth.redeemed.get(code);
+        if (ownerIp && ownerIp !== ip) {
+            return res.status(403).json({ valid: false, message: "This code is already linked to another IP" });
+        }
+        if (!ownerIp) {
+            ACAuth.redeemed.set(code, ip);
+            // Keep the newer dashboard page live without changing the legacy API response.
+            ACAuth.broadcastSupporterRedemptionUpdate();
+            console.log(`[SupporterCode] Code linked to ${ip}`);
         }
         return res.json({
             valid: true,
-            message: ownerIpBefore ? "Code valid" : "Code redeemed",
+            message: ownerIp ? "Code valid" : "Code redeemed",
             ...issueSupporterNonce(code, ip),
         });
     }
@@ -3592,46 +3596,34 @@ var ACAuth;
         const wanted = normalizeCustomAuthId(clientId);
         if (!wanted)
             return null;
-        // The public auth ID is the session key, so keep the fastest/exact lookup first.
         if (ACAuth.sessions[wanted])
             return ACAuth.sessions[wanted];
         const lower = wanted.toLowerCase();
-        const allSessions = Object.values(ACAuth.sessions);
-        // Prefer identifiers that are expected to be globally unique.
-        const strongMatch = allSessions.find(sess => {
+        return Object.values(ACAuth.sessions).find(sess => {
             const sessionId = String(sess.id || "").trim().toLowerCase();
             const tokenUid = String(ACAuth.getUid(sess.token) || "").trim().toLowerCase();
             const accountUserId = String(sess.account?.user?.id || "").trim().toLowerCase();
-            const accountCustomId = String(sess.account?.custom_id || "").trim().toLowerCase();
-            return sessionId === lower
-                || tokenUid === lower
-                || accountUserId === lower
-                || accountCustomId === lower;
-        });
-        if (strongMatch)
-            return strongMatch;
-        // Compatibility fallback: accept the dashboard's custom session name only
-        // when exactly one session has that name.
-        const nameMatches = allSessions.filter(sess => String(sess.name || "").trim().toLowerCase() === lower);
-        return nameMatches.length === 1 ? nameMatches[0] : null;
+            return sessionId === lower || tokenUid === lower || accountUserId === lower;
+        }) || null;
     }
     ACAuth.findSessionForClient = findSessionForClient;
     function verifyCustomAuthNonce(req, res) {
-        const nonce = customAuthNonce(req);
-        // A supporter nonce is already proof that /v2/supportercode succeeded. Do not
-        // bind the nonce to a second request IP check: mobile networks/proxies can
-        // legitimately change the observed address between redemption and custom auth.
-        // Resetting a supporter code still revokes every outstanding nonce for it.
-        const result = ACAuth.supporterNonces.verify(nonce, { consume: false });
+        const result = ACAuth.supporterNonces.verify(customAuthNonce(req), { ip: ACAuth.requestIp(req), consume: false });
         if (result.ok)
             return true;
-        console.log(`[Auth:Nonce] Rejected custom auth nonce: ${result.error || "invalid"}`);
+        const messages = {
+            supporter_nonce_required: "Supporter nonce required",
+            supporter_nonce_invalid_or_expired: "Supporter nonce invalid or expired",
+            supporter_nonce_ip_mismatch: "Supporter nonce belongs to a different IP",
+        };
         res.status(403).json({
             valid: false,
             token: "",
             refresh_token: "",
             created: false,
-            error: result.error === "supporter_nonce_required" ? "nonce_required" : "invalid_nonce",
+            error: result.error,
+            message: messages[result.error] || "Supporter nonce invalid",
+            hint: "Redeem a supporter code at /v2/supportercode first, then pass the returned supporter_nonce in X-Supporter-Nonce.",
         });
         return false;
     }
@@ -3640,7 +3632,8 @@ var ACAuth;
         console.log(`[Auth:${method}] ${clientId || "(empty)"} → invalid auth ID (${Object.keys(ACAuth.sessions).length} session(s) loaded)`);
         return res.status(404).json({
             valid: false,
-            error: "invalid_auth",
+            error: "invalid_auth_id",
+            message: "Invalid Auth ID",
             token: "",
             refresh_token: "",
             created: false,
