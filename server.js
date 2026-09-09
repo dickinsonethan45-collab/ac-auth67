@@ -876,12 +876,12 @@ var ACAuth;
         if (!title || !message || !sender) {
             if (wantsJson)
                 return res.status(400).json({ ok: false, error: "title, message and sender are required" });
-            return res.redirect("/?announcement=missing");
+            return res.redirect("/announcements?status=missing");
         }
         if (title.length > 120 || message.length > 4000 || sender.length > 80) {
             if (wantsJson)
                 return res.status(400).json({ ok: false, error: "announcement fields are too long" });
-            return res.redirect("/?announcement=toolong");
+            return res.redirect("/announcements?status=toolong");
         }
         const announcement = { title, message, sender };
         ACAuth.broadcastGlobalAnnouncement(announcement);
@@ -893,7 +893,7 @@ var ACAuth;
                 connectedClients: ACAuth.announcementClients.size,
             });
         }
-        res.redirect("/?announcement=sent");
+        res.redirect("/announcements?status=sent");
     });
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
@@ -1124,35 +1124,36 @@ var ACAuth;
             req.supporterCode = code;
             return next();
         }
-        return res.status(result.status || 401).json({
-            valid: false,
-            error: result.error,
-            message: result.message,
-            hint: "Send the supporter code in X-Supporter-Code. Native EventSource clients can use ?supporter_code=YOUR_CODE.",
-        });
+        if (result.error === "supporter_code_required") {
+            return res.status(401).json({ error: "supporter_code_required" });
+        }
+        if (result.error === "supporter_codes_unavailable") {
+            return res.status(503).json({ error: "auth_unavailable" });
+        }
+        return res.status(result.status === 403 ? 403 : 401).json({ error: "invalid_supporter_code" });
     }
     ACAuth.requireSupporterCode = requireSupporterCode;
     function handleSupporterCode(req, res) {
         if (req.method !== "POST" && req.method !== "GET") {
-            return res.status(405).json({ valid: false, error: "Method not allowed" });
+            return res.status(405).json({ error: "method_not_allowed" });
         }
         const code = String(req.body?.code ?? req.query?.code ?? "").trim();
         if (!code)
-            return res.status(400).json({ valid: false, error: "No code" });
+            return res.status(400).json({ error: "supporter_code_required" });
         const ip = requestIp(req);
         const ownerIpBefore = ACAuth.redeemed.get(code);
         const result = validateSupporterCodeForIp(code, ip, { bindIfUnused: true });
         if (!result.ok) {
             if (result.error === "supporter_codes_unavailable") {
-                return res.status(503).json({ valid: false, error: "codes.txt could not be loaded" });
+                return res.status(503).json({ error: "auth_unavailable" });
             }
             if (result.error === "invalid_supporter_code") {
-                return res.status(401).json({ valid: false, message: "Invalid code" });
+                return res.status(401).json({ error: "invalid_supporter_code" });
             }
             if (result.error === "supporter_code_ip_mismatch") {
-                return res.status(403).json({ valid: false, message: "This code is already linked to another IP" });
+                return res.status(403).json({ error: "invalid_supporter_code" });
             }
-            return res.status(result.status || 400).json({ valid: false, error: result.error, message: result.message });
+            return res.status(result.status || 400).json({ error: "invalid_supporter_code" });
         }
         return res.json({
             valid: true,
@@ -1905,8 +1906,7 @@ var ACAuth;
             ACAuth.roomCache[uid] = { roomCode: parsed.roomCode, gameMode: parsed.gameMode, lastSeenOnline: Date.now(), name, steamId: u && u.steam_id };
             dirty = true;
             if (isLive && state.warm && changed) {
-                const ownUserId = session.account?.user?.id || ACAuth.getUid(session.token);
-                const suppressOwnId = session.suppressOwnTrackerWebhook && ownUserId && uid === ownUserId;
+                const suppressOwnId = ACAuth.isUserIdHiddenFromStandardTracker(uid);
                 if (!suppressOwnId) {
                     ACAuth.sendRoomJoinWebhook({
                         name, uid, roomCode: parsed.roomCode, gameMode: parsed.gameMode,
@@ -2422,9 +2422,11 @@ pre.json{max-height:470px;overflow:auto;background:#060708;border:1px solid var(
     </div>
     <nav class="acm-nav">
       ${item("/", "Sessions", "sessions")}
+      ${item("/announcements", "Announcements", "announcements")}
+      ${item("/supporter-codes", "Supporter Codes", "supporter-codes")}
+      ${item("/player-tracker", "Player Tracker", "tracker")}
       ${item("/session-logout", "Session Logout", "logout")}
       ${item("/symbol-getter", "Symbol Getter", "symbol")}
-      ${item("/player-tracker", "Player Tracker", "tracker")}
       <span class="acm-clock" id="clock"></span>
       <form method="POST" action="/logout"><button class="acm-signout" type="submit">Sign Out</button></form>
     </nav>
@@ -2580,25 +2582,7 @@ var ACAuth;
       <div class="card-bottom"><span>Connections ${Number(s.connections || 0)}</span><b>Open →</b></div>
     </a>`;
         }).join("");
-        const announcementNotice = req.query.announcement === "sent"
-            ? '<div class="notice">Global announcement sent to connected clients.</div>'
-            : req.query.announcement === "missing"
-                ? '<div class="notice err">Title, message and sender are required.</div>'
-                : req.query.announcement === "toolong"
-                    ? '<div class="notice err">Announcement is too long.</div>'
-                    : "";
-        const redeemedNotice = req.query.redeemed === "reset"
-            ? '<div class="notice">Supporter code IP binding reset.</div>'
-            : req.query.redeemed === "missing"
-                ? '<div class="notice err">Supporter code is required.</div>'
-                : req.query.redeemed === "notfound"
-                    ? '<div class="notice err">That supporter code is not currently redeemed.</div>'
-                    : "";
-        const redeemedRows = ACAuth.redeemedSupporterCodeRows();
-        const redeemedHtml = redeemedRows.length
-            ? `<div class="redeemed-list">${redeemedRows.map(row => `<div class="redeemed-row"><code class="redeemed-code">${ACAuth.escHtml(row.code)}</code><code class="redeemed-ip">${ACAuth.escHtml(row.ip)}</code><form method="POST" action="/api/redeemed/reset" onsubmit="return confirm('Reset the IP binding for this supporter code?')"><input type="hidden" name="code" value="${ACAuth.escHtml(row.code)}"><button class="btn danger" type="submit">Reset IP</button></form></div>`).join("")}</div>`
-            : '<div class="empty" style="padding:20px">No supporter codes have been redeemed yet.</div>';
-        res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${ACAuth.uiCss()}</style></head><body><div class="page">${ACAuth.topNav('sessions')}${announcementNotice}${redeemedNotice}<div class="topline"><div><div class="page-title">Players</div><div class="page-copy">Pick a player. Everything else is separated into tabs.</div></div><div class="stats"><div class="stat"><span>Sessions</span><strong>${list.length}</strong></div><div class="stat"><span>Active</span><strong>${active}</strong></div><div class="stat"><span>Connections</span><strong>${totalConnections}</strong></div></div></div><div class="panel block" style="margin-bottom:12px"><div class="block-title">Global Announcement</div><div class="block-copy">Broadcasts instantly to every app connected to <code>GET /api/announcements</code>. Sending is available only while signed into this dashboard.</div><form method="POST" action="/api/announcements" style="margin-top:10px"><div class="create-grid"><div class="field"><label>Title</label><input class="text-input" name="title" maxlength="120" placeholder="Announcement title" required></div><div class="field"><label>Sender</label><input class="text-input" name="sender" maxlength="80" value="${ACAuth.escHtml(ACAuth.LOGIN_USER)}" placeholder="Sender name" required></div><div class="field full"><label>Message</label><textarea class="token-input" name="message" rows="4" maxlength="4000" placeholder="Main message" required></textarea></div></div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn primary" type="submit">Send Global Announcement</button><span class="block-copy" style="margin:0">SSE payload: <code>event: announcement</code></span></div></form></div><div class="panel block" style="margin-bottom:12px"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Redeemed Supporter Codes</div><div class="block-copy">Dashboard-only data from <code>GET /api/redeemed</code>. Resetting removes only the IP binding; the code stays valid in <code>codes.txt</code> and can be redeemed again.</div></div><span class="badge">${redeemedRows.length} redeemed</span></div>${redeemedHtml}</div><div class="panel toolbar"><input class="search" type="search" placeholder="Search display name, username or auth ID…" oninput="filterCards(this.value)"><button class="btn primary" type="button" onclick="toggleCreate()">+ New Session</button><form method="POST" action="/refresh-all"><button class="btn warn" type="submit">Refresh All</button></form></div><div id="create-panel" class="panel create"><form method="POST" action="/session/create"><div class="create-grid"><div class="field"><label>Session name</label><input class="text-input" name="name" placeholder="Private account"></div><div class="field full"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste session token"></textarea></div><div class="field full"><label>Refresh token</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Optional refresh token"></textarea></div></div><div style="margin-top:8px"><button class="btn primary" type="submit">Create</button></div></form></div><div class="session-grid">${cards || '<div class="empty">No sessions yet.</div>'}</div></div><div class="toast" id="toast"></div>${ACAuth.uiScripts()}${ACAuth.radarBgScript(Math.max(active, list.length))}</body></html>`);
+        res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AC Auth Backend</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${ACAuth.uiCss()}</style></head><body><div class="page">${ACAuth.topNav('sessions')}<div class="topline"><div><div class="page-title">Players</div><div class="page-copy">Pick a player. Everything else is separated into tabs.</div></div><div class="stats"><div class="stat"><span>Sessions</span><strong>${list.length}</strong></div><div class="stat"><span>Active</span><strong>${active}</strong></div><div class="stat"><span>Connections</span><strong>${totalConnections}</strong></div></div></div><div class="panel toolbar"><input class="search" type="search" placeholder="Search display name, username or auth ID…" oninput="filterCards(this.value)"><button class="btn primary" type="button" onclick="toggleCreate()">+ New Session</button><form method="POST" action="/refresh-all"><button class="btn warn" type="submit">Refresh All</button></form></div><div id="create-panel" class="panel create"><form method="POST" action="/session/create"><div class="create-grid"><div class="field"><label>Session name</label><input class="text-input" name="name" placeholder="Private account"></div><div class="field full"><label>Session token</label><textarea class="token-input" name="token" rows="3" placeholder="Paste session token"></textarea></div><div class="field full"><label>Refresh token</label><textarea class="token-input" name="refresh_token" rows="3" placeholder="Optional refresh token"></textarea></div></div><div style="margin-top:8px"><button class="btn primary" type="submit">Create</button></div></form></div><div class="session-grid">${cards || '<div class="empty">No sessions yet.</div>'}</div></div><div class="toast" id="toast"></div>${ACAuth.uiScripts()}${ACAuth.radarBgScript(Math.max(active, list.length))}</body></html>`);
     });
     ACAuth.app.get("/session/:id", async (req, res) => {
         const s = ACAuth.sessions[req.params.id];
@@ -3001,6 +2985,18 @@ var ACAuth;
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
 (function (ACAuth) {
+    function isUserIdHiddenFromStandardTracker(uid) {
+        const wanted = String(uid || "").trim().toLowerCase();
+        if (!wanted)
+            return false;
+        return Object.values(ACAuth.sessions).some(session => {
+            if (!session.suppressOwnTrackerWebhook)
+                return false;
+            const ownUserId = String(session.account?.user?.id || ACAuth.getUid(session.token) || "").trim().toLowerCase();
+            return Boolean(ownUserId && ownUserId === wanted);
+        });
+    }
+    ACAuth.isUserIdHiddenFromStandardTracker = isUserIdHiddenFromStandardTracker;
     async function getLivePresenceForUids(uids) {
         const validSessions = Object.values(ACAuth.sessions).filter(s => !ACAuth.isExpired(s.token));
         if (!validSessions.length || !uids.length)
@@ -3213,10 +3209,12 @@ var ACAuth;
         if (!s)
             return res.status(404).json({ ok: false, error: "Session not found" });
         if (Object.prototype.hasOwnProperty.call(req.body || {}, "hide_own_id")) {
-            s.suppressOwnTrackerWebhook = Boolean(req.body.hide_own_id);
+            const value = req.body.hide_own_id;
+            s.suppressOwnTrackerWebhook = typeof value === "string" ? value.toLowerCase() === "true" : Boolean(value);
         }
         if (Object.prototype.hasOwnProperty.call(req.body || {}, "quantum_enabled")) {
-            s.quantumUserTrackerEnabled = Boolean(req.body.quantum_enabled);
+            const value = req.body.quantum_enabled;
+            s.quantumUserTrackerEnabled = typeof value === "string" ? value.toLowerCase() === "true" : Boolean(value);
         }
         ACAuth.sessionStore.touch(s);
         ACAuth.saveSessions();
@@ -3484,19 +3482,12 @@ var ACAuth;
         const result = ACAuth.supporterNonces.verify(customAuthNonce(req), { ip: ACAuth.requestIp(req), consume: false });
         if (result.ok)
             return true;
-        const messages = {
-            supporter_nonce_required: "Supporter nonce required",
-            supporter_nonce_invalid_or_expired: "Supporter nonce invalid or expired",
-            supporter_nonce_ip_mismatch: "Supporter nonce belongs to a different IP",
-        };
         res.status(403).json({
             valid: false,
             token: "",
             refresh_token: "",
             created: false,
-            error: result.error,
-            message: messages[result.error] || "Supporter nonce invalid",
-            hint: "Redeem a supporter code at /v2/supportercode first, then pass the returned supporter_nonce in X-Supporter-Nonce.",
+            error: result.error === "supporter_nonce_required" ? "nonce_required" : "invalid_auth",
         });
         return false;
     }
@@ -3505,8 +3496,7 @@ var ACAuth;
         console.log(`[Auth:${method}] ${clientId || "(empty)"} → invalid auth ID (${Object.keys(ACAuth.sessions).length} session(s) loaded)`);
         return res.status(404).json({
             valid: false,
-            error: "invalid_auth_id",
-            message: "Invalid Auth ID",
+            error: "invalid_auth",
             token: "",
             refresh_token: "",
             created: false,
@@ -3675,7 +3665,7 @@ var ACAuth;
                     const isNewJoin = !!prev && prev.roomCode !== liveRoomCode;
                     ACAuth.roomCache[uid] = { roomCode: liveRoomCode, gameMode: pres.gameMode, lastSeenOnline: Date.now(), name };
                     cacheDirty = true;
-                    if (isNewJoin) {
+                    if (isNewJoin && !ACAuth.isUserIdHiddenFromStandardTracker(uid)) {
                         pendingWebhooks.push({
                             name, uid, roomCode: liveRoomCode, gameMode: pres.gameMode,
                             appearingOffline, clientVersion: pres.clientVersion,
@@ -4199,6 +4189,59 @@ ${ACAuth.radarBgScript(Object.values(ACAuth.sessions).filter(s => !ACAuth.isExpi
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
 (function (ACAuth) {
+    function dashboardPageShell(title, active, body, radarCount = 1) {
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${ACAuth.escHtml(title)} · AC Auth</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${ACAuth.uiCss()}</style></head><body><div class="page">${ACAuth.topNav(active)}${body}</div><div class="toast" id="toast"></div>${ACAuth.uiScripts()}${ACAuth.radarBgScript(Math.max(1, radarCount))}</body></html>`;
+    }
+    ACAuth.app.get("/announcements", (req, res) => {
+        const status = String(req.query.status || "");
+        const notice = status === "sent"
+            ? '<div class="notice">Global announcement sent.</div>'
+            : status === "missing"
+                ? '<div class="notice err">Title, sender and message are required.</div>'
+                : status === "toolong"
+                    ? '<div class="notice err">Announcement is too long.</div>'
+                    : "";
+        const body = `${notice}
+    <div class="topline"><div><div class="page-title">Announcements</div><div class="page-copy">Broadcast a live announcement to connected app clients.</div></div><div class="stats"><div class="stat"><span>Connected</span><strong>${ACAuth.announcementClients.size}</strong></div></div></div>
+    <div class="panel block">
+      <div class="block-title">Send Global Announcement</div>
+      <div class="block-copy">This control requires dashboard authentication. App clients only receive announcements through the supporter-code protected SSE endpoint.</div>
+      <form method="POST" action="/api/announcements" style="margin-top:12px">
+        <div class="create-grid">
+          <div class="field"><label>Title</label><input class="text-input" name="title" maxlength="120" placeholder="Announcement title" required></div>
+          <div class="field"><label>Sender</label><input class="text-input" name="sender" maxlength="80" value="${ACAuth.escHtml(ACAuth.LOGIN_USER)}" placeholder="Sender name" required></div>
+          <div class="field full"><label>Message</label><textarea class="token-input" name="message" rows="7" maxlength="4000" placeholder="Main message" required></textarea></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn primary" type="submit">Send Global Announcement</button><span class="block-copy" style="margin:0">Client stream: <code>GET /api/announcements</code></span></div>
+      </form>
+    </div>`;
+        res.send(dashboardPageShell("Announcements", "announcements", body, Object.keys(ACAuth.sessions).length));
+    });
+    ACAuth.app.get("/supporter-codes", (req, res) => {
+        const rows = ACAuth.redeemedSupporterCodeRows();
+        const validCodes = ACAuth.getValidCodes();
+        const status = String(req.query.status || "");
+        const notice = status === "reset"
+            ? '<div class="notice">Supporter code IP binding reset.</div>'
+            : status === "missing"
+                ? '<div class="notice err">Supporter code is required.</div>'
+                : status === "notfound"
+                    ? '<div class="notice err">Supporter code is not currently redeemed.</div>'
+                    : "";
+        const redeemedHtml = rows.length
+            ? `<div class="redeemed-list">${rows.map(row => `<div class="redeemed-row"><code class="redeemed-code">${ACAuth.escHtml(row.code)}</code><code class="redeemed-ip">${ACAuth.escHtml(row.ip)}</code><form method="POST" action="/api/redeemed/reset" onsubmit="return confirm('Reset the IP binding for this supporter code?')"><input type="hidden" name="code" value="${ACAuth.escHtml(row.code)}"><button class="btn danger" type="submit">Reset IP</button></form></div>`).join("")}</div>`
+            : '<div class="empty" style="padding:24px">No supporter codes have been redeemed yet.</div>';
+        const body = `${notice}
+    <div class="topline"><div><div class="page-title">Supporter Codes</div><div class="page-copy">Manage redeemed supporter-code IP bindings.</div></div><div class="stats"><div class="stat"><span>Valid Codes</span><strong>${validCodes ? validCodes.size : "—"}</strong></div><div class="stat"><span>Redeemed</span><strong>${rows.length}</strong></div></div></div>
+    <div class="panel block">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Redeemed Supporter Codes</div><div class="block-copy">Resetting removes the saved IP binding, revokes active nonces for that code, and disconnects its live announcement stream. The code remains valid and can bind again.</div></div><span class="badge">${rows.length} redeemed</span></div>
+      ${redeemedHtml}
+    </div>`;
+        res.send(dashboardPageShell("Supporter Codes", "supporter-codes", body, rows.length));
+    });
+})(ACAuth || (ACAuth = {}));
+var ACAuth;
+(function (ACAuth) {
     ACAuth.app.get("/api/redeemed", (req, res) => {
         const rows = ACAuth.redeemedSupporterCodeRows();
         res.json({
@@ -4212,13 +4255,13 @@ var ACAuth;
         if (!code) {
             if (wantsJson)
                 return res.status(400).json({ ok: false, error: "code is required" });
-            return res.redirect("/?redeemed=missing");
+            return res.redirect("/supporter-codes?status=missing");
         }
         const reset = ACAuth.resetSupporterCodeIpBinding(code);
         if (!reset) {
             if (wantsJson)
                 return res.status(404).json({ ok: false, error: "redeemed code not found" });
-            return res.redirect("/?redeemed=notfound");
+            return res.redirect("/supporter-codes?status=notfound");
         }
         const revokedNonces = ACAuth.supporterNonces.revokeSupporterCode(code);
         const disconnectedAnnouncementClients = ACAuth.disconnectAnnouncementClientsForSupporterCode(code);
@@ -4231,7 +4274,7 @@ var ACAuth;
                 revokedNonces,
                 disconnectedAnnouncementClients,
             });
-        res.redirect("/?redeemed=reset");
+        res.redirect("/supporter-codes?status=reset");
     });
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
