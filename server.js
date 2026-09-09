@@ -44,6 +44,7 @@ var ACAuth;
             friendsUpdatedAt: Number(raw.friendsUpdatedAt || 0),
             friendsError: raw.friendsError || "",
             suppressOwnTrackerWebhook: Boolean(raw.suppressOwnTrackerWebhook),
+            suppressFriendListTracker: Boolean(raw.suppressFriendListTracker),
             quantumUserTrackerEnabled: Boolean(raw.quantumUserTrackerEnabled),
         };
     }
@@ -99,14 +100,44 @@ var ACAuth;
 var ACAuth;
 (function (ACAuth) {
     ACAuth.redeemed = new Map();
+    ACAuth.redeemedDashboardClients = new Set();
     function redeemedSupporterCodeRows() {
         return [...ACAuth.redeemed.entries()]
             .map(([code, ip]) => ({ code, ip }))
             .sort((a, b) => a.code.localeCompare(b.code));
     }
     ACAuth.redeemedSupporterCodeRows = redeemedSupporterCodeRows;
+    function supporterRedemptionSnapshot() {
+        const rows = redeemedSupporterCodeRows();
+        const validCodes = ACAuth.getValidCodes();
+        return {
+            count: rows.length,
+            validCount: validCodes ? validCodes.size : null,
+            redeemed: rows,
+        };
+    }
+    ACAuth.supporterRedemptionSnapshot = supporterRedemptionSnapshot;
+    function writeSupporterRedemptionEvent(res) {
+        res.write("event: redeemed\n");
+        res.write(`data: ${JSON.stringify(supporterRedemptionSnapshot())}\n\n`);
+    }
+    ACAuth.writeSupporterRedemptionEvent = writeSupporterRedemptionEvent;
+    function broadcastSupporterRedemptionUpdate() {
+        for (const client of [...ACAuth.redeemedDashboardClients]) {
+            try {
+                writeSupporterRedemptionEvent(client);
+            }
+            catch (_) {
+                ACAuth.redeemedDashboardClients.delete(client);
+            }
+        }
+    }
+    ACAuth.broadcastSupporterRedemptionUpdate = broadcastSupporterRedemptionUpdate;
     function resetSupporterCodeIpBinding(code) {
-        return ACAuth.redeemed.delete(String(code || "").trim());
+        const removed = ACAuth.redeemed.delete(String(code || "").trim());
+        if (removed)
+            broadcastSupporterRedemptionUpdate();
+        return removed;
     }
     ACAuth.resetSupporterCodeIpBinding = resetSupporterCodeIpBinding;
 })(ACAuth || (ACAuth = {}));
@@ -722,6 +753,8 @@ var ACAuth;
     // supporter code; POST /api/announcements requires dashboard login.
     ACAuth.announcementClients = new Set();
     ACAuth.announcementClientMeta = new Map();
+    ACAuth.announcementHistory = [];
+    ACAuth.MAX_ANNOUNCEMENT_HISTORY = 100;
     function registerAnnouncementClient(res, supporterCode, ip) {
         ACAuth.announcementClients.add(res);
         ACAuth.announcementClientMeta.set(res, { supporterCode, ip });
@@ -757,7 +790,22 @@ var ACAuth;
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
     }
     ACAuth.writeAnnouncementEvent = writeAnnouncementEvent;
+    function recordGlobalAnnouncement(announcement) {
+        const entry = {
+            id: ACAuth.crypto.randomBytes(8).toString("hex"),
+            title: String(announcement.title || ""),
+            message: String(announcement.message || ""),
+            sender: String(announcement.sender || ""),
+            sentAt: Date.now(),
+        };
+        ACAuth.announcementHistory.unshift(entry);
+        if (ACAuth.announcementHistory.length > ACAuth.MAX_ANNOUNCEMENT_HISTORY)
+            ACAuth.announcementHistory.length = ACAuth.MAX_ANNOUNCEMENT_HISTORY;
+        return entry;
+    }
+    ACAuth.recordGlobalAnnouncement = recordGlobalAnnouncement;
     function broadcastGlobalAnnouncement(announcement) {
+        const historyEntry = recordGlobalAnnouncement(announcement);
         for (const client of [...ACAuth.announcementClients]) {
             try {
                 writeAnnouncementEvent(client, announcement);
@@ -766,6 +814,7 @@ var ACAuth;
                 unregisterAnnouncementClient(client);
             }
         }
+        return historyEntry;
     }
     ACAuth.broadcastGlobalAnnouncement = broadcastGlobalAnnouncement;
 })(ACAuth || (ACAuth = {}));
@@ -866,6 +915,14 @@ var ACAuth;
     ACAuth.app.get("/api/announcements", handleAnnouncementStream);
     // Compatibility alias for older clients.
     ACAuth.app.get("/api/announcements/stream", handleAnnouncementStream);
+    // Dashboard-only history viewer. This is intentionally not a supporter-code
+    // client route, so the normal dashboard cookie middleware protects it.
+    ACAuth.app.get("/api/announcements/history", (req, res) => {
+        res.json({
+            count: ACAuth.announcementHistory.length,
+            announcements: ACAuth.announcementHistory,
+        });
+    });
     // Dashboard-only broadcast control. The same URL is safe to share with the
     // client because GET and POST use different authentication paths.
     ACAuth.app.post("/api/announcements", (req, res) => {
@@ -884,12 +941,12 @@ var ACAuth;
             return res.redirect("/announcements?status=toolong");
         }
         const announcement = { title, message, sender };
-        ACAuth.broadcastGlobalAnnouncement(announcement);
+        const historyEntry = ACAuth.broadcastGlobalAnnouncement(announcement);
         console.log(`[Announcement] ${sender}: ${title} -> ${ACAuth.announcementClients.size} connected client(s)`);
         if (wantsJson) {
             return res.json({
                 ok: true,
-                announcement,
+                announcement: historyEntry,
                 connectedClients: ACAuth.announcementClients.size,
             });
         }
@@ -1112,6 +1169,7 @@ var ACAuth;
         }
         if (!ownerIp && bindIfUnused) {
             ACAuth.redeemed.set(code, ip);
+            ACAuth.broadcastSupporterRedemptionUpdate();
             console.log(`[SupporterCode] Code linked to ${ip}`);
         }
         return { ok: true, code, ip, newlyBound: !ownerIp && bindIfUnused };
@@ -1882,6 +1940,9 @@ var ACAuth;
     }
     ACAuth.resolveMissingName = resolveMissingName;
     async function handlePresenceBatch(session, state, presences, isLive) {
+        // This session opted out of contributing its friend list to Player Tracker.
+        if (session?.suppressFriendListTracker)
+            return;
         let dirty = false;
         for (const p of presences) {
             const uid = p.user_id;
@@ -1989,6 +2050,18 @@ var ACAuth;
     }
     ACAuth.requestFreshPresence = requestFreshPresence;
     async function connectLiveSocket(session) {
+        if (session?.suppressFriendListTracker) {
+            const existing = ACAuth.liveSockets[session.id];
+            if (existing?.sock) {
+                try {
+                    existing.sock.removeAllListeners();
+                    existing.sock.close();
+                }
+                catch (_) { }
+            }
+            delete ACAuth.liveSockets[session.id];
+            return;
+        }
         if (!ACAuth.WebSocket) {
             console.log("[Live] 'ws' package not installed — realtime tracking disabled.");
             return;
@@ -2031,7 +2104,7 @@ var ACAuth;
             return;
         }
         ACAuth.pendingConnect.delete(session.id); // socket exists now — readyState guard takes over
-        const state = { sock, byId, warm: false };
+        const state = { sock, byId, warm: false, followedIds: userIds };
         ACAuth.liveSockets[session.id] = state;
         sock.on("open", () => {
             console.log(`[Live:${session.name || session.id}] Connected — following ${userIds.length} friend(s) in realtime`);
@@ -2386,6 +2459,7 @@ a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}button{c
 .settings{display:grid;grid-template-columns:1fr 1fr;gap:9px}.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:9px}.action-grid form,.action-grid .btn{width:100%}.rename-row{display:flex;gap:6px;margin-top:8px}.rename-row .text-input{height:35px}.set-token-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .token-overview{padding:11px;margin-top:9px}.token-overview-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.token-overview-title{font-size:11px;font-weight:900}.token-overview-copy{font-size:8px;color:var(--muted);margin-top:3px}.token-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.token-current{width:100%;min-height:58px;max-height:78px;resize:none;border:1px solid var(--line);border-radius:8px;background:#090b0e;color:#c8c5bd;padding:8px;font:8px/1.45 var(--mono);overflow:auto}.token-current[readonly]{opacity:.72}.token-save-row{display:none;gap:6px;margin-top:7px}.token-overview.editing .token-save-row{display:flex}.token-overview.editing .token-current{border-color:rgba(255,173,20,.3);background:var(--s2);color:var(--text)}
 
+.announcement-history{display:flex;flex-direction:column;gap:7px;margin-top:10px}.announcement-row{padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--s)}.announcement-row-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}.announcement-row-head strong{font-size:10px}.announcement-row-head span{font:7px var(--mono);color:var(--muted2)}.announcement-message{font-size:9px;color:var(--muted);line-height:1.55;white-space:pre-wrap;word-break:break-word;margin-top:7px}
 .redeemed-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}.redeemed-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,.55fr) auto;gap:8px;align-items:center;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--s)}.redeemed-code,.redeemed-ip{font:8px var(--mono);word-break:break-all}.redeemed-code{color:var(--text)}.redeemed-ip{color:var(--muted)}.redeemed-row form{margin:0}.redeemed-row .btn{white-space:nowrap}
 
 pre.json{max-height:470px;overflow:auto;background:#060708;border:1px solid var(--line);border-radius:9px;padding:9px;color:#cbd5e1;font:8px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}.empty{padding:36px;text-align:center;color:var(--muted);border:1px dashed var(--line2);border-radius:14px}.toast{position:fixed;right:16px;bottom:16px;padding:8px 10px;background:var(--a);color:#17120a;border-radius:9px;font-size:8px;font-weight:900;opacity:0;transform:translateY(7px);transition:.2s;pointer-events:none}.toast.show{opacity:1;transform:none}
@@ -2689,7 +2763,7 @@ var ACAuth;
             content = `<div class="panel block"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><div class="block-title">Avatar Storage</div><div class="block-copy">Parsed from <code>/v2/storage/user_avatar</code>. No fake avatar image is shown.</div></div><form method="POST" action="/session/${s.id}/storage/avatar/refresh"><button class="btn primary" type="submit">Refresh</button></form></div><div class="avatar-grid" style="margin-top:10px">${parts.map(([label, key]) => `<div class="avatar-part"><span>${label}</span><code class="${ACAuth.avatarPart(avatar[key]) === 'None' ? 'empty-part' : ''}">${ACAuth.escHtml(ACAuth.avatarPart(avatar[key]))}</code></div>`).join("")}</div>${s.storageErrors?.avatar ? `<div class="notice err" style="margin-top:8px">${ACAuth.escHtml(s.storageErrors.avatar)}</div>` : ''}</div>`;
         }
         else if (tab === "settings") {
-            content = `<div class="panel settings-card"><div class="block-title">Player actions</div><div class="action-grid"><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}"><button class="btn" type="submit">${s.isPublic ? 'Make Private' : 'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}"><button class="btn" type="submit">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button></form><form method="POST" action="/session/${s.id}/tracker-privacy"><input type="hidden" name="enabled" value="${s.suppressOwnTrackerWebhook ? 'false' : 'true'}"><button class="btn ${s.suppressOwnTrackerWebhook ? 'good' : ''}" type="submit">${s.suppressOwnTrackerWebhook ? 'Own ID Hidden' : 'Hide Own ID From Tracker'}</button></form><form method="POST" action="/session/${s.id}/quantum-tracker"><input type="hidden" name="enabled" value="${s.quantumUserTrackerEnabled ? 'false' : 'true'}"><button class="btn ${s.quantumUserTrackerEnabled ? 'good' : ''}" type="submit">${s.quantumUserTrackerEnabled ? 'Quantum User Tracker: On' : 'Quantum User Tracker: Off'}</button></form><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${`https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out?')"><button class="btn danger" type="submit">Log Out Player</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player?')"><button class="btn danger" type="submit">Delete Player</button></form></div><form class="rename-row" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" value="${ACAuth.escHtml(s.name || '')}" placeholder="Rename"><button class="btn" type="submit">Rename</button></form></div>`;
+            content = `<div class="panel settings-card"><div class="block-title">Player actions</div><div class="action-grid"><form method="POST" action="/session/${s.id}/account-refresh"><button class="btn" type="submit">Refresh Account</button></form><form method="POST" action="/session/${s.id}/public"><input type="hidden" name="public" value="${s.isPublic ? 'false' : 'true'}"><button class="btn" type="submit">${s.isPublic ? 'Make Private' : 'Make Public'}</button></form><form method="POST" action="/session/${s.id}/admin"><input type="hidden" name="admin" value="${s.isAdmin ? 'false' : 'true'}"><button class="btn" type="submit">${s.isAdmin ? 'Remove Admin' : 'Make Admin'}</button></form><form method="POST" action="/session/${s.id}/tracker-privacy"><input type="hidden" name="enabled" value="${s.suppressOwnTrackerWebhook ? 'false' : 'true'}"><button class="btn ${s.suppressOwnTrackerWebhook ? 'good' : ''}" type="submit">${s.suppressOwnTrackerWebhook ? 'Own ID Hidden' : 'Hide Own ID From Tracker'}</button></form><form method="POST" action="/session/${s.id}/tracker-friends-privacy"><input type="hidden" name="enabled" value="${s.suppressFriendListTracker ? 'false' : 'true'}"><button class="btn ${s.suppressFriendListTracker ? 'good' : ''}" type="submit">${s.suppressFriendListTracker ? 'Friend List Hidden' : 'Hide Friend List From Tracker'}</button></form><form method="POST" action="/session/${s.id}/quantum-tracker"><input type="hidden" name="enabled" value="${s.quantumUserTrackerEnabled ? 'false' : 'true'}"><button class="btn ${s.quantumUserTrackerEnabled ? 'good' : ''}" type="submit">${s.quantumUserTrackerEnabled ? 'Quantum User Tracker: On' : 'Quantum User Tracker: Off'}</button></form><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy Auth ID</button><button class="btn" type="button" onclick="copyText('${`https://${req.get("host")}/v2/account/authenticate/custom/${s.id}`}','Endpoint copied')">Copy Endpoint</button><form method="POST" action="/session/${s.id}/logout" onsubmit="return confirm('Log this player out?')"><button class="btn danger" type="submit">Log Out Player</button></form><form method="POST" action="/session/${s.id}/delete" onsubmit="return confirm('Delete this player?')"><button class="btn danger" type="submit">Delete Player</button></form></div><form class="rename-row" method="POST" action="/session/${s.id}/rename"><input class="text-input" name="name" value="${ACAuth.escHtml(s.name || '')}" placeholder="Rename"><button class="btn" type="submit">Rename</button></form></div>`;
         }
         else {
             content = `<div class="panel raw"><pre class="json">${ACAuth.escHtml(JSON.stringify(account, null, 2) || "{}")}</pre></div>`;
@@ -2779,6 +2853,31 @@ var ACAuth;
         res.redirect(ACAuth.sessionPageUrl(s.id, s.suppressOwnTrackerWebhook
             ? "Your own user ID will no longer trigger the Player Tracker webhook."
             : "Your own user ID can trigger the Player Tracker webhook again.", false, "settings"));
+    });
+    ACAuth.app.post("/session/:id/tracker-friends-privacy", (req, res) => {
+        const s = ACAuth.sessions[req.params.id];
+        if (!s)
+            return res.status(404).json({ error: "Not found" });
+        s.suppressFriendListTracker = String(req.body.enabled).toLowerCase() === "true";
+        const live = ACAuth.liveSockets[s.id];
+        if (s.suppressFriendListTracker) {
+            if (live?.sock) {
+                try {
+                    live.sock.removeAllListeners();
+                    live.sock.close();
+                }
+                catch (_) { }
+            }
+            delete ACAuth.liveSockets[s.id];
+        }
+        else if (s.token) {
+            ACAuth.connectLiveSocket(s);
+        }
+        ACAuth.sessionStore.touch(s);
+        ACAuth.saveSessions();
+        res.redirect(ACAuth.sessionPageUrl(s.id, s.suppressFriendListTracker
+            ? "This account's friend list is excluded from Player Tracker."
+            : "This account's friend list is participating in Player Tracker again.", false, "settings"));
     });
     ACAuth.app.post("/session/:id/quantum-tracker", (req, res) => {
         const s = ACAuth.sessions[req.params.id];
@@ -3168,6 +3267,7 @@ var ACAuth;
                 socket_connected: Boolean(socketState?.sock && socketState.sock.readyState === 1),
                 tracked_friend_count: Array.isArray(socketState?.followedIds) ? socketState.followedIds.length : 0,
                 hide_own_id: Boolean(s.suppressOwnTrackerWebhook),
+                hide_friend_list: Boolean(s.suppressFriendListTracker),
                 quantum_enabled: Boolean(s.quantumUserTrackerEnabled)
             };
         });
@@ -3180,7 +3280,8 @@ var ACAuth;
                 webhook_configured: Boolean(ACAuth.DISCORD_WEBHOOK_URL),
                 active_sessions: sessionRows.filter(s => s.token_active).length,
                 connected_sockets: sessionRows.filter(s => s.socket_connected).length,
-                own_id_hidden_sessions: sessionRows.filter(s => s.hide_own_id).length
+                own_id_hidden_sessions: sessionRows.filter(s => s.hide_own_id).length,
+                friend_lists_hidden_sessions: sessionRows.filter(s => s.hide_friend_list).length
             },
             quantum: {
                 webhook_configured: Boolean(ACAuth.QUANTUM_USER_TRACKER_WEBHOOK_URL),
@@ -3212,6 +3313,23 @@ var ACAuth;
             const value = req.body.hide_own_id;
             s.suppressOwnTrackerWebhook = typeof value === "string" ? value.toLowerCase() === "true" : Boolean(value);
         }
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, "hide_friend_list")) {
+            const value = req.body.hide_friend_list;
+            const enabled = typeof value === "string" ? value.toLowerCase() === "true" : Boolean(value);
+            s.suppressFriendListTracker = enabled;
+            const live = ACAuth.liveSockets[s.id];
+            if (enabled && live?.sock) {
+                try {
+                    live.sock.removeAllListeners();
+                    live.sock.close();
+                }
+                catch (_) { }
+                delete ACAuth.liveSockets[s.id];
+            }
+            else if (!enabled && s.token) {
+                ACAuth.connectLiveSocket(s);
+            }
+        }
         if (Object.prototype.hasOwnProperty.call(req.body || {}, "quantum_enabled")) {
             const value = req.body.quantum_enabled;
             s.quantumUserTrackerEnabled = typeof value === "string" ? value.toLowerCase() === "true" : Boolean(value);
@@ -3222,6 +3340,7 @@ var ACAuth;
             ok: true,
             auth_id: s.id,
             hide_own_id: s.suppressOwnTrackerWebhook,
+            hide_friend_list: s.suppressFriendListTracker,
             quantum_enabled: s.quantumUserTrackerEnabled
         });
     });
@@ -3253,7 +3372,7 @@ button,input{font:inherit}.page{max-width:1080px;margin:0 auto;padding:16px 16px
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;margin-bottom:9px}.section-title{font-size:12px;font-weight:900}.section-copy{font-size:8px;color:var(--muted);margin-top:3px}.btn{height:35px;border:1px solid var(--line);border-radius:8px;background:var(--s2);color:var(--muted);font-size:8px;font-weight:900;padding:0 10px;cursor:pointer}.btn:hover{color:var(--text);border-color:var(--line2)}.btn.primary{background:var(--a);border-color:var(--a);color:#17120a}.btn.danger{color:#fda4af;border-color:rgba(251,113,133,.22);background:rgba(251,113,133,.07)}
 .add-form{display:grid;grid-template-columns:1fr 1.4fr auto;gap:7px;padding:10px;margin-bottom:9px}.input{height:36px;border:1px solid var(--line);border-radius:8px;background:var(--s2);color:var(--text);padding:0 9px;outline:none}.input:focus{border-color:rgba(255,173,20,.4)}
 .list{display:flex;flex-direction:column;gap:6px}.player{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--s)}.pname{font-size:10px;font-weight:900}.puid{font:7px var(--mono);color:var(--muted2);margin-top:3px;word-break:break-all}.pright{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}.presence,.room,.tag{padding:5px 7px;border-radius:999px;border:1px solid var(--line);font-size:7px;font-weight:900;white-space:nowrap}.presence.online{color:#9bf1ba;border-color:rgba(115,221,160,.22)}.presence.hidden{color:#d8b4fe;border-color:rgba(192,132,252,.25)}.presence.offline{color:var(--muted)}.room{border-radius:7px;color:var(--a);border-color:rgba(255,173,20,.2);background:var(--as);font-family:var(--mono)}.tag{color:var(--muted)}
-.session-settings{display:flex;flex-direction:column;gap:7px}.setting-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--s)}.setting-name{font-size:10px;font-weight:900}.setting-meta{font:7px var(--mono);color:var(--muted2);margin-top:3px;word-break:break-all}.toggle-label{display:flex;align-items:center;gap:6px;font-size:8px;color:var(--muted);white-space:nowrap}.toggle-label input{accent-color:#ffad14;width:16px;height:16px}
+.session-settings{display:flex;flex-direction:column;gap:7px}.setting-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--s)}.setting-name{font-size:10px;font-weight:900}.setting-meta{font:7px var(--mono);color:var(--muted2);margin-top:3px;word-break:break-all}.toggle-label{display:flex;align-items:center;gap:6px;font-size:8px;color:var(--muted);white-space:nowrap}.toggle-label input{accent-color:#ffad14;width:16px;height:16px}
 .data-table{width:100%;border-collapse:collapse}.data-table th,.data-table td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);font-size:8px}.data-table th{color:var(--muted2);text-transform:uppercase;font-size:7px}.data-table code{font:7px var(--mono);color:var(--muted)}.scroll{overflow:auto}.empty{padding:28px;text-align:center;color:var(--muted);font-size:9px;border:1px dashed var(--line2);border-radius:12px}.toast{position:fixed;right:18px;bottom:18px;padding:9px 12px;border-radius:9px;background:var(--a);color:#17120a;font-size:8px;font-weight:900;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}.toast.show{opacity:1;transform:none}
 @media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}.info-grid{grid-template-columns:1fr}.setting-row{grid-template-columns:1fr}.pright{justify-content:flex-start}.add-form{grid-template-columns:1fr}.player{grid-template-columns:1fr}}
 </style>
@@ -3289,11 +3408,12 @@ ${ACAuth.sharedMenu("tracker")}
   <div class="info-grid">
     <div class="panel info-card">
       <div class="info-title">Standard Player Tracker</div>
-      <div class="info-copy">Uses active session WebSockets to follow friend presence. When a followed player changes into a room, the standard tracker webhook is sent. Each session can hide its own user ID from that webhook.</div>
+      <div class="info-copy">Uses active session WebSockets to follow friend presence. When a followed player changes into a room, the standard tracker webhook is sent. Each session can hide its own user ID from that webhook or exclude its entire friend list from contributing to the standard tracker.</div>
       <div class="info-list">
         <div class="info-row"><span>Webhook</span><b>${snapshot.standard.webhook_configured ? "Configured" : "Not configured"}</b></div>
         <div class="info-row"><span>Connected sockets</span><b id="info-sockets">${snapshot.standard.connected_sockets}</b></div>
         <div class="info-row"><span>Own IDs hidden</span><b id="info-hidden">${snapshot.standard.own_id_hidden_sessions}</b></div>
+        <div class="info-row"><span>Friend lists excluded</span><b id="info-friend-hidden">${snapshot.standard.friend_lists_hidden_sessions}</b></div>
       </div>
     </div>
     <div class="panel info-card">
@@ -3366,6 +3486,7 @@ async function loadOverviewAndData(){
     document.getElementById('st-cache').textContent=d.data.room_cache_entries;
     document.getElementById('info-sockets').textContent=d.standard.connected_sockets;
     document.getElementById('info-hidden').textContent=d.standard.own_id_hidden_sessions;
+    document.getElementById('info-friend-hidden').textContent=d.standard.friend_lists_hidden_sessions;
     document.getElementById('info-quantum').textContent=d.quantum.enabled_sessions;
     document.getElementById('info-watchlist').textContent=d.watchlist.players;
     const body=document.getElementById('room-data');
@@ -3377,13 +3498,17 @@ async function loadOverviewAndData(){
 function renderSettings(rows){
   const root=document.getElementById('session-settings');
   if(!rows.length){root.innerHTML='<div class="empty">No sessions.</div>';return}
-  root.innerHTML=rows.map(s=>'<div class="setting-row"><div><div class="setting-name">'+esc(s.display_name||s.name)+'</div><div class="setting-meta">'+esc(s.auth_id)+(s.user_id?' · '+esc(s.user_id):'')+'</div></div><label class="toggle-label"><input type="checkbox" data-kind="hide" data-id="'+esc(s.auth_id)+'" '+(s.hide_own_id?'checked':'')+'> Hide own ID</label><label class="toggle-label"><input type="checkbox" data-kind="quantum" data-id="'+esc(s.auth_id)+'" '+(s.quantum_enabled?'checked':'')+'> Quantum Tracker</label></div>').join('');
+  root.innerHTML=rows.map(s=>'<div class="setting-row"><div><div class="setting-name">'+esc(s.display_name||s.name)+'</div><div class="setting-meta">'+esc(s.auth_id)+(s.user_id?' · '+esc(s.user_id):'')+'</div></div><label class="toggle-label"><input type="checkbox" data-kind="hide" data-id="'+esc(s.auth_id)+'" '+(s.hide_own_id?'checked':'')+'> Hide own ID</label><label class="toggle-label"><input type="checkbox" data-kind="friends" data-id="'+esc(s.auth_id)+'" '+(s.hide_friend_list?'checked':'')+'> Hide friend list</label><label class="toggle-label"><input type="checkbox" data-kind="quantum" data-id="'+esc(s.auth_id)+'" '+(s.quantum_enabled?'checked':'')+'> Quantum Tracker</label></div>').join('');
   root.querySelectorAll('input[type=checkbox]').forEach(input=>input.addEventListener('change',saveSetting));
 }
 
 async function saveSetting(e){
   const input=e.currentTarget;
-  const body=input.dataset.kind==='hide'?{hide_own_id:input.checked}:{quantum_enabled:input.checked};
+  const body=input.dataset.kind==='hide'
+    ? {hide_own_id:input.checked}
+    : input.dataset.kind==='friends'
+      ? {hide_friend_list:input.checked}
+      : {quantum_enabled:input.checked};
   try{
     const r=await fetch('/api/player-tracker/session/'+encodeURIComponent(input.dataset.id)+'/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();
@@ -3648,7 +3773,9 @@ var ACAuth;
             else if (presenceResult.error) {
                 console.log(`[Friends:${s.name || s.id}] Presence fetch issue: ${presenceResult.error}`);
             }
-            ACAuth.connectLiveSocket(s); // resume background tracking now that the one-shot fetch is done
+            if (!s.suppressFriendListTracker) {
+                ACAuth.connectLiveSocket(s); // resume background tracking only when this friend list participates in Player Tracker
+            }
             let cacheDirty = false;
             const pendingWebhooks = [];
             const enriched = friends.map(f => {
@@ -3660,7 +3787,7 @@ var ACAuth;
                 const appearingOffline = !!(pres && pres.appearOffline);
                 const name = (f.user && (f.user.display_name || f.user.username)) || uid;
                 const liveRoomCode = pres ? (pres.roomCode || null) : null;
-                if (uid && liveRoomCode) {
+                if (uid && liveRoomCode && !s.suppressFriendListTracker) {
                     const prev = ACAuth.roomCache[uid];
                     const isNewJoin = !!prev && prev.roomCode !== liveRoomCode;
                     ACAuth.roomCache[uid] = { roomCode: liveRoomCode, gameMode: pres.gameMode, lastSeenOnline: Date.now(), name };
@@ -4202,10 +4329,9 @@ var ACAuth;
                     ? '<div class="notice err">Announcement is too long.</div>'
                     : "";
         const body = `${notice}
-    <div class="topline"><div><div class="page-title">Announcements</div><div class="page-copy">Broadcast a live announcement to connected app clients.</div></div><div class="stats"><div class="stat"><span>Connected</span><strong>${ACAuth.announcementClients.size}</strong></div></div></div>
+    <div class="topline"><div><div class="page-title">Announcements</div><div class="page-copy">Broadcast a live announcement to connected app clients.</div></div><div class="stats"><div class="stat"><span>Connected</span><strong>${ACAuth.announcementClients.size}</strong></div><div class="stat"><span>History</span><strong>${ACAuth.announcementHistory.length}</strong></div></div></div>
     <div class="panel block">
-      <div class="block-title">Send Global Announcement</div>
-      <div class="block-copy">This control requires dashboard authentication. App clients only receive announcements through the supporter-code protected SSE endpoint.</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Send Global Announcement</div><div class="block-copy">Sending is dashboard-auth only. App clients can only receive the supporter-code protected stream.</div></div><button class="btn" id="view-announcements" type="button">View Announcements</button></div>
       <form method="POST" action="/api/announcements" style="margin-top:12px">
         <div class="create-grid">
           <div class="field"><label>Title</label><input class="text-input" name="title" maxlength="120" placeholder="Announcement title" required></div>
@@ -4214,7 +4340,30 @@ var ACAuth;
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn primary" type="submit">Send Global Announcement</button><span class="block-copy" style="margin:0">Client stream: <code>GET /api/announcements</code></span></div>
       </form>
-    </div>`;
+    </div>
+    <div class="panel block" id="announcement-history-panel" style="display:none;margin-top:10px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px"><div><div class="block-title">Recent Announcements</div><div class="block-copy">The most recent ${ACAuth.MAX_ANNOUNCEMENT_HISTORY} announcements sent since this server process started.</div></div><button class="btn" id="refresh-announcements" type="button">Refresh</button></div>
+      <div id="announcement-history-list" class="announcement-history"><div class="empty" style="padding:24px">Loading announcements…</div></div>
+    </div>
+    <script>
+    (function(){
+      const panel=document.getElementById('announcement-history-panel');
+      const list=document.getElementById('announcement-history-list');
+      const view=document.getElementById('view-announcements');
+      let visible=false;
+      let timer=null;
+      function escA(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+      function whenA(ms){try{return new Date(Number(ms)).toLocaleString()}catch(_){return ''}}
+      function render(rows){
+        list.innerHTML=rows.length?rows.map(function(a){return '<div class="announcement-row"><div class="announcement-row-head"><strong>'+escA(a.title)+'</strong><span>'+escA(a.sender)+' · '+escA(whenA(a.sentAt))+'</span></div><div class="announcement-message">'+escA(a.message)+'</div></div>'}).join(''):'<div class="empty" style="padding:24px">No announcements sent yet.</div>';
+      }
+      async function load(){
+        try{const r=await fetch('/api/announcements/history',{headers:{'Accept':'application/json'}});if(!r.ok)throw new Error('load_failed');const d=await r.json();render(Array.isArray(d.announcements)?d.announcements:[])}catch(_){list.innerHTML='<div class="empty" style="padding:24px">Could not load announcements.</div>'}
+      }
+      view.addEventListener('click',function(){visible=!visible;panel.style.display=visible?'block':'none';view.textContent=visible?'Hide Announcements':'View Announcements';if(visible){load();timer=setInterval(load,2000)}else if(timer){clearInterval(timer);timer=null}});
+      document.getElementById('refresh-announcements').addEventListener('click',load);
+    })();
+    </script>`;
         res.send(dashboardPageShell("Announcements", "announcements", body, Object.keys(ACAuth.sessions).length));
     });
     ACAuth.app.get("/supporter-codes", (req, res) => {
@@ -4229,24 +4378,83 @@ var ACAuth;
                     ? '<div class="notice err">Supporter code is not currently redeemed.</div>'
                     : "";
         const redeemedHtml = rows.length
-            ? `<div class="redeemed-list">${rows.map(row => `<div class="redeemed-row"><code class="redeemed-code">${ACAuth.escHtml(row.code)}</code><code class="redeemed-ip">${ACAuth.escHtml(row.ip)}</code><form method="POST" action="/api/redeemed/reset" onsubmit="return confirm('Reset the IP binding for this supporter code?')"><input type="hidden" name="code" value="${ACAuth.escHtml(row.code)}"><button class="btn danger" type="submit">Reset IP</button></form></div>`).join("")}</div>`
+            ? rows.map(row => `<div class="redeemed-row"><code class="redeemed-code">${ACAuth.escHtml(row.code)}</code><code class="redeemed-ip">${ACAuth.escHtml(row.ip)}</code><button class="btn danger" type="button" data-reset-code="${ACAuth.escHtml(row.code)}">Reset IP</button></div>`).join("")
             : '<div class="empty" style="padding:24px">No supporter codes have been redeemed yet.</div>';
         const body = `${notice}
-    <div class="topline"><div><div class="page-title">Supporter Codes</div><div class="page-copy">Manage redeemed supporter-code IP bindings.</div></div><div class="stats"><div class="stat"><span>Valid Codes</span><strong>${validCodes ? validCodes.size : "—"}</strong></div><div class="stat"><span>Redeemed</span><strong>${rows.length}</strong></div></div></div>
+    <div class="topline"><div><div class="page-title">Supporter Codes</div><div class="page-copy">Manage redeemed supporter-code IP bindings. This page updates automatically.</div></div><div class="stats"><div class="stat"><span>Valid Codes</span><strong id="valid-code-count">${validCodes ? validCodes.size : "—"}</strong></div><div class="stat"><span>Redeemed</span><strong id="redeemed-count">${rows.length}</strong></div></div></div>
     <div class="panel block">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Redeemed Supporter Codes</div><div class="block-copy">Resetting removes the saved IP binding, revokes active nonces for that code, and disconnects its live announcement stream. The code remains valid and can bind again.</div></div><span class="badge">${rows.length} redeemed</span></div>
-      ${redeemedHtml}
-    </div>`;
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Redeemed Supporter Codes</div><div class="block-copy">Resetting removes the saved IP binding, revokes active nonces for that code, and disconnects its live announcement stream. The code remains valid and can bind again.</div></div><span class="badge" id="redeemed-badge">${rows.length} redeemed</span></div>
+      <div class="redeemed-list" id="redeemed-live-list">${redeemedHtml}</div>
+    </div>
+    <script>
+    (function(){
+      const list=document.getElementById('redeemed-live-list');
+      const count=document.getElementById('redeemed-count');
+      const valid=document.getElementById('valid-code-count');
+      const badge=document.getElementById('redeemed-badge');
+      let busy=false;
+      function escS(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+      function render(rows){
+        list.innerHTML=rows.length?rows.map(function(row){return '<div class="redeemed-row"><code class="redeemed-code">'+escS(row.code)+'</code><code class="redeemed-ip">'+escS(row.ip)+'</code><button class="btn danger" type="button" data-reset-code="'+escS(row.code)+'">Reset IP</button></div>'}).join(''):'<div class="empty" style="padding:24px">No supporter codes have been redeemed yet.</div>';
+      }
+      async function refresh(){
+        if(busy)return;
+        try{const r=await fetch('/api/redeemed',{headers:{'Accept':'application/json'},cache:'no-store'});if(!r.ok)return;const d=await r.json();const rows=Array.isArray(d.redeemed)?d.redeemed:[];count.textContent=String(d.count==null?rows.length:d.count);valid.textContent=d.validCount==null?'—':String(d.validCount);badge.textContent=rows.length+' redeemed';render(rows)}catch(_){}
+      }
+      list.addEventListener('click',async function(e){
+        const button=e.target.closest('[data-reset-code]');if(!button)return;
+        const code=button.getAttribute('data-reset-code')||'';
+        if(!code||!confirm('Reset the IP binding for this supporter code?'))return;
+        busy=true;button.disabled=true;
+        try{await fetch('/api/redeemed/reset',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({code:code})})}catch(_){}
+        busy=false;await refresh();
+      });
+      refresh();
+      try{
+        const stream=new EventSource('/api/redeemed/stream');
+        stream.addEventListener('redeemed',function(event){
+          try{const d=JSON.parse(event.data||'{}');const rows=Array.isArray(d.redeemed)?d.redeemed:[];count.textContent=String(d.count==null?rows.length:d.count);valid.textContent=d.validCount==null?'—':String(d.validCount);badge.textContent=rows.length+' redeemed';render(rows)}catch(_){}
+        });
+        stream.onerror=function(){refresh()};
+      }catch(_){setInterval(refresh,3000)}
+      setInterval(refresh,30000);
+    })();
+    </script>`;
         res.send(dashboardPageShell("Supporter Codes", "supporter-codes", body, rows.length));
     });
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
 (function (ACAuth) {
     ACAuth.app.get("/api/redeemed", (req, res) => {
-        const rows = ACAuth.redeemedSupporterCodeRows();
-        res.json({
-            count: rows.length,
-            redeemed: rows,
+        res.json(ACAuth.supporterRedemptionSnapshot());
+    });
+    // Dashboard-authenticated realtime stream for the Supporter Codes tab.
+    ACAuth.app.get("/api/redeemed/stream", (req, res) => {
+        res.status(200);
+        res.set({
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        });
+        if (typeof res.flushHeaders === "function")
+            res.flushHeaders();
+        if (res.socket)
+            res.socket.setTimeout(0);
+        ACAuth.redeemedDashboardClients.add(res);
+        ACAuth.writeSupporterRedemptionEvent(res);
+        const heartbeat = setInterval(() => {
+            try {
+                res.write(": keep-alive\n\n");
+            }
+            catch (_) {
+                clearInterval(heartbeat);
+                ACAuth.redeemedDashboardClients.delete(res);
+            }
+        }, 25000);
+        req.on("close", () => {
+            clearInterval(heartbeat);
+            ACAuth.redeemedDashboardClients.delete(res);
         });
     });
     ACAuth.app.post("/api/redeemed/reset", (req, res) => {
