@@ -820,6 +820,83 @@ var ACAuth;
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
 (function (ACAuth) {
+    // Global game-event SSE subscribers. GET /api/events requires a supporter
+    // code; POST /api/events requires dashboard login.
+    ACAuth.eventClients = new Set();
+    ACAuth.eventClientMeta = new Map();
+    ACAuth.eventHistory = [];
+    ACAuth.MAX_EVENT_HISTORY = 100;
+    function registerEventClient(res, supporterCode, ip) {
+        ACAuth.eventClients.add(res);
+        ACAuth.eventClientMeta.set(res, { supporterCode, ip });
+    }
+    ACAuth.registerEventClient = registerEventClient;
+    function unregisterEventClient(res) {
+        ACAuth.eventClients.delete(res);
+        ACAuth.eventClientMeta.delete(res);
+    }
+    ACAuth.unregisterEventClient = unregisterEventClient;
+    function disconnectEventClientsForSupporterCode(supporterCode) {
+        let disconnected = 0;
+        for (const [client, meta] of [...ACAuth.eventClientMeta.entries()]) {
+            if (meta?.supporterCode !== supporterCode)
+                continue;
+            disconnected++;
+            unregisterEventClient(client);
+            try {
+                client.end();
+            }
+            catch (_) { }
+        }
+        return disconnected;
+    }
+    ACAuth.disconnectEventClientsForSupporterCode = disconnectEventClientsForSupporterCode;
+    function eventPayload(input) {
+        return {
+            event: String(input.event || ""),
+            roomCode: String(input.roomCode || ""),
+            gameMode: String(input.gameMode || ""),
+            playerId: String(input.playerId || ""),
+        };
+    }
+    ACAuth.eventPayload = eventPayload;
+    function writeGameEvent(res, gameEvent) {
+        const payload = eventPayload(gameEvent);
+        // Named SSE event, matching the /api/events stream. A future client can use
+        // source.addEventListener("event", ...).
+        res.write("event: event\n");
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    }
+    ACAuth.writeGameEvent = writeGameEvent;
+    function recordGameEvent(gameEvent) {
+        const payload = eventPayload(gameEvent);
+        const entry = {
+            id: ACAuth.crypto.randomBytes(8).toString("hex"),
+            ...payload,
+            sentAt: Date.now(),
+        };
+        ACAuth.eventHistory.unshift(entry);
+        if (ACAuth.eventHistory.length > ACAuth.MAX_EVENT_HISTORY)
+            ACAuth.eventHistory.length = ACAuth.MAX_EVENT_HISTORY;
+        return entry;
+    }
+    ACAuth.recordGameEvent = recordGameEvent;
+    function broadcastGameEvent(gameEvent) {
+        const historyEntry = recordGameEvent(gameEvent);
+        for (const client of [...ACAuth.eventClients]) {
+            try {
+                writeGameEvent(client, gameEvent);
+            }
+            catch (_) {
+                unregisterEventClient(client);
+            }
+        }
+        return historyEntry;
+    }
+    ACAuth.broadcastGameEvent = broadcastGameEvent;
+})(ACAuth || (ACAuth = {}));
+var ACAuth;
+(function (ACAuth) {
     ACAuth.app.use((req, res, next) => {
         const raw = req.headers.cookie || "";
         req.cookies = {};
@@ -841,6 +918,8 @@ var ACAuth;
     function isSupporterCodeClientRoute(req) {
         const p = req.path;
         if (req.method === "GET" && (p === "/api/announcements" || p === "/api/announcements/stream"))
+            return true;
+        if (req.method === "GET" && (p === "/api/events" || p === "/api/events/stream"))
             return true;
         if (req.method === "GET" && (p === "/api/public-auth" || p === "/api/public-auth-ids" || p === "/api/admins" || p === "/api/users"))
             return true;
@@ -954,6 +1033,82 @@ var ACAuth;
             });
         }
         res.redirect("/announcements?status=sent");
+    });
+})(ACAuth || (ACAuth = {}));
+var ACAuth;
+(function (ACAuth) {
+    function handleEventStream(req, res) {
+        res.status(200);
+        res.set({
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        });
+        if (typeof res.flushHeaders === "function")
+            res.flushHeaders();
+        if (res.socket)
+            res.socket.setTimeout(0);
+        res.write(": connected\n\n");
+        ACAuth.registerEventClient(res, String(req.supporterCode || ""), ACAuth.requestIp(req));
+        const heartbeat = setInterval(() => {
+            try {
+                res.write(": keep-alive\n\n");
+            }
+            catch (_) {
+                clearInterval(heartbeat);
+                ACAuth.unregisterEventClient(res);
+            }
+        }, 25000);
+        req.on("close", () => {
+            clearInterval(heartbeat);
+            ACAuth.unregisterEventClient(res);
+        });
+    }
+    ACAuth.handleEventStream = handleEventStream;
+    // Canonical app/client SSE endpoint. The global auth middleware requires a
+    // supporter code for this GET request.
+    ACAuth.app.get("/api/events", handleEventStream);
+    // Compatibility alias, matching the announcements API layout.
+    ACAuth.app.get("/api/events/stream", handleEventStream);
+    // Dashboard-only history viewer.
+    ACAuth.app.get("/api/events/history", (req, res) => {
+        res.json({
+            count: ACAuth.eventHistory.length,
+            events: ACAuth.eventHistory,
+        });
+    });
+    // Dashboard-only event broadcast control. The client-facing GET on the same
+    // path uses supporter-code auth, while this POST uses dashboard auth.
+    ACAuth.app.post("/api/events", (req, res) => {
+        // Accept a few spelling/casing aliases so future callers can send the names
+        // naturally, while the stream always emits the canonical payload below.
+        const event = String(req.body.event ?? req.body.eventName ?? "").trim();
+        const roomCode = String(req.body.roomCode ?? req.body.room ?? "").trim();
+        const gameMode = String(req.body.gameMode ?? req.body.gamemode ?? "").trim();
+        const playerId = String(req.body.playerId ?? req.body.playerID ?? req.body.userId ?? "").trim();
+        const wantsJson = String(req.headers.accept || "").includes("application/json");
+        if (!event || !roomCode || !gameMode || !playerId) {
+            if (wantsJson)
+                return res.status(400).json({ ok: false, error: "event, roomCode, gameMode and playerId are required" });
+            return res.redirect("/announcements?status=event-missing");
+        }
+        if (event.length > 80 || roomCode.length > 80 || gameMode.length > 120 || playerId.length > 160) {
+            if (wantsJson)
+                return res.status(400).json({ ok: false, error: "event fields are too long" });
+            return res.redirect("/announcements?status=event-toolong");
+        }
+        const gameEvent = { event, roomCode, gameMode, playerId };
+        const historyEntry = ACAuth.broadcastGameEvent(gameEvent);
+        console.log(`[Event] ${event} -> player ${playerId}, room ${roomCode}, mode ${gameMode} -> ${ACAuth.eventClients.size} connected client(s)`);
+        if (wantsJson) {
+            return res.json({
+                ok: true,
+                event: historyEntry,
+                connectedClients: ACAuth.eventClients.size,
+            });
+        }
+        res.redirect("/announcements?status=event-sent");
     });
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
@@ -4339,9 +4494,15 @@ var ACAuth;
                 ? '<div class="notice err">Title, sender and message are required.</div>'
                 : status === "toolong"
                     ? '<div class="notice err">Announcement is too long.</div>'
-                    : "";
+                    : status === "event-sent"
+                        ? '<div class="notice">Game event sent.</div>'
+                        : status === "event-missing"
+                            ? '<div class="notice err">Event name, room code, game mode and player ID are required.</div>'
+                            : status === "event-toolong"
+                                ? '<div class="notice err">One or more event fields are too long.</div>'
+                                : "";
         const body = `${notice}
-    <div class="topline"><div><div class="page-title">Announcements</div><div class="page-copy">Broadcast a live announcement to connected app clients.</div></div><div class="stats"><div class="stat"><span>Connected</span><strong>${ACAuth.announcementClients.size}</strong></div><div class="stat"><span>History</span><strong>${ACAuth.announcementHistory.length}</strong></div></div></div>
+    <div class="topline"><div><div class="page-title">Announcements & Events</div><div class="page-copy">Broadcast live announcements and targeted game events to connected app clients.</div></div><div class="stats"><div class="stat"><span>Ann. Clients</span><strong>${ACAuth.announcementClients.size}</strong></div><div class="stat"><span>Ann. History</span><strong>${ACAuth.announcementHistory.length}</strong></div><div class="stat"><span>Event Clients</span><strong>${ACAuth.eventClients.size}</strong></div><div class="stat"><span>Event History</span><strong>${ACAuth.eventHistory.length}</strong></div></div></div>
     <div class="panel block">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Send Global Announcement</div><div class="block-copy">Sending is dashboard-auth only. App clients can only receive the supporter-code protected stream.</div></div><button class="btn" id="view-announcements" type="button">View Announcements</button></div>
       <form method="POST" action="/api/announcements" style="margin-top:12px">
@@ -4353,9 +4514,25 @@ var ACAuth;
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn primary" type="submit">Send Global Announcement</button><span class="block-copy" style="margin:0">Client stream: <code>GET /api/announcements</code></span></div>
       </form>
     </div>
+    <div class="panel block" style="margin-top:10px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Send Game Event</div><div class="block-copy">Target an event at a player/room. The future client can compare the player ID, room code, game mode and event name before applying it.</div></div><button class="btn" id="view-events" type="button">View Events</button></div>
+      <form method="POST" action="/api/events" style="margin-top:12px">
+        <div class="create-grid">
+          <div class="field"><label>Event</label><select class="text-input" name="event" required><option value="disable_menu">Disable Menu</option></select></div>
+          <div class="field"><label>Player ID</label><input class="text-input" name="playerId" maxlength="160" placeholder="Target user/player ID" required></div>
+          <div class="field"><label>Room Code</label><input class="text-input" name="roomCode" maxlength="80" placeholder="Room code" required></div>
+          <div class="field"><label>Game Mode</label><select class="text-input" name="gameMode" required><option value="Adventure">Adventure</option><option value="Arena">Arena</option><option value="Broke AF">Broke AF</option><option value="Dev Sandbox">Dev Sandbox</option><option value="Classic">Classic</option></select></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn primary" type="submit">Send Game Event</button><span class="block-copy" style="margin:0">Client stream: <code>GET /api/events</code> · SSE type: <code>event</code></span></div>
+      </form>
+    </div>
     <div class="panel block" id="announcement-history-panel" style="display:none;margin-top:10px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px"><div><div class="block-title">Recent Announcements</div><div class="block-copy">The most recent ${ACAuth.MAX_ANNOUNCEMENT_HISTORY} announcements sent since this server process started.</div></div><button class="btn" id="refresh-announcements" type="button">Refresh</button></div>
       <div id="announcement-history-list" class="announcement-history"><div class="empty" style="padding:24px">Loading announcements…</div></div>
+    </div>
+    <div class="panel block" id="event-history-panel" style="display:none;margin-top:10px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px"><div><div class="block-title">Recent Game Events</div><div class="block-copy">The most recent ${ACAuth.MAX_EVENT_HISTORY} events sent since this server process started.</div></div><button class="btn" id="refresh-events" type="button">Refresh</button></div>
+      <div id="event-history-list" class="announcement-history"><div class="empty" style="padding:24px">Loading events…</div></div>
     </div>
     <script>
     (function(){
@@ -4374,6 +4551,23 @@ var ACAuth;
       }
       view.addEventListener('click',function(){visible=!visible;panel.style.display=visible?'block':'none';view.textContent=visible?'Hide Announcements':'View Announcements';if(visible){load();timer=setInterval(load,2000)}else if(timer){clearInterval(timer);timer=null}});
       document.getElementById('refresh-announcements').addEventListener('click',load);
+    })();
+    (function(){
+      const panel=document.getElementById('event-history-panel');
+      const list=document.getElementById('event-history-list');
+      const view=document.getElementById('view-events');
+      let visible=false;
+      let timer=null;
+      function escE(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+      function whenE(ms){try{return new Date(Number(ms)).toLocaleString()}catch(_){return ''}}
+      function render(rows){
+        list.innerHTML=rows.length?rows.map(function(e){return '<div class="announcement-row"><div class="announcement-row-head"><strong>'+escE(e.event)+'</strong><span>'+escE(whenE(e.sentAt))+'</span></div><div class="announcement-message"><strong>Player:</strong> <code>'+escE(e.playerId)+'</code><br><strong>Room:</strong> <code>'+escE(e.roomCode)+'</code><br><strong>Game mode:</strong> <code>'+escE(e.gameMode)+'</code></div></div>'}).join(''):'<div class="empty" style="padding:24px">No game events sent yet.</div>';
+      }
+      async function load(){
+        try{const r=await fetch('/api/events/history',{headers:{'Accept':'application/json'}});if(!r.ok)throw new Error('load_failed');const d=await r.json();render(Array.isArray(d.events)?d.events:[])}catch(_){list.innerHTML='<div class="empty" style="padding:24px">Could not load events.</div>'}
+      }
+      view.addEventListener('click',function(){visible=!visible;panel.style.display=visible?'block':'none';view.textContent=visible?'Hide Events':'View Events';if(visible){load();timer=setInterval(load,2000)}else if(timer){clearInterval(timer);timer=null}});
+      document.getElementById('refresh-events').addEventListener('click',load);
     })();
     </script>`;
         res.send(dashboardPageShell("Announcements", "announcements", body, Object.keys(ACAuth.sessions).length));
@@ -4395,7 +4589,7 @@ var ACAuth;
         const body = `${notice}
     <div class="topline"><div><div class="page-title">Supporter Codes</div><div class="page-copy">Manage redeemed supporter-code IP bindings. This page updates automatically.</div></div><div class="stats"><div class="stat"><span>Valid Codes</span><strong id="valid-code-count">${validCodes ? validCodes.size : "—"}</strong></div><div class="stat"><span>Redeemed</span><strong id="redeemed-count">${rows.length}</strong></div></div></div>
     <div class="panel block">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Redeemed Supporter Codes</div><div class="block-copy">Resetting removes the saved IP binding, revokes active nonces for that code, and disconnects its live announcement stream. The code remains valid and can bind again.</div></div><span class="badge" id="redeemed-badge">${rows.length} redeemed</span></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="block-title">Redeemed Supporter Codes</div><div class="block-copy">Resetting removes the saved IP binding, revokes active nonces for that code, and disconnects its live announcement/event streams. The code remains valid and can bind again.</div></div><span class="badge" id="redeemed-badge">${rows.length} redeemed</span></div>
       <div class="redeemed-list" id="redeemed-live-list">${redeemedHtml}</div>
     </div>
     <script>
@@ -4485,7 +4679,8 @@ var ACAuth;
         }
         const revokedNonces = ACAuth.supporterNonces.revokeSupporterCode(code);
         const disconnectedAnnouncementClients = ACAuth.disconnectAnnouncementClientsForSupporterCode(code);
-        console.log(`[SupporterCode] Dashboard reset IP binding for ${code}; revoked ${revokedNonces} nonce(s), disconnected ${disconnectedAnnouncementClients} announcement stream(s)`);
+        const disconnectedEventClients = ACAuth.disconnectEventClientsForSupporterCode(code);
+        console.log(`[SupporterCode] Dashboard reset IP binding for ${code}; revoked ${revokedNonces} nonce(s), disconnected ${disconnectedAnnouncementClients} announcement stream(s) and ${disconnectedEventClients} event stream(s)`);
         if (wantsJson)
             return res.json({
                 ok: true,
@@ -4493,6 +4688,7 @@ var ACAuth;
                 reset: true,
                 revokedNonces,
                 disconnectedAnnouncementClients,
+                disconnectedEventClients,
             });
         res.redirect("/supporter-codes?status=reset");
     });
@@ -4547,7 +4743,7 @@ var ACAuth;
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
 (function (ACAuth) {
-    ACAuth.app.all("*", (req, res) => {
+    ACAuth.app.use((req, res) => {
         console.log(`[Unhandled] ${req.method} ${req.path}`);
         res.status(200).json({});
     });
