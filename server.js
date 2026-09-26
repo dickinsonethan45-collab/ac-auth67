@@ -1890,7 +1890,7 @@ var ACAuth;
         }
         const tok = session.refresh_token;
         const attempts = [
-            { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${ACAuth.SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "SteamFrame 1.67.3.2345_6f43a8db", deviceID: "a8319933d25f331503835aa71ec12f55", loginType: "1234", idType: "1234" } }) },
+            { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${ACAuth.SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "MetaQuest 1.92.3.3608_e8e2816a", deviceID: "193af29510e22b8361785f0b39b5639febbcd8f8", loginType: "1234", idType: "1234" } }) },
             { ep: "/v2/session/refresh", auth: "Bearer " + tok, body: JSON.stringify({ token: tok }) },
         ];
         console.log(`[Refresh:${session.name || session.id}] Attempting refresh...`);
