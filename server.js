@@ -1889,8 +1889,11 @@ var ACAuth;
             return { success: false };
         }
         const tok = session.refresh_token;
+        const tokenPayload = decodeToken(session.token);
+        const refreshPayload = decodeToken(tok);
+        const deviceID = tokenPayload?.vrs?.deviceID || refreshPayload?.vrs?.deviceID || "";
         const attempts = [
-            { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${ACAuth.SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "MetaQuest 1.92.3.3608_e8e2816a", deviceID: "193af29510e22b8361785f0b39b5639febbcd8f8", loginType: "1234", idType: "1234" } }) },
+            { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${ACAuth.SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "MetaQuest 1.92.3.3608_e8e2816a", deviceID, loginType: "1234", idType: "1234" } }) },
             { ep: "/v2/session/refresh", auth: "Bearer " + tok, body: JSON.stringify({ token: tok }) },
         ];
         console.log(`[Refresh:${session.name || session.id}] Attempting refresh...`);
