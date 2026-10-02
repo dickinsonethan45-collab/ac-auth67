@@ -1302,6 +1302,7 @@ var ACAuth;
     function supporterCodeFromRequest(req) {
         return String(req.headers["x-supporter-code"]
             || req.body?.supporter_code
+            || req.body?.supporter_id
             || req.query?.supporter_code
             || "").trim();
     }
@@ -1889,11 +1890,8 @@ var ACAuth;
             return { success: false };
         }
         const tok = session.refresh_token;
-        const tokenPayload = decodeToken(session.token);
-        const refreshPayload = decodeToken(tok);
-        const deviceID = tokenPayload?.vrs?.deviceID || refreshPayload?.vrs?.deviceID || "";
         const attempts = [
-            { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${ACAuth.SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "MetaQuest 1.92.3.3608_e8e2816a", deviceID, loginType: "1234", idType: "1234" } }) },
+            { ep: "/v2/account/session/refresh", auth: "Basic " + Buffer.from(`${ACAuth.SERVER_KEY}:`).toString("base64"), body: JSON.stringify({ token: tok, vars: { authID: "9d5dca5eb2674de2a2204e31f1f7a1f8", clientUserAgent: "MetaQuest 1.92.3.3608_e8e2816a", deviceID: "193af29510e22b8361785f0b39b5639febbcd8f8", loginType: "1234", idType: "1234" } }) },
             { ep: "/v2/session/refresh", auth: "Bearer " + tok, body: JSON.stringify({ token: tok }) },
         ];
         console.log(`[Refresh:${session.name || session.id}] Attempting refresh...`);
@@ -3830,6 +3828,25 @@ var ACAuth;
             refresh_token: s.refresh_token,
             created: false
         });
+    });
+    // Return only the device ID associated with a stored session; never expose its JWT.
+    // requireLogin() validates the submitted supporter_id as a supporter code first.
+    ACAuth.app.post("/v2/account/authenticate/devid", (req, res) => {
+        const authId = normalizeCustomAuthId(req.body?.auth_id ?? req.body?.authID ?? "");
+        if (!authId || authId.length > 128)
+            return res.status(400).json({ valid: false, error: "auth_id_required" });
+        const wantedId = authId.toLowerCase();
+        const session = Object.values(ACAuth.sessions).find(sess =>
+            String(sess.id || "").trim().toLowerCase() === wantedId ||
+            String(ACAuth.decodeToken(sess.token)?.vrs?.authID || "").trim().toLowerCase() === wantedId
+        );
+        if (!session)
+            return res.status(404).json({ valid: false, error: "invalid_auth_id" });
+        const deviceID = ACAuth.decodeToken(session.token)?.vrs?.deviceID;
+        if (typeof deviceID !== "string" || !deviceID.trim())
+            return res.status(422).json({ valid: false, error: "device_id_unavailable" });
+        res.set("Cache-Control", "no-store");
+        return res.json({ valid: true, deviceID });
     });
     ACAuth.app.post("/v2/account/authenticate/refresh", (req, res) => {
         const first = Object.values(ACAuth.sessions)[0];
