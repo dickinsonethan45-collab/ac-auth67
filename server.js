@@ -21,6 +21,7 @@ var ACAuth;
             connections: Number(raw.connections || 0),
             isPublic: Boolean(raw.isPublic),
             isAdmin: Boolean(raw.isAdmin),
+            linkedDiscordUserId: String(raw.linkedDiscordUserId || ""),
             account: raw.account && typeof raw.account === "object" ? raw.account : null,
             accountUpdatedAt: Number(raw.accountUpdatedAt || 0),
             createdAt: Number(raw.createdAt || Date.now()),
@@ -942,7 +943,8 @@ var ACAuth;
             return next();
         // This one client API validates its own short-lived import secret.
         // It must not redirect unauthenticated API callers to the dashboard.
-        if (req.method === "POST" && /^\/api\/accounts\/add\/?$/.test(req.path))
+        if ((req.method === "POST" && /^\/api\/accounts\/add\/?$/.test(req.path)) ||
+            ((req.method === "GET" || req.method === "POST") && /^\/api\/bot\/accounts(?:\/add|\/remove)?\/?$/.test(req.path)))
             return next();
         // Match the known-working legacy auth flow exactly for these endpoints:
         // custom auth is nonce-only, while GET/POST /v2/account performs its own
@@ -2937,8 +2939,8 @@ var ACAuth;
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
 (function (ACAuth) {
-    // Required JSON: { token, refresh_token, secret }. The client builds secret
-    // as `${Date.now()}massiveamblock`, using a UTC Unix timestamp in milliseconds.
+    // Legacy client import remains available. Discord bot routes additionally require
+    // ACCOUNT_BOT_API_KEY and bind every imported session to one Discord account.
     const usedImportSecrets = new Map();
     const importSecretSuffix = "massiveamblock";
     const importSecretWindowMs = 60 * 1000;
@@ -2948,7 +2950,6 @@ var ACAuth;
             if (expiresAt <= now)
                 usedImportSecrets.delete(value);
         }
-        // Bound memory use even if a client deliberately sends many unique codes.
         while (usedImportSecrets.size >= 10000)
             usedImportSecrets.delete(usedImportSecrets.keys().next().value);
         if (typeof secret !== "string")
@@ -2970,29 +2971,66 @@ var ACAuth;
         return true;
     }
     ACAuth.verifyImportSecret = verifyImportSecret;
-    ACAuth.app.post("/api/accounts/add", async (req, res) => {
+
+    function requireBotApiKey(req, res, next) {
         res.set("Cache-Control", "no-store");
+        const expected = process.env.ACCOUNT_BOT_API_KEY;
+        if (!expected || Buffer.byteLength(expected, "utf8") < 32)
+            return res.status(503).json({ ok: false, error: "account_bot_api_key_not_configured" });
+        const provided = req.get("X-Account-Bot-Key") || "";
+        const expectedBytes = Buffer.from(expected, "utf8");
+        const providedBytes = Buffer.from(provided, "utf8");
+        if (providedBytes.length !== expectedBytes.length || !ACAuth.crypto.timingSafeEqual(expectedBytes, providedBytes))
+            return res.status(401).json({ ok: false, error: "unauthorized_bot" });
+        next();
+    }
+    function validDiscordUserId(value) {
+        return typeof value === "string" && /^\d{16,22}$/.test(value) ? value : null;
+    }
+    async function importAccount(req, res, botManaged = false) {
+        res.set("Cache-Control", "no-store");
+        const ownerId = botManaged ? validDiscordUserId(req.body?.discord_user_id) : "";
+        if (botManaged && !ownerId)
+            return res.status(400).json({ ok: false, error: "discord_user_id_required" });
         if (!verifyImportSecret(req.body?.secret))
             return res.status(403).json({ ok: false, error: "invalid_expired_or_reused_secret" });
         const { token, refresh_token } = req.body || {};
         if (typeof token !== "string" || !token.trim() || token.length > 32768 ||
-            typeof refresh_token !== "string" || !refresh_token.trim() || refresh_token.length > 32768) {
+            typeof refresh_token !== "string" || !refresh_token.trim() || refresh_token.length > 32768)
             return res.status(400).json({ ok: false, error: "token_and_refresh_token_required" });
-        }
         const sessionToken = token.trim();
         const refreshToken = refresh_token.trim();
         const uid = ACAuth.getUid(sessionToken);
         const refreshUid = ACAuth.getUid(refreshToken);
         if (typeof uid !== "string" || !uid || sessionToken.split(".").length !== 3 ||
-            (refreshUid && refreshUid !== uid)) {
+            (refreshUid && refreshUid !== uid))
             return res.status(422).json({ ok: false, error: "invalid_or_mismatched_tokens" });
-        }
         const requestedName = req.body?.name;
         if (requestedName !== undefined && (typeof requestedName !== "string" || requestedName.trim().length > 80))
             return res.status(400).json({ ok: false, error: "invalid_name" });
         const existing = Object.values(ACAuth.sessions).find(session =>
             ACAuth.getUid(session.token) === uid || ACAuth.getUid(session.refresh_token) === uid
         );
+        if (botManaged) {
+            if (existing && existing.linkedDiscordUserId !== ownerId)
+                return res.status(409).json({ ok: false, error: "account_already_registered" });
+            if (!existing && Object.values(ACAuth.sessions).filter(session => session.linkedDiscordUserId === ownerId).length >= 3)
+                return res.status(409).json({ ok: false, error: "account_limit_reached" });
+        }
+        else if (existing?.linkedDiscordUserId) {
+            return res.status(403).json({ ok: false, error: "account_managed_by_bot" });
+        }
+        let verifiedAccount = null;
+        if (botManaged) {
+            try {
+                verifiedAccount = await ACAuth.fetchAccount(ACAuth.NAKAMA_SERVER, sessionToken);
+                if (verifiedAccount?.user?.id !== uid)
+                    throw new Error("Token owner mismatch");
+            }
+            catch (_) {
+                return res.status(422).json({ ok: false, error: "account_token_validation_failed" });
+            }
+        }
         const created = !existing;
         let id = existing?.id;
         if (!id) {
@@ -3002,16 +3040,21 @@ var ACAuth;
         }
         const defaultName = String(ACAuth.decodeToken(sessionToken).usn || uid).slice(0, 80);
         const session = existing || ACAuth.normalizeSession(id, { name: requestedName?.trim() || defaultName });
-        const previous = existing ? { token: existing.token, refresh_token: existing.refresh_token,
-            name: existing.name, account: existing.account, accountUpdatedAt: existing.accountUpdatedAt } : null;
+        const previous = existing ? {
+            token: existing.token, refresh_token: existing.refresh_token, name: existing.name,
+            account: existing.account, accountUpdatedAt: existing.accountUpdatedAt,
+            linkedDiscordUserId: existing.linkedDiscordUserId
+        } : null;
         const changedToken = session.token !== sessionToken;
         session.token = sessionToken;
         session.refresh_token = refreshToken;
         if (requestedName?.trim())
             session.name = requestedName.trim();
+        if (botManaged)
+            session.linkedDiscordUserId = ownerId;
         if (changedToken) {
-            session.account = null;
-            session.accountUpdatedAt = 0;
+            session.account = verifiedAccount;
+            session.accountUpdatedAt = verifiedAccount ? Date.now() : 0;
         }
         ACAuth.sessionStore.touch(session);
         ACAuth.sessions[id] = session;
@@ -3038,12 +3081,56 @@ var ACAuth;
             delete ACAuth.liveSockets[id];
             ACAuth.connectLiveSocket(session).catch(() => {});
         }
-        await ACAuth.refreshSessionAccount(session, { force: true }).catch(() => null);
-        console.log(`[AccountImport] ${created ? "Added" : "Updated"} session ${id}`);
+        if (!botManaged)
+            await ACAuth.refreshSessionAccount(session, { force: true }).catch(() => null);
+        console.log(`[AccountImport] ${created ? "Added" : "Updated"} session ${id}${botManaged ? " [Discord]" : ""}`);
         return res.status(created ? 201 : 200).json({
             ok: true, created, id, name: session.name,
             account: ACAuth.accountSummary(session.account)
         });
+    }
+    ACAuth.app.post("/api/accounts/add", (req, res) => importAccount(req, res));
+    ACAuth.app.post("/api/bot/accounts/add", requireBotApiKey, (req, res) => importAccount(req, res, true));
+    ACAuth.app.get("/api/bot/accounts", requireBotApiKey, (req, res) => {
+        const ownerId = validDiscordUserId(req.query?.discord_user_id);
+        if (!ownerId)
+            return res.status(400).json({ ok: false, error: "discord_user_id_required" });
+        const accounts = Object.values(ACAuth.sessions)
+            .filter(session => session.linkedDiscordUserId === ownerId)
+            .map(session => ({
+                id: session.id, name: session.name,
+                uid: ACAuth.getUid(session.token) || ACAuth.getUid(session.refresh_token) || ""
+            }));
+        return res.json({ ok: true, accounts, max_accounts: 3 });
+    });
+    ACAuth.app.post("/api/bot/accounts/remove", requireBotApiKey, (req, res) => {
+        const ownerId = validDiscordUserId(req.body?.discord_user_id);
+        const id = typeof req.body?.id === "string" ? req.body.id.trim() : "";
+        if (!ownerId || !/^[a-f0-9]{16}$/.test(id))
+            return res.status(400).json({ ok: false, error: "discord_user_id_and_id_required" });
+        const session = ACAuth.sessions[id];
+        if (!session || session.linkedDiscordUserId !== ownerId)
+            return res.status(404).json({ ok: false, error: "account_not_found_for_user" });
+        const live = ACAuth.liveSockets[id];
+        if (live?.sock) {
+            try {
+                live.sock.removeAllListeners();
+                live.sock.close();
+            }
+            catch (_) { }
+        }
+        delete ACAuth.liveSockets[id];
+        ACAuth.pendingConnect?.delete(id);
+        delete ACAuth.sessions[id];
+        try {
+            ACAuth.saveSessions();
+        }
+        catch (error) {
+            ACAuth.sessions[id] = session;
+            return res.status(500).json({ ok: false, error: "session_save_failed" });
+        }
+        console.log(`[AccountImport] Removed Discord-linked session ${id}`);
+        return res.json({ ok: true, removed: true, id });
     });
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
