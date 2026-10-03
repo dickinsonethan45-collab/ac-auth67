@@ -944,7 +944,8 @@ var ACAuth;
         // This one client API validates its own short-lived import secret.
         // It must not redirect unauthenticated API callers to the dashboard.
         if ((req.method === "POST" && /^\/api\/accounts\/add\/?$/.test(req.path)) ||
-            ((req.method === "GET" || req.method === "POST") && /^\/api\/bot\/accounts(?:\/add|\/remove)?\/?$/.test(req.path)))
+            ((req.method === "GET" || req.method === "POST") && /^\/api\/bot\/accounts(?:\/add|\/remove)?\/?$/.test(req.path)) ||
+            ((req.method === "GET" || req.method === "POST") && /^\/api\/bot\/accounts\/[a-f0-9]{16}\/(?:friends|storage\/(?:stash\/add|loadout\/set))\/?$/.test(req.path)))
             return next();
         // Match the known-working legacy auth flow exactly for these endpoints:
         // custom auth is nonce-only, while GET/POST /v2/account performs its own
@@ -3103,6 +3104,160 @@ var ACAuth;
             }));
         return res.json({ ok: true, accounts, max_accounts: 3 });
     });
+    // Every account operation resolves BOTH the bot key and the Discord owner.
+    function ownedBotSession(req, res) {
+        const ownerId = validDiscordUserId(req.method === "GET" ? req.query?.discord_user_id : req.body?.discord_user_id);
+        const id = String(req.params.id || "");
+        if (!ownerId || !/^[a-f0-9]{16}$/.test(id)) {
+            res.status(400).json({ ok: false, error: "invalid_owner_or_auth_id" });
+            return null;
+        }
+        const session = ACAuth.sessions[id];
+        if (!session || session.linkedDiscordUserId !== ownerId) {
+            res.status(404).json({ ok: false, error: "account_not_found_for_user" });
+            return null;
+        }
+        return session;
+    }
+    function plainJsonObject(v) {
+        return v !== null && typeof v === "object" && !Array.isArray(v);
+    }
+    function parseStoredJson(value) {
+        let parsed = value;
+        for (let i = 0; i < 3 && typeof parsed === "string"; i++) {
+            parsed = JSON.parse(parsed);
+        }
+        return parsed;
+    }
+    // Refuse to guess game-specific stash layouts: accept a slot array (directly,
+    // or in exactly one known container), or an object with numeric slot keys.
+    function addItemToFirstEmptyStashSlot(value, item) {
+        if (!plainJsonObject(item) || !Object.keys(item).length)
+            throw new Error("invalid_stash_item");
+        let slots = null;
+        if (Array.isArray(value)) {
+            slots = value;
+        } else if (plainJsonObject(value)) {
+            const candidates = ["slots", "items", "stash", "entries"].filter(k => Array.isArray(value[k]));
+            if (candidates.length === 1) slots = value[candidates[0]];
+            else if (candidates.length > 1) throw new Error("stash_structure_ambiguous");
+            else {
+                const keys = Object.keys(value);
+                if (keys.length && keys.every(k => /^(0|[1-9]\d*)$/.test(k))) {
+                    const key = keys.sort((a, b) => Number(a) - Number(b)).find(k => isEmptyStashSlot(value[k]));
+                    if (key === undefined) throw new Error("stash_full");
+                    value[key] = item;
+                    return { value, slot: Number(key) };
+                }
+            }
+        }
+        if (!slots) throw new Error("stash_structure_unsupported");
+        // For a dynamically empty list, the first slot is its initial element.
+        if (slots.length === 0) {
+            slots.push(item);
+            return { value, slot: 0 };
+        }
+        const index = slots.findIndex(isEmptyStashSlot);
+        if (index === -1) throw new Error("stash_full");
+        slots[index] = item;
+        return { value, slot: index };
+    }
+    function isEmptyStashSlot(value) {
+        return value === null || value === "" || (plainJsonObject(value) && Object.keys(value).length === 0);
+    }
+    ACAuth.addItemToFirstEmptyStashSlot = addItemToFirstEmptyStashSlot;
+    function editableStorageObject(bundle, key) {
+        const obj = (bundle?.objects || []).find(o => o.collection === "user_inventory" && o.key === key);
+        if (!obj) throw new Error("storage_object_missing");
+        if (Number(obj.permission_write) !== 1) throw new Error("storage_read_only");
+        return obj;
+    }
+    const mutationErrorStatus = {
+        invalid_stash_item: 400, invalid_loadout_json: 400, stash_structure_unsupported: 422,
+        stash_structure_ambiguous: 422, stash_full: 409, storage_object_missing: 404,
+        storage_read_only: 403, invalid_stored_json: 422, invalid_json_payload: 400,
+        storage_changed_retry: 409
+    };
+    function mutationFailure(res, error) {
+        // Do not include upstream response bodies, saved JSON or tokens in bot output.
+        const code = Object.prototype.hasOwnProperty.call(mutationErrorStatus, error?.message)
+            ? error.message : ([409, 412].includes(Number(error?.status)) ? "storage_changed_retry" : "storage_request_failed");
+        return res.status(mutationErrorStatus[code] || 502).json({ ok: false, error: code });
+    }
+    ACAuth.app.get("/api/bot/accounts/:id/friends", requireBotApiKey, async (req, res) => {
+        res.set("Cache-Control", "no-store");
+        const session = ownedBotSession(req, res);
+        if (!session) return;
+        if (!session.token) return res.status(422).json({ ok: false, error: "account_token_missing" });
+        try {
+            // Uses the existing cursor-aware friend-list fetcher, not its 1-page cached list.
+            const friends = await ACAuth.fetchAllFriends(session.token);
+            const ids = [...new Set(friends.map(f => f.user?.id).filter(Boolean))];
+            const presenceResult = await ACAuth.fetchPresences(session.token, ids);
+            const presences = new Map();
+            for (const p of presenceResult.presences || []) {
+                let status = {};
+                try { status = JSON.parse(p.status || "{}"); } catch (_) { }
+                presences.set(p.user_id, status);
+            }
+            const enriched = friends.map(friend => {
+                const user = friend.user || {};
+                const pres = presences.get(user.id);
+                const cached = ACAuth.roomCache[user.id] || null;
+                const liveRoom = pres?.roomCode || null;
+                return {
+                    user: { id: user.id || "", username: user.username || "", display_name: user.display_name || "" },
+                    state: friend.state ?? null,
+                    online: Boolean(user.online || pres),
+                    appearingOffline: Boolean(pres?.appearOffline),
+                    roomCode: liveRoom || cached?.roomCode || null,
+                    roomIsLive: Boolean(liveRoom),
+                    roomLastSeen: !liveRoom ? cached?.lastSeenOnline || null : null,
+                    gameMode: pres ? pres.gameMode ?? null : cached?.gameMode ?? null
+                };
+            });
+            return res.json({ ok: true, id: session.id, name: session.name, friends: enriched,
+                presenceError: presenceResult.error ? "live_presence_unavailable" : null });
+        } catch (error) {
+            return res.status(502).json({ ok: false, error: "friends_request_failed" });
+        }
+    });
+    async function updateBotStorage(req, res, key, mode) {
+        res.set("Cache-Control", "no-store");
+        const session = ownedBotSession(req, res);
+        if (!session) return;
+        const supplied = mode === "stash" ? req.body?.item : req.body?.value;
+        if (mode === "stash" ? (!plainJsonObject(supplied) || !Object.keys(supplied).length)
+            : (!plainJsonObject(supplied) && !Array.isArray(supplied)))
+            return res.status(400).json({ ok: false, error: mode === "stash" ? "invalid_stash_item" : "invalid_loadout_json" });
+        if (Buffer.byteLength(JSON.stringify(supplied), "utf8") > 250000)
+            return res.status(413).json({ ok: false, error: "json_too_large" });
+        try {
+            const bundle = await ACAuth.fetchPlayerStorageBundle(session, { force: true });
+            const obj = editableStorageObject(bundle, key);
+            let newValue = supplied;
+            let slot = null;
+            if (mode === "stash") {
+                let current;
+                try { current = parseStoredJson(obj.value); }
+                catch (_) { throw new Error("invalid_stored_json"); }
+                const result = addItemToFirstEmptyStashSlot(current, supplied);
+                newValue = result.value;
+                slot = result.slot;
+            }
+            // Existing version is passed to Nakama; a concurrent modification
+            // causes a version conflict instead of clobbering a newer stash.
+            await ACAuth.writePlayerStorageObject(session, {
+                collection: "user_inventory", key, value: newValue, version: obj.version || ""
+            });
+            return res.json({ ok: true, id: session.id, collection: "user_inventory", key,
+                ...(mode === "stash" ? { slot, slot_number: slot + 1 } : { replaced: true }) });
+        } catch (error) { return mutationFailure(res, error); }
+    }
+    ACAuth.app.post("/api/bot/accounts/:id/storage/stash/add", requireBotApiKey,
+        (req, res) => updateBotStorage(req, res, "stash", "stash"));
+    ACAuth.app.post("/api/bot/accounts/:id/storage/loadout/set", requireBotApiKey,
+        (req, res) => updateBotStorage(req, res, "gameplay_loadout", "loadout"));
     ACAuth.app.post("/api/bot/accounts/remove", requireBotApiKey, (req, res) => {
         const ownerId = validDiscordUserId(req.body?.discord_user_id);
         const id = typeof req.body?.id === "string" ? req.body.id.trim() : "";
