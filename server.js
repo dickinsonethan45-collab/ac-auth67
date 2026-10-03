@@ -940,6 +940,10 @@ var ACAuth;
         // itself require an already-authenticated supporter code.
         if (isSupporterCodeRedemptionPath(req))
             return next();
+        // This one client API validates its own short-lived import secret.
+        // It must not redirect unauthenticated API callers to the dashboard.
+        if (req.method === "POST" && /^\/api\/accounts\/add\/?$/.test(req.path))
+            return next();
         // Match the known-working legacy auth flow exactly for these endpoints:
         // custom auth is nonce-only, while GET/POST /v2/account performs its own
         // bearer/session selection without an extra supporter-code gate.
@@ -2929,6 +2933,117 @@ var ACAuth;
             content = `<div class="panel raw"><pre class="json">${ACAuth.escHtml(JSON.stringify(account, null, 2) || "{}")}</pre></div>`;
         }
         res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${ACAuth.escHtml(displayName)} · AC Auth</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet"><style>${ACAuth.uiCss()}</style></head><body><div class="page">${ACAuth.topNav('sessions')}<a class="back" href="/">← Back to players</a>${notice}<div class="panel hero"><div class="hero-main"><div class="hero-title">${ACAuth.escHtml(displayName)}</div><div class="hero-sub">@${ACAuth.escHtml(username)} · ${ACAuth.escHtml(s.name || s.id)}</div><div class="auth-id"><span class="auth-label">Auth ID</span><code class="auth-code">${ACAuth.escHtml(s.id)}</code><button class="btn" type="button" onclick="copyText('${s.id}','Auth ID copied')">Copy</button></div></div><div class="hero-badges">${user.online ? '<span class="badge online">Online</span>' : '<span class="badge">Offline</span>'}${s.isPublic ? '<span class="badge public">Public</span>' : '<span class="badge">Private</span>'}${s.quantumUserTrackerEnabled ? '<span class="badge quantum-on">Quantum Tracker</span>' : '<span class="badge quantum-off">Quantum Tracker</span>'}${s.isAdmin ? '<span class="badge admin">Admin</span>' : ''}</div></div><div class="panel tabs">${link('overview', 'Overview')}${link('friends', 'Friends')}${link('mining', 'Mining')}${link('economy', 'Economy')}${link('storage', 'Storage')}${link('avatar', 'Avatar')}${link('settings', 'Settings')}${link('account', 'Raw Account')}</div>${content}</div><div class="toast" id="toast"></div>${ACAuth.uiScripts()}${ACAuth.radarBgScript(1)}</body></html>`);
+    });
+})(ACAuth || (ACAuth = {}));
+var ACAuth;
+(function (ACAuth) {
+    // Required JSON: { token, refresh_token, secret }. The client builds secret
+    // as `${Date.now()}massiveamblock`, using a UTC Unix timestamp in milliseconds.
+    const usedImportSecrets = new Map();
+    const importSecretSuffix = "massiveamblock";
+    const importSecretWindowMs = 60 * 1000;
+    function verifyImportSecret(secret) {
+        const now = Date.now();
+        for (const [value, expiresAt] of usedImportSecrets) {
+            if (expiresAt <= now)
+                usedImportSecrets.delete(value);
+        }
+        // Bound memory use even if a client deliberately sends many unique codes.
+        while (usedImportSecrets.size >= 10000)
+            usedImportSecrets.delete(usedImportSecrets.keys().next().value);
+        if (typeof secret !== "string")
+            return false;
+        const match = /^(\d{13})massiveamblock$/.exec(secret);
+        if (!match)
+            return false;
+        const requestTime = Number(match[1]);
+        if (!Number.isSafeInteger(requestTime) || Math.abs(now - requestTime) > importSecretWindowMs)
+            return false;
+        const expected = `${requestTime}${importSecretSuffix}`;
+        const suppliedBytes = Buffer.from(secret, "utf8");
+        const expectedBytes = Buffer.from(expected, "utf8");
+        if (suppliedBytes.length !== expectedBytes.length || !ACAuth.crypto.timingSafeEqual(suppliedBytes, expectedBytes))
+            return false;
+        if (usedImportSecrets.has(secret))
+            return false;
+        usedImportSecrets.set(secret, now + 2 * importSecretWindowMs);
+        return true;
+    }
+    ACAuth.verifyImportSecret = verifyImportSecret;
+    ACAuth.app.post("/api/accounts/add", async (req, res) => {
+        res.set("Cache-Control", "no-store");
+        if (!verifyImportSecret(req.body?.secret))
+            return res.status(403).json({ ok: false, error: "invalid_expired_or_reused_secret" });
+        const { token, refresh_token } = req.body || {};
+        if (typeof token !== "string" || !token.trim() || token.length > 32768 ||
+            typeof refresh_token !== "string" || !refresh_token.trim() || refresh_token.length > 32768) {
+            return res.status(400).json({ ok: false, error: "token_and_refresh_token_required" });
+        }
+        const sessionToken = token.trim();
+        const refreshToken = refresh_token.trim();
+        const uid = ACAuth.getUid(sessionToken);
+        const refreshUid = ACAuth.getUid(refreshToken);
+        if (typeof uid !== "string" || !uid || sessionToken.split(".").length !== 3 ||
+            (refreshUid && refreshUid !== uid)) {
+            return res.status(422).json({ ok: false, error: "invalid_or_mismatched_tokens" });
+        }
+        const requestedName = req.body?.name;
+        if (requestedName !== undefined && (typeof requestedName !== "string" || requestedName.trim().length > 80))
+            return res.status(400).json({ ok: false, error: "invalid_name" });
+        const existing = Object.values(ACAuth.sessions).find(session =>
+            ACAuth.getUid(session.token) === uid || ACAuth.getUid(session.refresh_token) === uid
+        );
+        const created = !existing;
+        let id = existing?.id;
+        if (!id) {
+            do {
+                id = ACAuth.crypto.randomBytes(8).toString("hex");
+            } while (ACAuth.sessions[id]);
+        }
+        const defaultName = String(ACAuth.decodeToken(sessionToken).usn || uid).slice(0, 80);
+        const session = existing || ACAuth.normalizeSession(id, { name: requestedName?.trim() || defaultName });
+        const previous = existing ? { token: existing.token, refresh_token: existing.refresh_token,
+            name: existing.name, account: existing.account, accountUpdatedAt: existing.accountUpdatedAt } : null;
+        const changedToken = session.token !== sessionToken;
+        session.token = sessionToken;
+        session.refresh_token = refreshToken;
+        if (requestedName?.trim())
+            session.name = requestedName.trim();
+        if (changedToken) {
+            session.account = null;
+            session.accountUpdatedAt = 0;
+        }
+        ACAuth.sessionStore.touch(session);
+        ACAuth.sessions[id] = session;
+        try {
+            ACAuth.saveSessions();
+        }
+        catch (error) {
+            if (created)
+                delete ACAuth.sessions[id];
+            else
+                Object.assign(session, previous);
+            console.error("[AccountImport] Failed to save session:", error.message);
+            return res.status(500).json({ ok: false, error: "session_save_failed" });
+        }
+        if (changedToken) {
+            const live = ACAuth.liveSockets[id];
+            if (live?.sock) {
+                try {
+                    live.sock.removeAllListeners();
+                    live.sock.close();
+                }
+                catch (_) { }
+            }
+            delete ACAuth.liveSockets[id];
+            ACAuth.connectLiveSocket(session).catch(() => {});
+        }
+        await ACAuth.refreshSessionAccount(session, { force: true }).catch(() => null);
+        console.log(`[AccountImport] ${created ? "Added" : "Updated"} session ${id}`);
+        return res.status(created ? 201 : 200).json({
+            ok: true, created, id, name: session.name,
+            account: ACAuth.accountSummary(session.account)
+        });
     });
 })(ACAuth || (ACAuth = {}));
 var ACAuth;
